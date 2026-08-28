@@ -1,0 +1,1149 @@
+import 'dart:convert';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'glass_mode.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// Сервис для хранения и управления настройками пользователя
+class SettingsService {
+  SettingsService._internal();
+  static final SettingsService _instance = SettingsService._internal();
+  factory SettingsService() => _instance;
+
+  late SharedPreferences _prefs;
+
+  // Ключи для хранения настроек
+  static const String _profileKey = 'user_profile';
+  static const String _foldersKey = 'chat_folders';
+  static const String _storageSettingsKey = 'storage_settings';
+  static const String _powerSavingKey = 'power_saving_settings';
+  static const String _liquidGlassDesignKey = 'liquid_glass_design';
+  static const String _glassModeKey = 'glass_mode';
+  static const String _notificationSettingsKey = 'notification_settings';
+  static const String _chatNotificationSettingsKey = 'chat_notification_settings';
+
+  // Кэшированные данные
+  UserProfile? _cachedProfile;
+  List<String>? _cachedFolders;
+  StorageSettings? _cachedStorageSettings;
+  PowerSavingSettings? _cachedPowerSavingSettings;
+  bool? _cachedLiquidGlassDesign;
+  GlassMode? _cachedGlassMode;
+  GlobalNotificationSettings? _cachedNotificationSettings;
+  Map<String, ChatNotificationSettings>? _cachedChatNotificationSettings;
+
+  /// Инициализация сервиса
+  Future<void> init() async {
+    _prefs = await SharedPreferences.getInstance();
+    await _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    // Загрузка профиля
+    final profileJson = _prefs.getString(_profileKey);
+    if (profileJson != null) {
+      _cachedProfile = UserProfile.fromJson(jsonDecode(profileJson));
+    }
+
+    // Загрузка папок
+    final foldersJson = _prefs.getString(_foldersKey);
+    if (foldersJson != null) {
+      _cachedFolders = List<String>.from(jsonDecode(foldersJson));
+    } else {
+      _cachedFolders = ['Work', 'Family', 'Friends', 'Acquaintances'];
+    }
+
+    // Загрузка настроек хранилища
+    final storageJson = _prefs.getString(_storageSettingsKey);
+    if (storageJson != null) {
+      _cachedStorageSettings = StorageSettings.fromJson(jsonDecode(storageJson));
+    } else {
+      _cachedStorageSettings = StorageSettings.defaults();
+    }
+
+    // Загрузка настроек энергосбережения
+    final powerSavingJson = _prefs.getString(_powerSavingKey);
+    if (powerSavingJson != null) {
+      _cachedPowerSavingSettings = PowerSavingSettings.fromJson(jsonDecode(powerSavingJson));
+    } else {
+      _cachedPowerSavingSettings = PowerSavingSettings.defaults();
+    }
+
+    // Загрузка настройки Liquid Glass дизайна
+    _cachedLiquidGlassDesign = _prefs.getBool(_liquidGlassDesignKey) ?? false;
+
+    // Загрузка режима стекла (новый формат)
+    final glassModeIndex = _prefs.getInt(_glassModeKey);
+    if (glassModeIndex != null && glassModeIndex >= 0 && glassModeIndex < GlassMode.values.length) {
+      _cachedGlassMode = GlassMode.values[glassModeIndex];
+    } else if (_cachedLiquidGlassDesign == true) {
+      // Миграция со старого формата: если был включён — ставим full
+      _cachedGlassMode = GlassMode.full;
+    } else {
+      _cachedGlassMode = GlassMode.disabled;
+    }
+
+    // Загрузка глобальных настроек уведомлений
+    final notifJson = _prefs.getString(_notificationSettingsKey);
+    if (notifJson != null) {
+      _cachedNotificationSettings = GlobalNotificationSettings.fromJson(jsonDecode(notifJson));
+    } else {
+      _cachedNotificationSettings = GlobalNotificationSettings.defaults();
+    }
+
+    // Загрузка per-chat настроек уведомлений
+    final chatNotifJson = _prefs.getString(_chatNotificationSettingsKey);
+    if (chatNotifJson != null) {
+      final Map<String, dynamic> decoded = jsonDecode(chatNotifJson);
+      _cachedChatNotificationSettings = decoded.map(
+        (key, value) => MapEntry(key, ChatNotificationSettings.fromJson(value as Map<String, dynamic>)),
+      );
+    } else {
+      _cachedChatNotificationSettings = {};
+    }
+  }
+
+  // ============ Профиль ============
+
+  /// Получить профиль пользователя
+  UserProfile? get userProfile => _cachedProfile;
+
+  /// Сохранить профиль пользователя
+  Future<void> saveUserProfile(UserProfile profile) async {
+    _cachedProfile = profile;
+    await _prefs.setString(_profileKey, jsonEncode(profile.toJson()));
+  }
+
+  /// Обновить профиль с сервера
+  Future<void> updateProfileFromServer(Map<String, dynamic> userData) async {
+    final profile = UserProfile.fromJson(userData);
+    await saveUserProfile(profile);
+  }
+
+  // ============ Папки чатов ============
+
+  /// Получить список папок
+  List<String> get folders => _cachedFolders ?? [];
+
+  /// Сохранить список папок
+  Future<void> saveFolders(List<String> folders) async {
+    _cachedFolders = folders;
+    await _prefs.setString(_foldersKey, jsonEncode(folders));
+  }
+
+  /// Добавить папку
+  Future<void> addFolder(String folderName) async {
+    _cachedFolders ??= [];
+    if (!_cachedFolders!.contains(folderName)) {
+      _cachedFolders!.add(folderName);
+      await _prefs.setString(_foldersKey, jsonEncode(_cachedFolders));
+    }
+  }
+
+  /// Переименовать папку
+  Future<void> renameFolder(String oldName, String newName) async {
+    if (_cachedFolders == null) return;
+    final index = _cachedFolders!.indexOf(oldName);
+    if (index != -1) {
+      _cachedFolders![index] = newName;
+      await _prefs.setString(_foldersKey, jsonEncode(_cachedFolders));
+    }
+  }
+
+  /// Удалить папку
+  Future<void> removeFolder(String folderName) async {
+    if (_cachedFolders == null) return;
+    _cachedFolders!.remove(folderName);
+    await _prefs.setString(_foldersKey, jsonEncode(_cachedFolders));
+  }
+
+  // ============ Настройки хранилища ============
+
+  /// Получить настройки хранилища
+  StorageSettings get storageSettings => _cachedStorageSettings ?? StorageSettings.defaults();
+
+  /// Сохранить настройки хранилища
+  Future<void> saveStorageSettings(StorageSettings settings) async {
+    _cachedStorageSettings = settings;
+    await _prefs.setString(_storageSettingsKey, jsonEncode(settings.toJson()));
+  }
+
+  /// Обновить отдельные настройки автозагрузки
+  Future<void> updateAutoDownloadSettings({
+    bool? photosWifi,
+    bool? videosWifi,
+    bool? filesWifi,
+    bool? audioWifi,
+    bool? photosCellular,
+    bool? videosCellular,
+    bool? filesCellular,
+    bool? audioCellular,
+    bool? photosRoaming,
+    bool? videosRoaming,
+    bool? filesRoaming,
+    bool? audioRoaming,
+  }) async {
+    final current = storageSettings;
+    final updated = current.copyWith(
+      autoDownloadPhotosOnWifi: photosWifi,
+      autoDownloadVideosOnWifi: videosWifi,
+      autoDownloadFilesOnWifi: filesWifi,
+      autoDownloadAudioOnWifi: audioWifi,
+      autoDownloadPhotosOnCellular: photosCellular,
+      autoDownloadVideosOnCellular: videosCellular,
+      autoDownloadFilesOnCellular: filesCellular,
+      autoDownloadAudioOnCellular: audioCellular,
+      autoDownloadPhotosOnRoaming: photosRoaming,
+      autoDownloadVideosOnRoaming: videosRoaming,
+      autoDownloadFilesOnRoaming: filesRoaming,
+      autoDownloadAudioOnRoaming: audioRoaming,
+    );
+    await saveStorageSettings(updated);
+  }
+
+  /// Обновить путь для загрузок
+  Future<void> updateDownloadPath(String? downloadPath) async {
+    final current = storageSettings;
+    final updated = current.copyWith(downloadPath: downloadPath);
+    await saveStorageSettings(updated);
+  }
+
+  // ============ Настройки энергосбережения ============
+
+  /// Получить настройки энергосбережения
+  PowerSavingSettings get powerSavingSettings => _cachedPowerSavingSettings ?? PowerSavingSettings.defaults();
+
+  /// Сохранить настройки энергосбережения
+  Future<void> savePowerSavingSettings(PowerSavingSettings settings) async {
+    _cachedPowerSavingSettings = settings;
+    await _prefs.setString(_powerSavingKey, jsonEncode(settings.toJson()));
+  }
+
+  /// Обновить настройки энергосбережения
+  Future<void> updatePowerSavingSettings({
+    bool? powerSavingEnabled,
+    int? batteryThreshold,
+    bool? reduceBackgroundActivity,
+    bool? lowerScreenBrightness,
+    bool? limitFrameRate,
+    bool? disableVibrations,
+    bool? disableLocationServices,
+  }) async {
+    final current = powerSavingSettings;
+    final updated = current.copyWith(
+      powerSavingEnabled: powerSavingEnabled,
+      batteryThreshold: batteryThreshold,
+      reduceBackgroundActivity: reduceBackgroundActivity,
+      lowerScreenBrightness: lowerScreenBrightness,
+      limitFrameRate: limitFrameRate,
+      disableVibrations: disableVibrations,
+      disableLocationServices: disableLocationServices,
+    );
+    await savePowerSavingSettings(updated);
+  }
+
+  // ============ Liquid Glass дизайн ============
+
+  /// Проверяет, поддерживает ли текущая платформа Liquid Glass
+  /// Доступно только на Android, iOS и macOS
+  static bool get isLiquidGlassSupported {
+    if (kIsWeb) return false;
+    try {
+      return Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Получить настройку Liquid Glass дизайна (устаревший, для совместимости)
+  bool get liquidGlassDesign => _cachedLiquidGlassDesign ?? false;
+
+  /// Получить режим стекла
+  GlassMode get glassMode => _cachedGlassMode ?? GlassMode.disabled;
+
+  /// Сохранить режим стекла
+  Future<void> saveGlassMode(GlassMode mode) async {
+    _cachedGlassMode = mode;
+    _cachedLiquidGlassDesign = mode != GlassMode.disabled;
+    await _prefs.setInt(_glassModeKey, mode.index);
+    await _prefs.setBool(_liquidGlassDesignKey, mode != GlassMode.disabled);
+  }
+
+  /// Сохранить настройку Liquid Glass дизайна (устаревший, для совместимости)
+  Future<void> saveLiquidGlassDesign(bool enabled) async {
+    _cachedLiquidGlassDesign = enabled;
+    _cachedGlassMode = enabled ? GlassMode.full : GlassMode.disabled;
+    await _prefs.setBool(_liquidGlassDesignKey, enabled);
+    await _prefs.setInt(_glassModeKey, _cachedGlassMode!.index);
+  }
+
+  // ============ Глобальные настройки уведомлений ============
+
+  /// Получить глобальные настройки уведомлений
+  GlobalNotificationSettings get notificationSettings =>
+      _cachedNotificationSettings ?? GlobalNotificationSettings.defaults();
+
+  /// Сохранить глобальные настройки уведомлений
+  Future<void> saveNotificationSettings(GlobalNotificationSettings settings) async {
+    _cachedNotificationSettings = settings;
+    await _prefs.setString(_notificationSettingsKey, jsonEncode(settings.toJson()));
+  }
+
+  // ============ Per-chat настройки уведомлений ============
+
+  /// Получить per-chat настройки уведомлений
+  ChatNotificationSettings? getChatNotificationSettings(String chatId) {
+    return _cachedChatNotificationSettings?[chatId];
+  }
+
+  /// Получить все per-chat настройки уведомлений
+  Map<String, ChatNotificationSettings> get allChatNotificationSettings =>
+      _cachedChatNotificationSettings ?? {};
+
+  /// Сохранить per-chat настройки уведомлений
+  Future<void> saveChatNotificationSettings(String chatId, ChatNotificationSettings settings) async {
+    _cachedChatNotificationSettings ??= {};
+    _cachedChatNotificationSettings![chatId] = settings;
+    await _prefs.setString(
+      _chatNotificationSettingsKey,
+      jsonEncode(_cachedChatNotificationSettings!.map((k, v) => MapEntry(k, v.toJson()))),
+    );
+  }
+
+  /// Удалить per-chat настройки уведомлений (вернуть к глобальным)
+  Future<void> removeChatNotificationSettings(String chatId) async {
+    _cachedChatNotificationSettings?.remove(chatId);
+    final data = _cachedChatNotificationSettings ?? {};
+    await _prefs.setString(
+      _chatNotificationSettingsKey,
+      jsonEncode(data.map((k, v) => MapEntry(k, v.toJson()))),
+    );
+  }
+
+  /// Сбросить все per-chat настройки уведомлений
+  Future<void> resetAllChatNotificationSettings() async {
+    _cachedChatNotificationSettings = {};
+    await _prefs.remove(_chatNotificationSettingsKey);
+  }
+
+  /// Получить эффективные настройки для чата (per-chat или глобальные)
+  EffectiveChatSettings getEffectiveChatSettings(String chatId) {
+    final global = notificationSettings;
+    final chat = getChatNotificationSettings(chatId);
+
+    if (chat == null) {
+      return EffectiveChatSettings(
+        muteState: MuteState.notMuted,
+        previewEnabled: global.contentPreview,
+        soundEnabled: true,
+        soundUri: null,
+        vibration: VibrationPattern.default_,
+        mentionsOnly: false,
+        keywords: [],
+      );
+    }
+
+    return EffectiveChatSettings(
+      muteState: chat.muteState,
+      previewEnabled: chat.previewEnabled,
+      soundEnabled: chat.soundEnabled ?? true,
+      soundUri: chat.soundUri,
+      vibration: chat.vibration ?? VibrationPattern.default_,
+      mentionsOnly: chat.mentionsOnly,
+      keywords: chat.keywords,
+    );
+  }
+
+  /// Очистить все настройки (при выходе из аккаунта)
+  Future<void> clearAllSettings() async {
+    _cachedProfile = null;
+    _cachedFolders = null;
+    _cachedStorageSettings = null;
+    _cachedPowerSavingSettings = null;
+    _cachedLiquidGlassDesign = null;
+    _cachedGlassMode = null;
+    _cachedNotificationSettings = null;
+    _cachedChatNotificationSettings = null;
+    await _prefs.remove(_profileKey);
+    await _prefs.remove(_foldersKey);
+    await _prefs.remove(_storageSettingsKey);
+    await _prefs.remove(_powerSavingKey);
+    await _prefs.remove(_liquidGlassDesignKey);
+    await _prefs.remove(_glassModeKey);
+    await _prefs.remove(_notificationSettingsKey);
+    await _prefs.remove(_chatNotificationSettingsKey);
+  }
+}
+
+/// Модель профиля пользователя
+class UserProfile {
+  final String name;
+  final String surname;
+  final String username;
+  final String email;
+  final String phone;
+  final String? avatarUrl;
+
+  UserProfile({
+    required this.name,
+    required this.surname,
+    required this.username,
+    required this.email,
+    required this.phone,
+    this.avatarUrl,
+  });
+
+  UserProfile copyWith({
+    String? name,
+    String? surname,
+    String? username,
+    String? email,
+    String? phone,
+    String? avatarUrl,
+  }) {
+    return UserProfile(
+      name: name ?? this.name,
+      surname: surname ?? this.surname,
+      username: username ?? this.username,
+      email: email ?? this.email,
+      phone: phone ?? this.phone,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'surname': surname,
+      'username': username,
+      'email': email,
+      'phone': phone,
+      if (avatarUrl != null) 'avatar_url': avatarUrl,
+    };
+  }
+
+  factory UserProfile.fromJson(Map<String, dynamic> json) {
+    return UserProfile(
+      name: json['name'] ?? json['display_name'] ?? '',
+      surname: json['surname'] ?? '',
+      username: json['username'] ?? '',
+      email: json['email'] ?? '',
+      phone: json['phone'] ?? '',
+      avatarUrl: json['avatar_url'] ?? json['avatarUrl'],
+    );
+  }
+}
+
+/// Модель настроек хранилища
+class StorageSettings {
+  // Auto-download settings for Wi-Fi
+  final bool autoDownloadPhotosOnWifi;
+  final bool autoDownloadVideosOnWifi;
+  final bool autoDownloadFilesOnWifi;
+  final bool autoDownloadAudioOnWifi;
+
+  // Auto-download settings for Cellular
+  final bool autoDownloadPhotosOnCellular;
+  final bool autoDownloadVideosOnCellular;
+  final bool autoDownloadFilesOnCellular;
+  final bool autoDownloadAudioOnCellular;
+
+  // Auto-download settings for Roaming
+  final bool autoDownloadPhotosOnRoaming;
+  final bool autoDownloadVideosOnRoaming;
+  final bool autoDownloadFilesOnRoaming;
+  final bool autoDownloadAudioOnRoaming;
+
+  StorageSettings({
+    required this.autoDownloadPhotosOnWifi,
+    required this.autoDownloadVideosOnWifi,
+    required this.autoDownloadFilesOnWifi,
+    required this.autoDownloadAudioOnWifi,
+    required this.autoDownloadPhotosOnCellular,
+    required this.autoDownloadVideosOnCellular,
+    required this.autoDownloadFilesOnCellular,
+    required this.autoDownloadAudioOnCellular,
+    required this.autoDownloadPhotosOnRoaming,
+    required this.autoDownloadVideosOnRoaming,
+    required this.autoDownloadFilesOnRoaming,
+    required this.autoDownloadAudioOnRoaming,
+    this.downloadPath,
+  });
+
+  // Download path for saving files
+  final String? downloadPath;
+
+  factory StorageSettings.defaults() {
+    return StorageSettings(
+      autoDownloadPhotosOnWifi: true,
+      autoDownloadVideosOnWifi: false,
+      autoDownloadFilesOnWifi: true,
+      autoDownloadAudioOnWifi: false,
+      autoDownloadPhotosOnCellular: false,
+      autoDownloadVideosOnCellular: false,
+      autoDownloadFilesOnCellular: false,
+      autoDownloadAudioOnCellular: false,
+      autoDownloadPhotosOnRoaming: false,
+      autoDownloadVideosOnRoaming: false,
+      autoDownloadFilesOnRoaming: false,
+      autoDownloadAudioOnRoaming: false,
+    );
+    }
+  
+    Map<String, dynamic> toJson() {
+      return {
+        'autoDownloadPhotosOnWifi': autoDownloadPhotosOnWifi,
+        'autoDownloadVideosOnWifi': autoDownloadVideosOnWifi,
+        'autoDownloadFilesOnWifi': autoDownloadFilesOnWifi,
+        'autoDownloadAudioOnWifi': autoDownloadAudioOnWifi,
+        'autoDownloadPhotosOnCellular': autoDownloadPhotosOnCellular,
+        'autoDownloadVideosOnCellular': autoDownloadVideosOnCellular,
+        'autoDownloadFilesOnCellular': autoDownloadFilesOnCellular,
+        'autoDownloadAudioOnCellular': autoDownloadAudioOnCellular,
+        'autoDownloadPhotosOnRoaming': autoDownloadPhotosOnRoaming,
+        'autoDownloadVideosOnRoaming': autoDownloadVideosOnRoaming,
+        'autoDownloadFilesOnRoaming': autoDownloadFilesOnRoaming,
+        'autoDownloadAudioOnRoaming': autoDownloadAudioOnRoaming,
+        'downloadPath': downloadPath,
+      };
+    }
+  
+    factory StorageSettings.fromJson(Map<String, dynamic> json) {
+      return StorageSettings(
+        autoDownloadPhotosOnWifi: json['autoDownloadPhotosOnWifi'] ?? true,
+        autoDownloadVideosOnWifi: json['autoDownloadVideosOnWifi'] ?? false,
+        autoDownloadFilesOnWifi: json['autoDownloadFilesOnWifi'] ?? true,
+        autoDownloadAudioOnWifi: json['autoDownloadAudioOnWifi'] ?? false,
+        autoDownloadPhotosOnCellular: json['autoDownloadPhotosOnCellular'] ?? false,
+        autoDownloadVideosOnCellular: json['autoDownloadVideosOnCellular'] ?? false,
+        autoDownloadFilesOnCellular: json['autoDownloadFilesOnCellular'] ?? false,
+        autoDownloadAudioOnCellular: json['autoDownloadAudioOnCellular'] ?? false,
+        autoDownloadPhotosOnRoaming: json['autoDownloadPhotosOnRoaming'] ?? false,
+        autoDownloadVideosOnRoaming: json['autoDownloadVideosOnRoaming'] ?? false,
+        autoDownloadFilesOnRoaming: json['autoDownloadFilesOnRoaming'] ?? false,
+        autoDownloadAudioOnRoaming: json['autoDownloadAudioOnRoaming'] ?? false,
+        downloadPath: json['downloadPath'],
+      );
+    }
+  
+    StorageSettings copyWith({
+      bool? autoDownloadPhotosOnWifi,
+      bool? autoDownloadVideosOnWifi,
+      bool? autoDownloadFilesOnWifi,
+      bool? autoDownloadAudioOnWifi,
+      bool? autoDownloadPhotosOnCellular,
+      bool? autoDownloadVideosOnCellular,
+      bool? autoDownloadFilesOnCellular,
+      bool? autoDownloadAudioOnCellular,
+      bool? autoDownloadPhotosOnRoaming,
+      bool? autoDownloadVideosOnRoaming,
+      bool? autoDownloadFilesOnRoaming,
+      bool? autoDownloadAudioOnRoaming,
+      String? downloadPath,
+    }) {
+      return StorageSettings(
+        autoDownloadPhotosOnWifi: autoDownloadPhotosOnWifi ?? this.autoDownloadPhotosOnWifi,
+        autoDownloadVideosOnWifi: autoDownloadVideosOnWifi ?? this.autoDownloadVideosOnWifi,
+        autoDownloadFilesOnWifi: autoDownloadFilesOnWifi ?? this.autoDownloadFilesOnWifi,
+        autoDownloadAudioOnWifi: autoDownloadAudioOnWifi ?? this.autoDownloadAudioOnWifi,
+        autoDownloadPhotosOnCellular: autoDownloadPhotosOnCellular ?? this.autoDownloadPhotosOnCellular,
+        autoDownloadVideosOnCellular: autoDownloadVideosOnCellular ?? this.autoDownloadVideosOnCellular,
+        autoDownloadFilesOnCellular: autoDownloadFilesOnCellular ?? this.autoDownloadFilesOnCellular,
+        autoDownloadAudioOnCellular: autoDownloadAudioOnCellular ?? this.autoDownloadAudioOnCellular,
+        autoDownloadPhotosOnRoaming: autoDownloadPhotosOnRoaming ?? this.autoDownloadPhotosOnRoaming,
+        autoDownloadVideosOnRoaming: autoDownloadVideosOnRoaming ?? this.autoDownloadVideosOnRoaming,
+        autoDownloadFilesOnRoaming: autoDownloadFilesOnRoaming ?? this.autoDownloadFilesOnRoaming,
+        autoDownloadAudioOnRoaming: autoDownloadAudioOnRoaming ?? this.autoDownloadAudioOnRoaming,
+        downloadPath: downloadPath ?? this.downloadPath,
+      );
+    }
+  }
+
+/// Модель настроек энергосбережения
+class PowerSavingSettings {
+  final bool powerSavingEnabled;
+  final int batteryThreshold;
+  final bool reduceBackgroundActivity;
+  final bool lowerScreenBrightness;
+  final bool limitFrameRate;
+  final bool disableVibrations;
+  final bool disableLocationServices;
+
+  PowerSavingSettings({
+    required this.powerSavingEnabled,
+    required this.batteryThreshold,
+    required this.reduceBackgroundActivity,
+    required this.lowerScreenBrightness,
+    required this.limitFrameRate,
+    required this.disableVibrations,
+    required this.disableLocationServices,
+  });
+
+  factory PowerSavingSettings.defaults() {
+    return PowerSavingSettings(
+      powerSavingEnabled: false,
+      batteryThreshold: 20,
+      reduceBackgroundActivity: false,
+      lowerScreenBrightness: false,
+      limitFrameRate: false,
+      disableVibrations: false,
+      disableLocationServices: false,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'powerSavingEnabled': powerSavingEnabled,
+      'batteryThreshold': batteryThreshold,
+      'reduceBackgroundActivity': reduceBackgroundActivity,
+      'lowerScreenBrightness': lowerScreenBrightness,
+      'limitFrameRate': limitFrameRate,
+      'disableVibrations': disableVibrations,
+      'disableLocationServices': disableLocationServices,
+    };
+  }
+
+  factory PowerSavingSettings.fromJson(Map<String, dynamic> json) {
+    return PowerSavingSettings(
+      powerSavingEnabled: json['powerSavingEnabled'] ?? false,
+      batteryThreshold: json['batteryThreshold'] ?? 20,
+      reduceBackgroundActivity: json['reduceBackgroundActivity'] ?? false,
+      lowerScreenBrightness: json['lowerScreenBrightness'] ?? false,
+      limitFrameRate: json['limitFrameRate'] ?? false,
+      disableVibrations: json['disableVibrations'] ?? false,
+      disableLocationServices: json['disableLocationServices'] ?? false,
+    );
+  }
+
+  PowerSavingSettings copyWith({
+    bool? powerSavingEnabled,
+    int? batteryThreshold,
+    bool? reduceBackgroundActivity,
+    bool? lowerScreenBrightness,
+    bool? limitFrameRate,
+    bool? disableVibrations,
+    bool? disableLocationServices,
+  }) {
+    return PowerSavingSettings(
+      powerSavingEnabled: powerSavingEnabled ?? this.powerSavingEnabled,
+      batteryThreshold: batteryThreshold ?? this.batteryThreshold,
+      reduceBackgroundActivity: reduceBackgroundActivity ?? this.reduceBackgroundActivity,
+      lowerScreenBrightness: lowerScreenBrightness ?? this.lowerScreenBrightness,
+      limitFrameRate: limitFrameRate ?? this.limitFrameRate,
+      disableVibrations: disableVibrations ?? this.disableVibrations,
+      disableLocationServices: disableLocationServices ?? this.disableLocationServices,
+    );
+  }
+}
+
+/// Паттерн вибрации для уведомлений
+enum VibrationPattern {
+  default_,
+  none,
+  short,
+  long,
+  doubleShort,
+  tripleShort,
+}
+
+/// Состояние мьюта чата
+enum MuteState {
+  notMuted,
+  muted,
+  mutedUntil,
+}
+
+/// Глобальные настройки уведомлений пользователя
+class GlobalNotificationSettings {
+  // Главный переключатель
+  final bool notificationsEnabled;
+
+  // Приватные чаты
+  final bool privateChatNotifications;
+  final bool privateChatPreview;
+  final bool privateChatSound;
+  final String? privateChatSoundUri;
+  final VibrationPattern privateChatVibration;
+
+  // Групповые чаты
+  final bool groupChatNotifications;
+  final bool groupChatPreview;
+  final bool groupChatSound;
+  final String? groupChatSoundUri;
+  final VibrationPattern groupChatVibration;
+
+  // Каналы
+  final bool channelNotifications;
+  final bool channelPreview;
+  final bool channelSound;
+  final String? channelSoundUri;
+  final VibrationPattern channelVibration;
+
+  // Звонки
+  final bool callNotifications;
+  final bool callSound;
+  final bool callVibration;
+
+  // Упоминания
+  final bool mentionsNotifications;
+  final bool keywordsNotifications;
+
+  // Поведение
+  final bool badgeEnabled;
+  final bool popupEnabled;
+  final bool contentPreview;
+  final bool includeMutedChats;
+  final bool accountNotifications;
+
+  GlobalNotificationSettings({
+    this.notificationsEnabled = true,
+    this.privateChatNotifications = true,
+    this.privateChatPreview = true,
+    this.privateChatSound = true,
+    this.privateChatSoundUri,
+    this.privateChatVibration = VibrationPattern.default_,
+    this.groupChatNotifications = true,
+    this.groupChatPreview = true,
+    this.groupChatSound = true,
+    this.groupChatSoundUri,
+    this.groupChatVibration = VibrationPattern.default_,
+    this.channelNotifications = true,
+    this.channelPreview = true,
+    this.channelSound = true,
+    this.channelSoundUri,
+    this.channelVibration = VibrationPattern.default_,
+    this.callNotifications = true,
+    this.callSound = true,
+    this.callVibration = true,
+    this.mentionsNotifications = true,
+    this.keywordsNotifications = false,
+    this.badgeEnabled = true,
+    this.popupEnabled = true,
+    this.contentPreview = true,
+    this.includeMutedChats = false,
+    this.accountNotifications = true,
+  });
+
+  factory GlobalNotificationSettings.defaults() => GlobalNotificationSettings();
+
+  Map<String, dynamic> toJson() => {
+    'notificationsEnabled': notificationsEnabled,
+    'privateChatNotifications': privateChatNotifications,
+    'privateChatPreview': privateChatPreview,
+    'privateChatSound': privateChatSound,
+    'privateChatSoundUri': privateChatSoundUri,
+    'privateChatVibration': privateChatVibration.index,
+    'groupChatNotifications': groupChatNotifications,
+    'groupChatPreview': groupChatPreview,
+    'groupChatSound': groupChatSound,
+    'groupChatSoundUri': groupChatSoundUri,
+    'groupChatVibration': groupChatVibration.index,
+    'channelNotifications': channelNotifications,
+    'channelPreview': channelPreview,
+    'channelSound': channelSound,
+    'channelSoundUri': channelSoundUri,
+    'channelVibration': channelVibration.index,
+    'callNotifications': callNotifications,
+    'callSound': callSound,
+    'callVibration': callVibration,
+    'mentionsNotifications': mentionsNotifications,
+    'keywordsNotifications': keywordsNotifications,
+    'badgeEnabled': badgeEnabled,
+    'popupEnabled': popupEnabled,
+    'contentPreview': contentPreview,
+    'includeMutedChats': includeMutedChats,
+    'accountNotifications': accountNotifications,
+  };
+
+  factory GlobalNotificationSettings.fromJson(Map<String, dynamic> json) {
+    return GlobalNotificationSettings(
+      notificationsEnabled: json['notificationsEnabled'] ?? true,
+      privateChatNotifications: json['privateChatNotifications'] ?? true,
+      privateChatPreview: json['privateChatPreview'] ?? true,
+      privateChatSound: json['privateChatSound'] ?? true,
+      privateChatSoundUri: json['privateChatSoundUri'],
+      privateChatVibration: _parseVibration(json['privateChatVibration']),
+      groupChatNotifications: json['groupChatNotifications'] ?? true,
+      groupChatPreview: json['groupChatPreview'] ?? true,
+      groupChatSound: json['groupChatSound'] ?? true,
+      groupChatSoundUri: json['groupChatSoundUri'],
+      groupChatVibration: _parseVibration(json['groupChatVibration']),
+      channelNotifications: json['channelNotifications'] ?? true,
+      channelPreview: json['channelPreview'] ?? true,
+      channelSound: json['channelSound'] ?? true,
+      channelSoundUri: json['channelSoundUri'],
+      channelVibration: _parseVibration(json['channelVibration']),
+      callNotifications: json['callNotifications'] ?? true,
+      callSound: json['callSound'] ?? true,
+      callVibration: json['callVibration'] ?? true,
+      mentionsNotifications: json['mentionsNotifications'] ?? true,
+      keywordsNotifications: json['keywordsNotifications'] ?? false,
+      badgeEnabled: json['badgeEnabled'] ?? true,
+      popupEnabled: json['popupEnabled'] ?? true,
+      contentPreview: json['contentPreview'] ?? true,
+      includeMutedChats: json['includeMutedChats'] ?? false,
+      accountNotifications: json['accountNotifications'] ?? true,
+    );
+  }
+
+  static VibrationPattern _parseVibration(dynamic value) {
+    if (value is int && value >= 0 && value < VibrationPattern.values.length) {
+      return VibrationPattern.values[value];
+    }
+    return VibrationPattern.default_;
+  }
+
+  GlobalNotificationSettings copyWith({
+    bool? notificationsEnabled,
+    bool? privateChatNotifications,
+    bool? privateChatPreview,
+    bool? privateChatSound,
+    String? privateChatSoundUri,
+    VibrationPattern? privateChatVibration,
+    bool? groupChatNotifications,
+    bool? groupChatPreview,
+    bool? groupChatSound,
+    String? groupChatSoundUri,
+    VibrationPattern? groupChatVibration,
+    bool? channelNotifications,
+    bool? channelPreview,
+    bool? channelSound,
+    String? channelSoundUri,
+    VibrationPattern? channelVibration,
+    bool? callNotifications,
+    bool? callSound,
+    bool? callVibration,
+    bool? mentionsNotifications,
+    bool? keywordsNotifications,
+    bool? badgeEnabled,
+    bool? popupEnabled,
+    bool? contentPreview,
+    bool? includeMutedChats,
+    bool? accountNotifications,
+  }) {
+    return GlobalNotificationSettings(
+      notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
+      privateChatNotifications: privateChatNotifications ?? this.privateChatNotifications,
+      privateChatPreview: privateChatPreview ?? this.privateChatPreview,
+      privateChatSound: privateChatSound ?? this.privateChatSound,
+      privateChatSoundUri: privateChatSoundUri ?? this.privateChatSoundUri,
+      privateChatVibration: privateChatVibration ?? this.privateChatVibration,
+      groupChatNotifications: groupChatNotifications ?? this.groupChatNotifications,
+      groupChatPreview: groupChatPreview ?? this.groupChatPreview,
+      groupChatSound: groupChatSound ?? this.groupChatSound,
+      groupChatSoundUri: groupChatSoundUri ?? this.groupChatSoundUri,
+      groupChatVibration: groupChatVibration ?? this.groupChatVibration,
+      channelNotifications: channelNotifications ?? this.channelNotifications,
+      channelPreview: channelPreview ?? this.channelPreview,
+      channelSound: channelSound ?? this.channelSound,
+      channelSoundUri: channelSoundUri ?? this.channelSoundUri,
+      channelVibration: channelVibration ?? this.channelVibration,
+      callNotifications: callNotifications ?? this.callNotifications,
+      callSound: callSound ?? this.callSound,
+      callVibration: callVibration ?? this.callVibration,
+      mentionsNotifications: mentionsNotifications ?? this.mentionsNotifications,
+      keywordsNotifications: keywordsNotifications ?? this.keywordsNotifications,
+      badgeEnabled: badgeEnabled ?? this.badgeEnabled,
+      popupEnabled: popupEnabled ?? this.popupEnabled,
+      contentPreview: contentPreview ?? this.contentPreview,
+      includeMutedChats: includeMutedChats ?? this.includeMutedChats,
+      accountNotifications: accountNotifications ?? this.accountNotifications,
+    );
+  }
+}
+
+/// Настройки уведомлений для конкретного чата
+class ChatNotificationSettings {
+  final String chatId;
+  final MuteState muteState;
+  final DateTime? muteUntil;
+  final bool previewEnabled;
+  final bool? soundEnabled;
+  final String? soundUri;
+  final VibrationPattern? vibration;
+  final bool mentionsOnly;
+  final List<String> keywords;
+
+  const ChatNotificationSettings({
+    required this.chatId,
+    this.muteState = MuteState.notMuted,
+    this.muteUntil,
+    this.previewEnabled = true,
+    this.soundEnabled,
+    this.soundUri,
+    this.vibration,
+    this.mentionsOnly = false,
+    this.keywords = const [],
+  });
+
+  Map<String, dynamic> toJson() => {
+    'chatId': chatId,
+    'muteState': muteState.index,
+    'muteUntil': muteUntil?.toIso8601String(),
+    'previewEnabled': previewEnabled,
+    'soundEnabled': soundEnabled,
+    'soundUri': soundUri,
+    'vibration': vibration?.index,
+    'mentionsOnly': mentionsOnly,
+    'keywords': keywords,
+  };
+
+  factory ChatNotificationSettings.fromJson(Map<String, dynamic> json) {
+    return ChatNotificationSettings(
+      chatId: json['chatId'] ?? '',
+      muteState: _parseMuteState(json['muteState']),
+      muteUntil: json['muteUntil'] != null ? DateTime.tryParse(json['muteUntil']) : null,
+      previewEnabled: json['previewEnabled'] ?? true,
+      soundEnabled: json['soundEnabled'],
+      soundUri: json['soundUri'],
+      vibration: json['vibration'] != null
+          ? (json['vibration'] is int && json['vibration'] >= 0 && json['vibration'] < VibrationPattern.values.length
+              ? VibrationPattern.values[json['vibration']]
+              : null)
+          : null,
+      mentionsOnly: json['mentionsOnly'] ?? false,
+      keywords: json['keywords'] != null ? List<String>.from(json['keywords']) : [],
+    );
+  }
+
+  static MuteState _parseMuteState(dynamic value) {
+    if (value is int && value >= 0 && value < MuteState.values.length) {
+      return MuteState.values[value];
+    }
+    return MuteState.notMuted;
+  }
+
+  ChatNotificationSettings copyWith({
+    String? chatId,
+    MuteState? muteState,
+    DateTime? muteUntil,
+    bool? previewEnabled,
+    bool? soundEnabled,
+    String? soundUri,
+    VibrationPattern? vibration,
+    bool? mentionsOnly,
+    List<String>? keywords,
+  }) {
+    return ChatNotificationSettings(
+      chatId: chatId ?? this.chatId,
+      muteState: muteState ?? this.muteState,
+      muteUntil: muteUntil ?? this.muteUntil,
+      previewEnabled: previewEnabled ?? this.previewEnabled,
+      soundEnabled: soundEnabled ?? this.soundEnabled,
+      soundUri: soundUri ?? this.soundUri,
+      vibration: vibration ?? this.vibration,
+      mentionsOnly: mentionsOnly ?? this.mentionsOnly,
+      keywords: keywords ?? this.keywords,
+    );
+  }
+}
+
+/// Эффективные настройки чата (результат слияния глобальных и per-chat)
+class EffectiveChatSettings {
+  final MuteState muteState;
+  final bool previewEnabled;
+  final bool soundEnabled;
+  final String? soundUri;
+  final VibrationPattern vibration;
+  final bool mentionsOnly;
+  final List<String> keywords;
+
+  const EffectiveChatSettings({
+    required this.muteState,
+    required this.previewEnabled,
+    required this.soundEnabled,
+    this.soundUri,
+    required this.vibration,
+    required this.mentionsOnly,
+    required this.keywords,
+  });
+
+  bool get isMuted => muteState != MuteState.notMuted;
+}
+
+// ============ Privacy Settings Models ============
+
+/// Варианты видимости для правил приватности
+enum PrivacyVisibility {
+  everybody,
+  contacts,
+  nobody;
+
+  String toJson() => name;
+  static PrivacyVisibility fromJson(String value) =>
+      PrivacyVisibility.values.firstWhere((e) => e.name == value,
+          orElse: () => PrivacyVisibility.contacts);
+}
+
+/// Расширенные настройки приватности
+class PrivacySettings {
+  final PrivacyVisibility lastSeenVisibility;
+  final PrivacyVisibility profilePhotoVisibility;
+  final PrivacyVisibility phoneNumberVisibility;
+  final PrivacyVisibility phoneCallPrivacy;
+  final PrivacyVisibility callPrivacy;
+  final PrivacyVisibility groupsChannelsPrivacy;
+  final PrivacyVisibility bioVisibility;
+  final PrivacyVisibility forwardedMessages; // everybody=show sender, nobody=anonymous
+  final bool showOnlineStatus;
+  final bool showReadReceipts;
+
+  const PrivacySettings({
+    this.lastSeenVisibility = PrivacyVisibility.contacts,
+    this.profilePhotoVisibility = PrivacyVisibility.everybody,
+    this.phoneNumberVisibility = PrivacyVisibility.contacts,
+    this.phoneCallPrivacy = PrivacyVisibility.contacts,
+    this.callPrivacy = PrivacyVisibility.everybody,
+    this.groupsChannelsPrivacy = PrivacyVisibility.everybody,
+    this.bioVisibility = PrivacyVisibility.everybody,
+    this.forwardedMessages = PrivacyVisibility.everybody,
+    this.showOnlineStatus = true,
+    this.showReadReceipts = true,
+  });
+
+  PrivacySettings copyWith({
+    PrivacyVisibility? lastSeenVisibility,
+    PrivacyVisibility? profilePhotoVisibility,
+    PrivacyVisibility? phoneNumberVisibility,
+    PrivacyVisibility? phoneCallPrivacy,
+    PrivacyVisibility? callPrivacy,
+    PrivacyVisibility? groupsChannelsPrivacy,
+    PrivacyVisibility? bioVisibility,
+    PrivacyVisibility? forwardedMessages,
+    bool? showOnlineStatus,
+    bool? showReadReceipts,
+  }) =>
+      PrivacySettings(
+        lastSeenVisibility: lastSeenVisibility ?? this.lastSeenVisibility,
+        profilePhotoVisibility: profilePhotoVisibility ?? this.profilePhotoVisibility,
+        phoneNumberVisibility: phoneNumberVisibility ?? this.phoneNumberVisibility,
+        phoneCallPrivacy: phoneCallPrivacy ?? this.phoneCallPrivacy,
+        callPrivacy: callPrivacy ?? this.callPrivacy,
+        groupsChannelsPrivacy: groupsChannelsPrivacy ?? this.groupsChannelsPrivacy,
+        bioVisibility: bioVisibility ?? this.bioVisibility,
+        forwardedMessages: forwardedMessages ?? this.forwardedMessages,
+        showOnlineStatus: showOnlineStatus ?? this.showOnlineStatus,
+        showReadReceipts: showReadReceipts ?? this.showReadReceipts,
+      );
+
+  factory PrivacySettings.fromJson(Map<String, dynamic> json) => PrivacySettings(
+        lastSeenVisibility: PrivacyVisibility.fromJson(json['last_seen_visibility'] ?? 'contacts'),
+        profilePhotoVisibility: PrivacyVisibility.fromJson(json['profile_photo_visibility'] ?? 'everybody'),
+        phoneNumberVisibility: PrivacyVisibility.fromJson(json['phone_number_visibility'] ?? 'contacts'),
+        phoneCallPrivacy: PrivacyVisibility.fromJson(json['phone_call_privacy'] ?? 'contacts'),
+        callPrivacy: PrivacyVisibility.fromJson(json['call_privacy'] ?? 'everybody'),
+        groupsChannelsPrivacy: PrivacyVisibility.fromJson(json['groups_channels_privacy'] ?? 'everybody'),
+        bioVisibility: PrivacyVisibility.fromJson(json['bio_visibility'] ?? 'everybody'),
+        forwardedMessages: PrivacyVisibility.fromJson(json['forwarded_messages'] ?? 'everybody'),
+        showOnlineStatus: json['show_online_status'] ?? true,
+        showReadReceipts: json['show_read_receipts'] ?? true,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'last_seen_visibility': lastSeenVisibility.toJson(),
+        'profile_photo_visibility': profilePhotoVisibility.toJson(),
+        'phone_number_visibility': phoneNumberVisibility.toJson(),
+        'phone_call_privacy': phoneCallPrivacy.toJson(),
+        'call_privacy': callPrivacy.toJson(),
+        'groups_channels_privacy': groupsChannelsPrivacy.toJson(),
+        'bio_visibility': bioVisibility.toJson(),
+        'forwarded_messages': forwardedMessages.toJson(),
+        'show_online_status': showOnlineStatus,
+        'show_read_receipts': showReadReceipts,
+      };
+}
+
+/// Исключение для правила приватности (всегда/никогда для конкретного пользователя)
+class PrivacyException {
+  final String id;
+  final String ruleType;
+  final String targetUserId;
+  final String targetUserName;
+  final String exceptionType; // always / never
+
+  const PrivacyException({
+    required this.id,
+    required this.ruleType,
+    required this.targetUserId,
+    required this.targetUserName,
+    required this.exceptionType,
+  });
+
+  factory PrivacyException.fromJson(Map<String, dynamic> json) => PrivacyException(
+        id: json['id'] ?? '',
+        ruleType: json['rule_type'] ?? '',
+        targetUserId: json['target_user_id'] ?? '',
+        targetUserName: json['target_user_name'] ?? '',
+        exceptionType: json['exception_type'] ?? 'always',
+      );
+}
+
+/// Настройки двухэтапной аутентификации
+class TwoFactorAuthSettings {
+  final bool enabled;
+  final bool hasPassword;
+  final String recoveryEmail;
+
+  const TwoFactorAuthSettings({
+    this.enabled = false,
+    this.hasPassword = false,
+    this.recoveryEmail = '',
+  });
+
+  factory TwoFactorAuthSettings.fromJson(Map<String, dynamic> json) =>
+      TwoFactorAuthSettings(
+        enabled: json['enabled'] ?? false,
+        hasPassword: json['has_password'] ?? false,
+        recoveryEmail: json['recovery_email'] ?? '',
+      );
+}
+
+/// Настройки блокировки приложения
+class AppLockSettings {
+  final bool hasPin;
+  final bool biometricsEnabled;
+  final String autoLockTimeout; // immediately, 1min, 5min, 15min, 1hour
+
+  const AppLockSettings({
+    this.hasPin = false,
+    this.biometricsEnabled = false,
+    this.autoLockTimeout = '5min',
+  });
+
+  factory AppLockSettings.fromJson(Map<String, dynamic> json) => AppLockSettings(
+        hasPin: json['has_pin'] ?? false,
+        biometricsEnabled: json['biometrics_enabled'] ?? false,
+        autoLockTimeout: json['auto_lock_timeout'] ?? '5min',
+      );
+
+  Map<String, dynamic> toJson() => {
+        'has_pin': hasPin,
+        'biometrics_enabled': biometricsEnabled,
+        'auto_lock_timeout': autoLockTimeout,
+      };
+}
+
+/// Заблокированный пользователь
+class BlockedUser {
+  final String userId;
+  final String username;
+  final String displayName;
+  final String? avatarUrl;
+  final String blockedAt;
+
+  const BlockedUser({
+    required this.userId,
+    required this.username,
+    required this.displayName,
+    this.avatarUrl,
+    required this.blockedAt,
+  });
+
+  factory BlockedUser.fromJson(Map<String, dynamic> json) => BlockedUser(
+        userId: json['user_id'] ?? '',
+        username: json['username'] ?? '',
+        displayName: json['display_name'] ?? '',
+        avatarUrl: json['avatar_url'],
+        blockedAt: json['blocked_at'] ?? '',
+      );
+}

@@ -1,0 +1,382 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+import '../config/app_config.dart';
+import 'auth_service.dart';
+import 'avatar_sync_service.dart';
+
+/// Event types for WebSocket messages
+enum WebSocketEventType {
+  connected,
+  newMessage,
+  newChat,
+  chatUpdate,
+  userStatus,
+  typing,
+  messageRead,
+  userOnline,
+  userOffline,
+  pong,
+  unreadCountUpdated,
+}
+
+/// WebSocket event data
+class WebSocketEvent {
+  final WebSocketEventType type;
+  final Map<String, dynamic> data;
+  final int timestamp;
+
+  WebSocketEvent({
+    required this.type,
+    required this.data,
+    required this.timestamp,
+  });
+
+  factory WebSocketEvent.fromJson(Map<String, dynamic> json) {
+    return WebSocketEvent(
+      type: _parseEventType(json['type'] as String?),
+      data: json['data'] as Map<String, dynamic>? ?? {},
+      timestamp: json['timestamp'] as int? ?? DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  static WebSocketEventType _parseEventType(String? type) {
+    switch (type) {
+      case 'connected':
+        return WebSocketEventType.connected;
+      case 'new_message':
+        return WebSocketEventType.newMessage;
+      case 'new_chat':
+        return WebSocketEventType.newChat;
+      case 'chat_update':
+        return WebSocketEventType.chatUpdate;
+      case 'user_status':
+        return WebSocketEventType.userStatus;
+      case 'typing':
+        return WebSocketEventType.typing;
+      case 'message_read':
+        return WebSocketEventType.messageRead;
+      case 'user_online':
+        return WebSocketEventType.userOnline;
+      case 'user_offline':
+        return WebSocketEventType.userOffline;
+      case 'pong':
+        return WebSocketEventType.pong;
+      case 'unread_count_updated':
+        return WebSocketEventType.unreadCountUpdated;
+      default:
+        return WebSocketEventType.connected;
+    }
+  }
+}
+
+/// Callback types for WebSocket events
+typedef WebSocketEventCallback = void Function(WebSocketEvent event);
+
+/// WebSocketService manages WebSocket connection for real-time updates
+class WebSocketService {
+  static final WebSocketService _instance = WebSocketService._internal();
+  factory WebSocketService() => _instance;
+  WebSocketService._internal();
+
+  WebSocketChannel? _channel;
+  bool _isConnected = false;
+  bool _isConnecting = false;
+  Timer? _reconnectTimer;
+  Timer? _pingTimer;
+  int _reconnectAttempts = 0;
+  static const int _maxReconnectAttempts = 100; // Практически без лимита
+  static const Duration _reconnectDelay = Duration(seconds: 3);
+  static const Duration _pingInterval = Duration(seconds: 30);
+  StreamSubscription? _streamSubscription;
+
+  final StreamController<WebSocketEvent> _eventController = 
+      StreamController<WebSocketEvent>.broadcast();
+  Stream<WebSocketEvent> get eventStream => _eventController.stream;
+
+  final Map<WebSocketEventType, List<WebSocketEventCallback>> _callbacks = {};
+
+  String? _currentUserId;
+
+  /// Update current user ID (call when switching accounts)
+  Future<void> updateUserId(String? userId) async {
+    if (_currentUserId != userId) {
+      debugPrint('WebSocket: Updating user ID from $_currentUserId to $userId');
+      _currentUserId = userId;
+      
+      // If we have a new user ID, reconnect with new credentials
+      if (userId != null) {
+        await reconnect();
+      } else {
+        // If no user, disconnect
+        disconnect();
+      }
+    }
+  }
+
+  /// Connect to WebSocket server
+  Future<bool> connect() async {
+    if (_isConnected || _isConnecting) {
+      debugPrint('WebSocket: Already connected or connecting');
+      return _isConnected;
+    }
+
+    _isConnecting = true;
+
+    try {
+      // Get auth token
+      final token = await AuthService.getToken();
+      if (token == null || token.isEmpty) {
+        debugPrint('WebSocket: No auth token available');
+        _isConnecting = false;
+        return false;
+      }
+
+      // Get current user ID
+      _currentUserId = await AuthService.getUserId();
+      if (_currentUserId == null) {
+        debugPrint('WebSocket: No user ID available');
+        _isConnecting = false;
+        return false;
+      }
+
+      // Build WebSocket URL with token
+      final wsUrl = '${AppConfig.wsUrl}?token=$token';
+      debugPrint('WebSocket: Connecting to $wsUrl');
+
+      _channel = WebSocketChannel.connect(
+        Uri.parse(wsUrl),
+      );
+
+      // Wait for connection
+      await _channel!.ready;
+
+      _isConnected = true;
+      _isConnecting = false;
+      _reconnectAttempts = 0;
+
+      debugPrint('WebSocket: Connected successfully');
+
+      // Start listening for messages
+      _listenForMessages();
+
+      // Start ping timer
+      _startPingTimer();
+
+      // Trigger pending avatar upload if any
+      if (_currentUserId != null) {
+        AvatarSyncService().syncPendingAvatar(_currentUserId!);
+      }
+
+      // Notify connection established
+      _eventController.add(WebSocketEvent(
+        type: WebSocketEventType.connected,
+        data: {'user_id': _currentUserId},
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+      ));
+
+      return true;
+    } catch (e) {
+      debugPrint('WebSocket: Connection error: $e');
+      _isConnected = false;
+      _isConnecting = false;
+      _scheduleReconnect();
+      return false;
+    }
+  }
+
+  /// Disconnect from WebSocket server
+  void disconnect() {
+    debugPrint('WebSocket: Disconnecting');
+    _pingTimer?.cancel();
+    _pingTimer = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+
+    // Cancel stream subscription to prevent leaks on reconnect
+    _streamSubscription?.cancel();
+    _streamSubscription = null;
+
+    // Use 1000 (normal closure) instead of status.goingAway (1001)
+    // to avoid "Invalid argument: 1001" error
+    _channel?.sink.close(1000);
+    _channel = null;
+    _isConnected = false;
+    _isConnecting = false;
+  }
+
+  /// Reconnect to WebSocket server
+  Future<void> reconnect() async {
+    disconnect();
+    await connect();
+  }
+
+  /// Listen for incoming messages
+  void _listenForMessages() {
+    // Cancel previous subscription to prevent duplicate listeners on reconnect
+    _streamSubscription?.cancel();
+    _streamSubscription = null;
+
+    _streamSubscription = _channel?.stream.listen(
+      (message) {
+        _handleMessage(message);
+      },
+      onError: (error) {
+        debugPrint('WebSocket: Stream error: $error');
+        _isConnected = false;
+        _scheduleReconnect();
+      },
+      onDone: () {
+        debugPrint('WebSocket: Stream closed');
+        _isConnected = false;
+        _scheduleReconnect();
+      },
+    );
+  }
+
+  /// Handle incoming message
+  void _handleMessage(dynamic message) {
+    try {
+      final json = jsonDecode(message as String) as Map<String, dynamic>;
+      final event = WebSocketEvent.fromJson(json);
+      
+      debugPrint('WebSocket: Received event: ${event.type}');
+      
+      // Add to stream
+      _eventController.add(event);
+      
+      // Call registered callbacks
+      _callCallbacks(event);
+    } catch (e) {
+      debugPrint('WebSocket: Error parsing message: $e');
+    }
+  }
+
+  /// Call registered callbacks for event type
+  void _callCallbacks(WebSocketEvent event) {
+    final callbacks = _callbacks[event.type];
+    if (callbacks != null) {
+      for (final callback in callbacks) {
+        try {
+          callback(event);
+        } catch (e) {
+          debugPrint('WebSocket: Callback error: $e');
+        }
+      }
+    }
+  }
+
+  /// Schedule reconnection attempt
+  void _scheduleReconnect() {
+    if (_reconnectAttempts >= _maxReconnectAttempts) {
+      debugPrint('WebSocket: Max reconnect attempts reached — will retry on app resume');
+      return;
+    }
+
+    _reconnectTimer?.cancel();
+    _reconnectAttempts++;
+    
+    // Cap delay at 30 seconds to avoid excessively long waits
+    final delaySeconds = (_reconnectDelay.inSeconds * _reconnectAttempts).clamp(1, 30);
+    final delay = Duration(seconds: delaySeconds);
+    debugPrint('WebSocket: Reconnecting in ${delay.inSeconds} seconds (attempt $_reconnectAttempts)');
+    
+    _reconnectTimer = Timer(delay, () {
+      connect();
+    });
+  }
+
+  /// Try to reconnect (called when app comes to foreground or needs manual reconnect)
+  Future<void> tryReconnect() async {
+    _reconnectAttempts = 0; // Reset attempt counter for fresh try
+    if (!_isConnected && !_isConnecting) {
+      await connect();
+    }
+  }
+
+  /// Start ping timer to keep connection alive
+  void _startPingTimer() {
+    _pingTimer?.cancel();
+    _pingTimer = Timer.periodic(_pingInterval, (_) {
+      sendPing();
+    });
+  }
+
+  /// Send ping message
+  void sendPing() {
+    if (!_isConnected || _channel == null) return;
+    
+    try {
+      sendMessage('ping', {});
+    } catch (e) {
+      debugPrint('WebSocket: Error sending ping: $e');
+    }
+  }
+
+  /// Send message to server
+  void sendMessage(String type, Map<String, dynamic> data) {
+    if (!_isConnected || _channel == null) {
+      debugPrint('WebSocket: Cannot send message - not connected');
+      return;
+    }
+
+    final message = jsonEncode({
+      'type': type,
+      'data': data,
+    });
+
+    _channel!.sink.add(message);
+  }
+
+  /// Send typing indicator
+  void sendTypingIndicator(String chatId) {
+    sendMessage('typing', {'chat_id': chatId});
+  }
+
+  /// Send message read event
+  void sendMessageRead(String chatId, {int markedCount = 0}) {
+  	sendMessage('message_read', {
+  		'chat_id': chatId,
+  		'marked_count': markedCount,
+  	});
+  }
+ 
+  /// Send message read up to event (for progressive read tracking)
+  void sendMessageReadUpTo(String chatId, String messageId, {int markedCount = 0}) {
+  	sendMessage('message_read_up_to', {
+  		'chat_id': chatId,
+  		'message_id': messageId,
+  		'marked_count': markedCount,
+  	});
+  }
+
+  /// Subscribe to specific event type
+  void subscribe(WebSocketEventType type, WebSocketEventCallback callback) {
+    _callbacks[type] ??= [];
+    _callbacks[type]!.add(callback);
+  }
+
+  /// Unsubscribe from specific event type
+  void unsubscribe(WebSocketEventType type, WebSocketEventCallback callback) {
+    _callbacks[type]?.remove(callback);
+  }
+
+  /// Unsubscribe all callbacks for event type
+  void unsubscribeAll(WebSocketEventType type) {
+    _callbacks[type]?.clear();
+  }
+
+  /// Check if connected
+  bool get isConnected => _isConnected;
+
+  /// Get current user ID
+  String? get currentUserId => _currentUserId;
+
+  /// Dispose resources
+  void dispose() {
+    disconnect();
+    _eventController.close();
+    _callbacks.clear();
+  }
+}

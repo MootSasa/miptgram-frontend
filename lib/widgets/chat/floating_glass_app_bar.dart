@@ -1,0 +1,475 @@
+import 'dart:math' as math;
+import 'dart:ui';
+import 'package:flutter/material.dart';
+import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:provider/provider.dart';
+import '../../services/liquid_glass_provider.dart';
+import '../user/avatar_with_status.dart';
+import '../../l10n/app_localizations.dart';
+
+// --- НАСТРОЙКИ СТИЛЯ ПАНЕЛИ ---
+/// Радиус скругления "облака" панели (AppBar).
+const double _kAppBarBorderRadius = 27.0;
+/// Высота панели без учета отступов и статус-бара.
+const double _kAppBarHeight = 54.0;
+/// Внешний горизонтальный отступ панели от краев экрана.
+const double _kAppBarHorizontalPadding = 12.0;
+/// Внешний вертикальный отступ панели от статус-бара.
+const double _kAppBarVerticalPadding = 8.0;
+
+/// Размер шрифта имени пользователя в заголовке.
+const double _kTitleFontSize = 17.0;
+/// Размер шрифта статуса (в сети / был недавно).
+const double _kStatusFontSize = 12.0;
+
+/// Радиус аватарки в панели.
+const double _kAvatarRadius = 22.0;
+
+/// Размер круглых кнопок действий (назад и др.).
+const double _kCircularButtonSize = 38.0;
+/// Размер иконки внутри кнопок действий.
+const double _kCircularIconSize = 18.0;
+
+/// Максимальная ширина выпадающего меню.
+const double _kMenuMaxWidth = 260.0;
+/// Радиус скругления выпадающего меню.
+const double _kMenuBorderRadius = 28.0;
+// ------------------------------
+
+/// Floating AppBar with glass/matte "cloud" design, matching the input field.
+class FloatingGlassAppBar extends StatelessWidget {
+  final String? avatarUrl;
+  final String name;
+  final bool isOnline;
+  final DateTime? lastSeen;
+  final VoidCallback onBack;
+  final VoidCallback onTitleTap;
+  final VoidCallback onAvatarTap;
+
+  const FloatingGlassAppBar({
+    Key? key,
+    this.avatarUrl,
+    required this.name,
+    required this.isOnline,
+    this.lastSeen,
+    required this.onBack,
+    required this.onTitleTap,
+    required this.onAvatarTap,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final glassProvider = context.watch<LiquidGlassProvider>();
+    final isGlassEnabled = glassProvider.enabled;
+    final isLite = glassProvider.isLite;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final statusBarHeight = MediaQuery.of(context).padding.top;
+
+    return Container(
+      padding: EdgeInsets.only(
+        top: statusBarHeight + _kAppBarVerticalPadding,
+        left: _kAppBarHorizontalPadding,
+        right: _kAppBarHorizontalPadding,
+      ),
+      child: LiquidGlassLayer(
+        settings: LiquidGlassSettings(
+          refractiveIndex: 1.15,
+          thickness: 20,
+          blur: 8,
+          saturation: 1.5,
+          lightIntensity: isDark ? 0.7 : 1.0,
+          ambientStrength: isDark ? 0.2 : 0.5,
+          lightAngle: math.pi / 2,
+          glassColor: isDark
+              ? const Color.fromARGB(40, 30, 30, 40)
+              : const Color.fromARGB(50, 255, 255, 255),
+        ),
+        child: isGlassEnabled
+            ? _buildGlassCloud(context, isDark, isLite, _kAppBarHeight)
+            : _buildMatteCloud(context, isDark, _kAppBarHeight),
+      ),
+    );
+  }
+
+  Widget _buildGlassCloud(BuildContext context, bool isDark, bool isLite, double height) {
+    return Container(
+      height: height,
+      child: isLite
+          ? FakeGlass(
+              shape: const LiquidRoundedSuperellipse(borderRadius: _kAppBarBorderRadius),
+              child: GlassGlow(child: _buildContent(context)),
+            )
+          : LiquidGlass.grouped(
+              shape: const LiquidRoundedSuperellipse(borderRadius: _kAppBarBorderRadius),
+              child: GlassGlow(child: _buildContent(context)),
+            ),
+    );
+  }
+
+  Widget _buildMatteCloud(BuildContext context, bool isDark, double height) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(_kAppBarBorderRadius),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+        child: Container(
+          height: height,
+          decoration: BoxDecoration(
+            color: isDark
+                ? Colors.black.withValues(alpha: 0.65)
+                : Colors.white.withValues(alpha: 0.65),
+            borderRadius: BorderRadius.circular(_kAppBarBorderRadius),
+            border: Border.all(
+              color: isDark ? Colors.white10 : Colors.black12,
+              width: 0.5,
+            ),
+          ),
+          child: _buildContent(context),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContent(BuildContext context) {
+    return Row(
+      children: [
+        const SizedBox(width: 4),
+        _buildCircularButton(
+          context,
+          icon: Icons.arrow_back_ios_new,
+          onTap: onBack,
+          iconSize: _kCircularIconSize,
+        ),
+        Expanded(
+          child: GestureDetector(
+            onTap: onTitleTap,
+            behavior: HitTestBehavior.opaque,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  name,
+                  style: const TextStyle(
+                    fontSize: _kTitleFontSize,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (lastSeen != null || isOnline) _buildStatusText(context),
+              ],
+            ),
+          ),
+        ),
+        GestureDetector(
+          onTap: onAvatarTap,
+          child: Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: AvatarWithStatus(
+              avatarUrl: avatarUrl,
+              name: name,
+              radius: _kAvatarRadius,
+              isOnline: isOnline,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusText(BuildContext context) {
+    String status = isOnline ? 'в сети' : _getLastSeenText();
+    return Text(
+      status,
+      style: TextStyle(
+        fontSize: _kStatusFontSize,
+        color: isOnline ? Colors.green : Colors.grey[600],
+      ),
+    );
+  }
+
+  String _getLastSeenText() {
+    if (lastSeen == null) return '';
+    final now = DateTime.now();
+    final difference = now.difference(lastSeen!);
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final lastSeenDay = DateTime(lastSeen!.year, lastSeen!.month, lastSeen!.day);
+
+    if (lastSeenDay == yesterday) return 'был(а) вчера';
+    if (difference.inMinutes < 60) {
+      final minutes = difference.inMinutes;
+      return 'был(а) $minutes ${_getMinutesText(minutes)} назад';
+    }
+    if (difference.inHours < 24) {
+      final hours = difference.inHours;
+      return 'был(а) $hours ${_getHoursText(hours)} назад';
+    }
+    if (lastSeenDay == today) {
+      final hours = difference.inHours;
+      return 'был(а) $hours ${_getHoursText(hours)} назад';
+    }
+    return 'был(а) давно';
+  }
+
+  String _getMinutesText(int minutes) {
+    final lastDigit = minutes % 10;
+    final lastTwoDigits = minutes % 100;
+    if (lastTwoDigits >= 11 && lastTwoDigits <= 19) return 'минут';
+    if (lastDigit == 1) return 'минуту';
+    if (lastDigit >= 2 && lastDigit <= 4) return 'минуты';
+    return 'минут';
+  }
+
+  String _getHoursText(int hours) {
+    final lastDigit = hours % 10;
+    final lastTwoDigits = hours % 100;
+    if (lastTwoDigits >= 11 && lastTwoDigits <= 19) return 'часов';
+    if (lastDigit == 1) return 'час';
+    if (lastDigit >= 2 && lastDigit <= 4) return 'часа';
+    return 'часов';
+  }
+
+  Widget _buildCircularButton(BuildContext context,
+      {required IconData icon, required VoidCallback onTap, double iconSize = 20}) {
+    return IconButton(
+      onPressed: onTap,
+      icon: Icon(
+        icon,
+        size: iconSize,
+        color: Theme.of(context).colorScheme.onSurface,
+      ),
+      splashRadius: 24,
+    );
+  }
+}
+
+/// A beautiful glass menu for the chat avatar actions.
+class GlassChatMenu extends StatefulWidget {
+  final BuildContext chatContext;
+  final bool isMuted;
+  final VoidCallback onVoiceCall;
+  final VoidCallback onVideoCall;
+  final VoidCallback onSearch;
+  final VoidCallback onToggleMute;
+  final VoidCallback onClearHistory;
+  final VoidCallback onReport;
+  final VoidCallback onViewProfile;
+
+  const GlassChatMenu({
+    Key? key,
+    required this.chatContext,
+    required this.isMuted,
+    required this.onVoiceCall,
+    required this.onVideoCall,
+    required this.onSearch,
+    required this.onToggleMute,
+    required this.onClearHistory,
+    required this.onReport,
+    required this.onViewProfile,
+  }) : super(key: key);
+
+  static void show(
+    BuildContext context, {
+    required bool isMuted,
+    required VoidCallback onVoiceCall,
+    required VoidCallback onVideoCall,
+    required VoidCallback onSearch,
+    required VoidCallback onToggleMute,
+    required VoidCallback onClearHistory,
+    required VoidCallback onReport,
+    required VoidCallback onViewProfile,
+  }) {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.transparent,
+      transitionDuration: const Duration(milliseconds: 250),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return GlassChatMenu(
+          chatContext: context,
+          isMuted: isMuted,
+          onVoiceCall: () { Navigator.pop(context); onVoiceCall(); },
+          onVideoCall: () { Navigator.pop(context); onVideoCall(); },
+          onSearch: () { Navigator.pop(context); onSearch(); },
+          onToggleMute: () { Navigator.pop(context); onToggleMute(); },
+          onClearHistory: () { Navigator.pop(context); onClearHistory(); },
+          onReport: () { Navigator.pop(context); onReport(); },
+          onViewProfile: () { Navigator.pop(context); onViewProfile(); },
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final offsetAnimation = Tween<Offset>(
+          begin: const Offset(1.0, 0.0),
+          end: Offset.zero,
+        ).animate(CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+        ));
+
+        return SlideTransition(
+          position: offsetAnimation,
+          child: child,
+        );
+      },
+    );
+  }
+
+  @override
+  State<GlassChatMenu> createState() => _GlassChatMenuState();
+}
+
+class _GlassChatMenuState extends State<GlassChatMenu> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _opacityAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+    );
+    _opacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeIn),
+    );
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final glassProvider = Provider.of<LiquidGlassProvider>(context, listen: false);
+    final isGlassEnabled = glassProvider.enabled;
+
+    final statusBarHeight = MediaQuery.of(context).padding.top;
+
+    return Stack(
+      children: [
+        Positioned(
+          top: statusBarHeight + _kAppBarHeight + 16, // Just below the floating app bar
+          right: 12, // Align with the right edge of the app bar
+          child: Material(
+            color: Colors.transparent,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: _kMenuMaxWidth),
+              child: IntrinsicWidth(
+                child: isGlassEnabled
+                    ? _buildGlassMenu(isDark, theme)
+                    : _buildMatteMenu(isDark, theme),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Removed old build methods and dismissal logic as showGeneralDialog handles it
+
+  void _dismiss() {
+    _controller.reverse().then((_) {
+       // We can't easily remove overlay from here without passing it.
+       // Let's use Navigator instead for the menu, it's easier.
+       // Re-thinking: I'll use a PageRoute for the menu instead.
+    });
+  }
+
+  Widget _buildGlassMenu(bool isDark, ThemeData theme) {
+    return LiquidGlass.withOwnLayer(
+      shape: const LiquidRoundedSuperellipse(borderRadius: _kMenuBorderRadius),
+      settings: LiquidGlassSettings(
+        blur: 8,
+        thickness: 20,
+        refractiveIndex: 1.15,
+        saturation: 1.5,
+        glassColor: isDark
+            ? const Color.fromARGB(40, 30, 30, 40)
+            : const Color.fromARGB(50, 255, 255, 255),
+      ),
+      child: _buildMenuItems(theme),
+    );
+  }
+
+  Widget _buildMatteMenu(bool isDark, ThemeData theme) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(_kMenuBorderRadius),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+        child: Container(
+          decoration: BoxDecoration(
+            color: isDark
+                ? Colors.black.withValues(alpha: 0.65)
+                : Colors.white.withValues(alpha: 0.65),
+            borderRadius: BorderRadius.circular(_kMenuBorderRadius),
+            border: Border.all(
+              color: isDark ? Colors.white10 : Colors.black12,
+              width: 0.5,
+            ),
+          ),
+          child: _buildMenuItems(theme),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMenuItems(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _menuItem(Icons.person_outline, 'Профиль', widget.onViewProfile),
+          _menuItem(Icons.call_outlined, 'Голосовой звонок', widget.onVoiceCall),
+          _menuItem(Icons.videocam_outlined, 'Видеозвонок', widget.onVideoCall),
+          _menuItem(Icons.search, 'Поиск сообщений', widget.onSearch),
+          _menuItem(
+            widget.isMuted ? Icons.notifications_off_outlined : Icons.notifications_none_outlined,
+            widget.isMuted ? 'Включить уведомления' : 'Без звука',
+            widget.onToggleMute,
+          ),
+          _menuItem(Icons.delete_outline, 'Очистить историю', widget.onClearHistory, isDestructive: true),
+          _menuItem(Icons.report_gmailerrorred, 'Пожаловаться', widget.onReport, isDestructive: true),
+        ],
+      ),
+    );
+  }
+
+  Widget _menuItem(IconData icon, String label, VoidCallback onTap, {bool isDestructive = false}) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 22, color: isDestructive ? Colors.redAccent : null),
+            const SizedBox(width: 12),
+            Flexible(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: isDestructive ? Colors.redAccent : null,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

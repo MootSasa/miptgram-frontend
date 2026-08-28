@@ -1,0 +1,89 @@
+name: miptgram
+description: Miptgram - A secure messaging app.
+version: 1.0.0+1
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # The following adds the Cupertino icons font to your application.
+  # Use with the CupertinoIcons class for iOS style icons.
+  cupertino_icons: ^1.0.2
+  flutter_webrtc: ^0.12.0
+  provider: ^6.0.5
+  http: ^1.1.0
+  dio: ^5.4.0
+  http_parser: ^4.1.0
+  shared_preferences: ^2.2.0
+  device_info_plus: ^10.1.0
+  image_picker: ^1.0.4
+  image_cropper: ^8.0.2
+  file_picker: ^8.0.0
+  flutter_image_compress: ^2.1.0
+  video_player: ^2.8.0
+  photo_view: ^0.15.0
+  just_audio: ^0.9.36
+  path_provider: ^2.1.1
+  web: ^1.1.0
+  permission_handler: ^11.0.1
+  record: ^6.0.0
+  web_socket_channel: ^3.0.1
+  path: ^1.8.0
+  url_launcher: ^6.2.0
+  open_file: ^3.3.2
+  liquid_glass_renderer: ^0.2.0-dev.4
+  motor: ^1.1.0
+  visibility_detector: ^0.4.0+2
+  drift: ^2.22.1
+  sqlite3_flutter_libs: ^0.5.0
+  uuid: ^4.5.1
+  qr_flutter: ^4.1.0
+  pretty_qr_code: ^3.6.0
+  screen_brightness: ^2.0.0
+  emoji_picker_flutter: ^4.4.0
+  share_plus: ^12.0.2
+  cached_network_image: ^3.3.1
+  firebase_core: ^3.0.0
+  firebase_messaging: ^15.0.0
+  flutter_local_notifications: ^18.0.0
+  huawei_push: ^6.12.0+300
+  flutter_markdown_plus: ^1.0.12
+  markdown: ^7.2.2
+  flutter_highlight: ^0.7.0
+  google_fonts: ^6.2.1
+  flutter_math_fork: ^0.7.2
+  lottie: ^3.1.2
+  local_auth: ^2.2.0
+  flutter_secure_storage: ^9.0.0
+  encrypt: ^5.0.3
+  crypto: ^3.0.3
+  inspire_blur: ^0.4.0
+  ios_color_picker: ^3.0.0
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # The "flutter_lints" package contains a set of lints to encourage good coding practices.
+  flutter_lints: ^2.0.0
+  drift_dev: ^2.22.1
+  build_runner: ^2.4.9
+
+flutter:
+  # The following line ensures that the Material Icons font is
+  # included with your application, so that you can use the icons in
+  # the material Icons class.
+  uses-material-design: true
+  
+  # Localization assets
+  assets:
+    - assets/l10n/
+    - assets/fonts/AppleColorEmoji.woff2
+    - assets/fonts/AppleColorEmoji.ttf
+    - assets/animated_emojis/
+    - assets/emoji_effects/

@@ -1,0 +1,242 @@
+import 'avatar_gallery_viewer.dart';
+import '../../utils/image_utils.dart';
+import 'package:flutter/material.dart';
+
+/// Попап с информацией о пользователе, который был найден через QR-код.
+///
+/// Показывает: аватарку, имя, username, кнопку «Начать чат».
+/// Не на весь экран — компактный диалог.
+/// Поддерживает светлую и тёмную тему приложения.
+class UserProfilePopup extends StatefulWidget {
+  /// ID пользователя
+  final String userId;
+
+  /// Отображаемое имя
+  final String displayName;
+
+  /// Username (без @)
+  final String username;
+
+  /// URL аватарки
+  final String? avatarUrl;
+
+  /// Локализованная подпись кнопки «Начать чат с {name}»
+  final String startChatLabel;
+
+  /// Локализованная подпись «Закрыть»
+  final String closeLabel;
+
+  /// Коллбэк при нажатии «Начать чат»
+  final VoidCallback? onStartChat;
+
+  const UserProfilePopup({
+    Key? key,
+    required this.userId,
+    required this.displayName,
+    required this.username,
+    this.avatarUrl,
+    this.startChatLabel = 'Начать чат',
+    this.closeLabel = 'Закрыть',
+    this.onStartChat,
+  }) : super(key: key);
+
+  /// Показать попап
+  static Future<void> show(
+    BuildContext context, {
+    required String userId,
+    required String displayName,
+    required String username,
+    String? avatarUrl,
+    String startChatLabel = 'Начать чат',
+    String closeLabel = 'Закрыть',
+    VoidCallback? onStartChat,
+  }) {
+    return showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => UserProfilePopup(
+        userId: userId,
+        displayName: displayName,
+        username: username,
+        avatarUrl: avatarUrl,
+        startChatLabel: startChatLabel,
+        closeLabel: closeLabel,
+        onStartChat: onStartChat,
+      ),
+    );
+  }
+
+  @override
+  State<UserProfilePopup> createState() => _UserProfilePopupState();
+}
+
+class _UserProfilePopupState extends State<UserProfilePopup> {
+  bool _isCreating = false;
+
+  Future<void> _handleStartChat() async {
+    setState(() => _isCreating = true);
+    try {
+      widget.onStartChat?.call();
+    } finally {
+      if (mounted) {
+        setState(() => _isCreating = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    // Цвета из палитры приложения
+    final backgroundColor = isDark ? const Color(0xFF2C2C2E) : Colors.white;
+    final onSurfaceColor = isDark ? const Color(0xFFE5E5EA) : const Color(0xFF1C1C1E);
+    final secondaryColor = isDark ? const Color(0xFF8E8E93) : const Color(0xFF3C3C43);
+    const brandColor = Color(0xFF0088CC);
+
+    return Dialog(
+      backgroundColor: backgroundColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Кнопка закрытия
+            Align(
+              alignment: Alignment.topRight,
+              child: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: Icon(Icons.close, color: secondaryColor, size: 20),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Аватарка
+            GestureDetector(
+              onTap: widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
+                  ? () => AvatarGalleryViewer.open(
+                        context,
+                        avatarUrls: [widget.avatarUrl!],
+                        displayName: widget.displayName,
+                      )
+                  : null,
+              child: Hero(
+                tag: 'avatar_hero_${widget.avatarUrl}',
+                flightShuttleBuilder: (
+                  flightContext,
+                  animation,
+                  flightDirection,
+                  fromHeroContext,
+                  toHeroContext,
+                ) {
+                  final CurvedAnimation curvedAnimation = CurvedAnimation(
+                    parent: animation,
+                    curve: Curves.fastOutSlowIn,
+                  );
+                  return AnimatedBuilder(
+                    animation: curvedAnimation,
+                    builder: (context, child) {
+                      final double currentRadius = (1.0 - curvedAnimation.value) * 40.0;
+                      return ClipRRect(
+                        borderRadius: BorderRadius.circular(currentRadius),
+                        child: toHeroContext.widget,
+                      );
+                    },
+                  );
+                },
+                child: CircleAvatar(
+                  radius: 40,
+                  backgroundColor: isDark ? const Color(0xFF3C3C43) : const Color(0xFFE0E0E0),
+                  backgroundImage: widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
+                      ? avatarImageProvider(widget.avatarUrl)
+                      : null,
+                  child: widget.avatarUrl == null || widget.avatarUrl!.isEmpty
+                      ? Text(
+                          widget.displayName.isNotEmpty
+                              ? widget.displayName[0].toUpperCase()
+                              : '?',
+                          style: TextStyle(
+                            color: isDark ? Colors.white70 : Colors.black38,
+                            fontSize: 36,
+                            fontWeight: FontWeight.w300,
+                          ),
+                        )
+                      : null,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Имя
+            Text(
+              widget.displayName,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: onSurfaceColor,
+              ),
+            ),
+            const SizedBox(height: 4),
+
+            // Username
+            Text(
+              '@${widget.username}',
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 15,
+                color: brandColor,
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Кнопка «Начать чат»
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isCreating ? null : _handleStartChat,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: brandColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: _isCreating
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(
+                        widget.startChatLabel,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

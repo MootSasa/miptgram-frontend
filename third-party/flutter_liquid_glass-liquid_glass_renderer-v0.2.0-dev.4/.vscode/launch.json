@@ -1,0 +1,59 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "example",
+            "cwd": "packages/liquid_glass_renderer/example",
+            "program": "lib/main.dart",
+            "request": "launch",
+            "type": "dart",
+            "toolArgs": [
+                "--enable-impeller"
+            ]
+        },
+        {
+            "name": "example (no impeller)",
+            "cwd": "packages/liquid_glass_renderer/example",
+            "program": "lib/main.dart",
+            "request": "launch",
+            "type": "dart",
+            "toolArgs": [
+                "--no-enable-impeller"
+            ]
+        },
+        {
+            "name": "example (profile mode)",
+            "cwd": "packages/liquid_glass_renderer/example",
+            "program": "lib/main.dart",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "profile",
+            "toolArgs": [
+                "--enable-impeller"
+            ]
+        },
+        {
+            "name": "example (release mode)",
+            "cwd": "packages/liquid_glass_renderer/example",
+            "program": "lib/main.dart",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "release",
+            "toolArgs": [
+                "--enable-impeller"
+            ]
+        },
+        {
+            "name": "Golden",
+            "request": "launch",
+            "type": "dart",
+            "codeLens": {
+              "for": ["debug-test", "debug-test-file"]
+            },
+            "args": ["--update-goldens", "--enable-impeller"]
+        }
+    ]
+}

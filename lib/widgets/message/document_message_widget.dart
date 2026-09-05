@@ -5,7 +5,9 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:web/web.dart' as web;
+import 'package:url_launcher/url_launcher.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
+import '../../l10n/app_localizations.dart';
 
 enum DownloadStatus { idle, downloading, downloaded, failed }
 
@@ -30,94 +32,106 @@ class _DocumentMessageWidgetState extends State<DocumentMessageWidget> {
   double _progress = 0.0;
   String? _downloadedFilePath;
 
+  String _formatSize(double bytes) {
+    if (bytes <= 0) return '';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final formattedSize = _formatSize(widget.fileSize);
     return GestureDetector(
       onTap: _status == DownloadStatus.downloaded ? _showFileOptions : null,
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.shade300),
-          borderRadius: BorderRadius.circular(8),
+          color: Colors.black.withValues(alpha: 0.05),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+          borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.insert_drive_file, size: 40, color: Colors.blue),
-            const SizedBox(width: 12),
-            Expanded(
+            const iconoir.Page(width: 32, height: 32, color: Color(0xFF0088CC)),
+            const SizedBox(width: 10),
+            Flexible(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     widget.fileName,
                     style: const TextStyle(
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
                     ),
                     overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${(widget.fileSize / 1024 / 1024).toStringAsFixed(2)} MB',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
+                  if (formattedSize.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      formattedSize,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
-            const SizedBox(width: 12),
-            _buildActionButton(),
+            const SizedBox(width: 10),
+            _buildActionButton(context),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildActionButton() {
+  Widget _buildActionButton(BuildContext context) {
     if (_status == DownloadStatus.downloading) {
       return SizedBox(
-        width: 80,
-        height: 30,
+        width: 32,
+        height: 32,
         child: Stack(
+          alignment: Alignment.center,
           children: [
             CircularProgressIndicator(
-              value: _progress,
+              value: _progress > 0 ? _progress : null,
               strokeWidth: 2.0,
             ),
-            Center(
-              child: Text(
+            if (_progress > 0)
+              Text(
                 '${(_progress * 100).toStringAsFixed(0)}%',
                 style: const TextStyle(
-                  fontSize: 12,
+                  fontSize: 9,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-            ),
           ],
         ),
       );
     } else if (_status == DownloadStatus.failed) {
-      return ElevatedButton.icon(
+      return IconButton(
         onPressed: _startDownload,
-        icon: const Icon(Icons.refresh, size: 16),
-        label: const Text('Retry'),
-        style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          textStyle: const TextStyle(fontSize: 12),
-        ),
+        icon: const iconoir.Refresh(width: 20, height: 20),
+        tooltip: context.l10n.translate('chat_file_not_found'),
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
       );
     } else if (_status == DownloadStatus.downloaded) {
-      return const Icon(Icons.check_circle, color: Colors.green, size: 20);
+      return const iconoir.CheckCircle(color: Colors.green, width: 22, height: 22);
     } else {
-      return ElevatedButton.icon(
+      return IconButton(
         onPressed: _startDownload,
-        icon: const Icon(Icons.download, size: 16),
-        label: const Text('Download'),
-        style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          textStyle: const TextStyle(fontSize: 12),
-        ),
+        icon: const iconoir.Download(width: 20, height: 20, color: Color(0xFF0088CC)),
+        tooltip: context.l10n.translate('chat_download'),
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
       );
     }
   }
@@ -148,11 +162,10 @@ class _DocumentMessageWidgetState extends State<DocumentMessageWidget> {
     }
   
     Future<void> _downloadWeb() async {
-      // For web, trigger download via anchor tag
-      web.HTMLAnchorElement()
-        ..href = widget.fileUrl
-        ..setAttribute('download', widget.fileName)
-        ..click();
+      final uri = Uri.tryParse(widget.fileUrl);
+      if (uri != null) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
   
       // Show notification that download started
       if (mounted) {
@@ -264,23 +277,23 @@ class _DocumentMessageWidgetState extends State<DocumentMessageWidget> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.open_in_new),
-              title: const Text('Открыть файл'),
+              leading: const iconoir.OpenNewWindow(width: 22, height: 22),
+              title: Text(context.l10n.translate('chat_open_file')),
               onTap: () {
                 Navigator.pop(context);
                 _openDownloadedFile();
               },
             ),
             ListTile(
-              leading: const Icon(Icons.share),
-              title: const Text('Поделиться'),
+              leading: const iconoir.ShareAndroid(width: 22, height: 22),
+              title: Text(context.l10n.translate('share')),
               onTap: () {
                 Navigator.pop(context);
                 _shareFile();
               },
             ),
             ListTile(
-              leading: const Icon(Icons.folder),
+              leading: const iconoir.Folder(width: 22, height: 22),
               title: Text('Показать в папке: $_downloadedFilePath'),
               onTap: () {
                 Navigator.pop(context);

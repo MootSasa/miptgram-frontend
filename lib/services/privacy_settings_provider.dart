@@ -180,8 +180,39 @@ class PrivacySettingsProvider extends ChangeNotifier {
     } catch (e) { debugPrint('PrivacySettingsProvider: unblockUser: $e'); return false; }
   }
 
+  int _accountTTLMonths = 6;
+  int get accountTTLMonths => _accountTTLMonths;
+
+  /// Загрузить настройку авто-удаления аккаунта
+  Future<void> loadAccountTTL() async {
+    try {
+      final r = await _dio.get('${AppConfig.baseUrl}/api/security/account-ttl',
+          options: Options(headers: await _h()));
+      if (r.data != null && r.data['ttl_months'] != null) {
+        _accountTTLMonths = r.data['ttl_months'] as int;
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('PrivacySettingsProvider: loadAccountTTL: $e');
+    }
+  }
+
+  /// Сохранить настройку авто-удаления аккаунта
+  Future<bool> saveAccountTTL(int months) async {
+    try {
+      await _dio.put('${AppConfig.baseUrl}/api/security/account-ttl',
+          data: {'ttl_months': months}, options: Options(headers: await _h()));
+      _accountTTLMonths = months;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('PrivacySettingsProvider: saveAccountTTL: $e');
+      return false;
+    }
+  }
+
   /// Загрузить все данные разом
   Future<void> loadAll() async {
-    await Future.wait([loadPrivacySettings(), load2FA(), loadAppLock(), loadBlockedUsers()]);
+    await Future.wait([loadPrivacySettings(), load2FA(), loadAppLock(), loadBlockedUsers(), loadAccountTTL()]);
   }
 }

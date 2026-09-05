@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:video_player/video_player.dart';
 
 /// Inline video player for chat messages
@@ -143,12 +144,18 @@ class _InlineVideoPlayerState extends State<InlineVideoPlayer> {
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 200),
                       child: _isPlaying
-                          ? const Icon(Icons.pause_circle_filled,
+                          ? const iconoir.Pause(
                               key: ValueKey('pause'),
-                              color: Colors.white, size: 48)
-                          : const Icon(Icons.play_circle_filled,
+                              color: Colors.white,
+                              width: 48,
+                              height: 48,
+                            )
+                          : const iconoir.Play(
                               key: ValueKey('play'),
-                              color: Colors.white, size: 48),
+                              color: Colors.white,
+                              width: 48,
+                              height: 48,
+                            ),
                     ),
                   ),
                 ),
@@ -238,7 +245,7 @@ class _InlineVideoPlayerState extends State<InlineVideoPlayer> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.error_outline, color: Colors.white54, size: 40),
+          const iconoir.WarningCircle(color: Colors.white54, width: 40, height: 40),
           const SizedBox(height: 8),
           Text(
             'Ошибка загрузки видео',

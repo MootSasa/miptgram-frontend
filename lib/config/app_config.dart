@@ -361,6 +361,9 @@ class AppConfig {
   /// Application version
   static const String appVersion = '1.0.0';
 
+  /// Application build number
+  static const int appBuildNumber = 1;
+
   /// Build date
   static const String buildDate = '08.08.2026';
 }

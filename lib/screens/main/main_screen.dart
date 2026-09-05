@@ -13,6 +13,7 @@ import '../../screens/settings/profile_screen.dart';
 import '../../screens/chat/private_chat_screen.dart';
 import '../../screens/chat/group_chat_screen.dart';
 import '../../screens/chat/channel_screen.dart';
+import '../../screens/chat/system_notifications_screen.dart';
 import '../../services/search_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/chat_service.dart';
@@ -32,6 +33,9 @@ import '../../services/sync_service.dart';
 import '../../services/database/app_database.dart';
 import 'package:drift/drift.dart' show Value;
 import '../../utils/swipe_back_route.dart';
+import '../../utils/date_time_utils.dart';
+import '../../services/update_service.dart';
+import '../settings/widgets/update_dialog.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({Key? key}) : super(key: key);
@@ -104,6 +108,29 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     // 3. WebSocket (параллельно, не блокирует UI)
     _initWebSocket();
     _startConnectionCheck();
+
+    // 4. Проверка обновлений в фоне
+    _checkForUpdates();
+  }
+
+  Future<void> _checkForUpdates() async {
+    try {
+      final isAutoCheck = await AppUpdateService.instance.isAutoCheckEnabled();
+      if (!isAutoCheck) return;
+
+      // Небольшая задержка, чтобы не забивать сеть в момент первичной отрисовки UI
+      await Future.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+
+      final update = await AppUpdateService.instance.checkForUpdate(silent: true);
+      if (!mounted) return;
+
+      if (update.hasUpdate) {
+        UpdateDialog.show(context, update, isManual: false);
+      }
+    } catch (e) {
+      debugPrint('MainScreen: Background update check error: $e');
+    }
   }
 
   Future<void> _initOfflineFirst() async {
@@ -152,6 +179,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _wsService.subscribe(WebSocketEventType.messageRead, _onMessageRead);
     _wsService.subscribe(
         WebSocketEventType.unreadCountUpdated, _onUnreadCountUpdated);
+    _wsService.subscribe(WebSocketEventType.userStatus, _onUserStatus);
 
     // Now connect — the 'connected' event will be caught by our listeners
     await _wsService.connect();
@@ -325,6 +353,31 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       } catch (_) {}
 
       _syncChatUnreadCount(chatId, unreadCount);
+    }
+  }
+
+  /// Handle real-time presence changes for mutual contacts in chat list
+  void _onUserStatus(WebSocketEvent event) {
+    final userId = event.data['user_id']?.toString();
+    final isOnline = event.data['is_online'] == true;
+    final lastSeen = event.data['last_seen'] != null
+        ? DateTimeUtils.parseUtcDateTime(event.data['last_seen'])
+            ?.toIso8601String()
+        : null;
+
+    if (userId != null && mounted) {
+      setState(() {
+        for (int i = 0; i < _chats.length; i++) {
+          if (_chats[i].chatType == 'private' &&
+              _chats[i].otherUserId == userId) {
+            _chats[i] = _chats[i].copyWith(
+              isOnline: isOnline,
+              lastSeen: lastSeen ??
+                  (isOnline ? null : DateTime.now().toIso8601String()),
+            );
+          }
+        }
+      });
     }
   }
 
@@ -595,6 +648,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _wsService.unsubscribe(WebSocketEventType.connected, _onWsConnected);
     _wsService.unsubscribe(WebSocketEventType.messageRead, _onMessageRead);
     _wsService.unsubscribe(WebSocketEventType.unreadCountUpdated, _onUnreadCountUpdated);
+    _wsService.unsubscribe(WebSocketEventType.userStatus, _onUserStatus);
     // Remove UnreadCountProvider listener
     try {
       context.read<UnreadCountProvider>().removeListener(_onUnreadCountProviderChanged);
@@ -901,6 +955,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       case 'saved':
         icon = Icons.bookmark;
         break;
+      case 'system':
+        icon = Icons.shield_outlined;
+        break;
       default:
         icon = Icons.chat;
     }
@@ -1006,11 +1063,22 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 ),
               ),
             Expanded(
-              child: Text(
-                chat.name,
-                style: TextStyle(
-                  fontWeight: hasUnread ? FontWeight.w600 : FontWeight.w500,
-                ),
+              child: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      chat.name,
+                      style: TextStyle(
+                        fontWeight: hasUnread ? FontWeight.w600 : FontWeight.w500,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (chat.chatType == 'system') ...[
+                    const SizedBox(width: 4),
+                    const Icon(Icons.verified, size: 16, color: Color(0xFF0088CC)),
+                  ],
+                ],
               ),
             ),
           ],
@@ -1310,6 +1378,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               chatId: chat.id,
               otherUserName: chat.name,
               otherUserAvatar: chat.avatarUrl,
+              otherUserOnline: chat.isOnline,
+              otherUserLastSeen:
+                  DateTimeUtils.parseUtcDateTime(chat.lastSeen),
+              otherUserId: chat.otherUserId,
             ),
           ),
         ).then((_) {});
@@ -1323,6 +1395,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               chatId: chat.id,
               otherUserName: 'Избранное',
               otherUserAvatar: null,
+            ),
+          ),
+        ).then((_) {});
+        break;
+      case 'system':
+        Navigator.push(
+          context,
+          SwipeBackPageRoute(
+            builder: (_) => SystemNotificationsScreen(
+              chatId: chat.id,
+              chatName: chat.name.isNotEmpty
+                  ? chat.name
+                  : context.l10n.translate('system_notifications_title'),
             ),
           ),
         ).then((_) {});
@@ -1356,19 +1441,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   String _formatChatTime(String timestamp) {
     try {
-      final dateTime = DateTime.parse(timestamp);
+      final localDateTime = DateTimeUtils.parseUtcDateTime(timestamp);
+      if (localDateTime == null) return '';
       final now = DateTime.now();
-      final difference = now.difference(dateTime);
 
-      if (difference.inDays == 0) {
-        return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
-      } else if (difference.inDays == 1) {
-        return 'Yesterday';
-      } else if (difference.inDays < 7) {
-        final weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-        return weekdays[dateTime.weekday - 1];
+      if (DateTimeUtils.isToday(localDateTime, now: now)) {
+        return '${localDateTime.hour.toString().padLeft(2, '0')}:${localDateTime.minute.toString().padLeft(2, '0')}';
+      } else if (DateTimeUtils.isYesterday(localDateTime, now: now)) {
+        return context.l10n.translate('date_yesterday');
       } else {
-        return '${dateTime.day}.${dateTime.month}';
+        final days = DateTimeUtils.startOfDay(now)
+            .difference(DateTimeUtils.startOfDay(localDateTime))
+            .inDays;
+        if (days < 7 && days > 0) {
+          return DateTimeUtils.formatWeekday(localDateTime.weekday, context);
+        } else {
+          return '${localDateTime.day}.${localDateTime.month}';
+        }
       }
     } catch (e) {
       return '';
@@ -1922,19 +2011,24 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   String _formatDate(DateTime date) {
     final l10n = context.l10n;
+    final localDate = date.toLocal();
     final now = DateTime.now();
-    final difference = now.difference(date);
 
-    if (difference.inDays == 0) {
-      return '${l10n.translate('date_today')} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
-    } else if (difference.inDays == 1) {
+    if (DateTimeUtils.isToday(localDate, now: now)) {
+      return '${l10n.translate('date_today')} ${localDate.hour.toString().padLeft(2, '0')}:${localDate.minute.toString().padLeft(2, '0')}';
+    } else if (DateTimeUtils.isYesterday(localDate, now: now)) {
       return l10n.translate('date_yesterday');
-    } else if (difference.inDays < 7) {
-      return l10n
-          .translate('date_days_ago')
-          .replaceAll('{days}', difference.inDays.toString());
     } else {
-      return '${date.day}.${date.month}.${date.year}';
+      final daysDiff = DateTimeUtils.startOfDay(now)
+          .difference(DateTimeUtils.startOfDay(localDate))
+          .inDays;
+      if (daysDiff < 7 && daysDiff > 0) {
+        return l10n
+            .translate('date_days_ago')
+            .replaceAll('{days}', daysDiff.toString());
+      } else {
+        return '${localDate.day}.${localDate.month.toString().padLeft(2, '0')}.${localDate.year}';
+      }
     }
   }
 
@@ -1957,6 +2051,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   chatId: chat.id,
                   otherUserName: result.name,
                   otherUserAvatar: result.avatarUrl,
+                  otherUserId: result.id,
                 ),
               ),
             ).then((_) {});

@@ -1,4 +1,6 @@
+import 'dart:io' show File;
 import 'package:flutter/material.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:photo_view/photo_view.dart';
 
 /// Full-screen photo viewer with pinch-to-zoom and swipe-to-dismiss
@@ -41,7 +43,7 @@ class FullscreenPhotoViewer extends StatelessWidget {
         backgroundColor: Colors.black.withValues(alpha: 0.5),
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.white),
+          icon: const iconoir.Xmark(color: Colors.white, width: 24, height: 24),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -62,13 +64,13 @@ class FullscreenPhotoViewer extends StatelessWidget {
             child: CircularProgressIndicator(
               value: event?.cumulativeBytesLoaded != null &&
                       event?.expectedTotalBytes != null
-                  ? event!.cumulativeBytesLoaded / event!.expectedTotalBytes!
+                  ? event!.cumulativeBytesLoaded / event.expectedTotalBytes!
                   : null,
               color: Colors.white,
             ),
           ),
           errorBuilder: (context, error, stackTrace) => const Center(
-            child: Icon(Icons.broken_image, color: Colors.white54, size: 64),
+            child: iconoir.MediaImage(color: Colors.white54, width: 64, height: 64),
           ),
         ),
       ),
@@ -88,6 +90,12 @@ class FullscreenPhotoViewer extends StatelessWidget {
       } catch (_) {
         return NetworkImage(url);
       }
+    }
+    if (url.startsWith('file://')) {
+      return FileImage(File(url.replaceFirst('file://', '')));
+    }
+    if (url.startsWith('/') && !url.startsWith('//')) {
+      return FileImage(File(url));
     }
     return NetworkImage(url);
   }

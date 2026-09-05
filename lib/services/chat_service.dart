@@ -4,11 +4,12 @@ import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 import 'auth_service.dart';
 import 'database/app_database.dart';
+import '../utils/date_time_utils.dart';
 
 /// Chat represents a chat conversation.
 class Chat {
   final String id;
-  final String chatType; // 'private', 'group', 'channel', 'saved'
+  final String chatType; // 'private', 'group', 'channel', 'saved', 'system'
   final String name;
   final String? avatarUrl;
   final String? lastMessage;
@@ -18,6 +19,7 @@ class Chat {
   final bool isOnline; // Online status for private chats
   final String? lastSeen; // Last seen time for private chats
   final bool isPinned; // Whether chat is pinned
+  final String? otherUserId;
 
   Chat({
     required this.id,
@@ -31,11 +33,12 @@ class Chat {
     this.isOnline = false,
     this.lastSeen,
     this.isPinned = false,
+    this.otherUserId,
   });
 
   factory Chat.fromJson(Map<String, dynamic> json) {
     return Chat(
-      id: json['id']?.toString() ?? '',
+      id: json['id']?.toString() ?? json['chat_id']?.toString() ?? '',
       chatType: json['chat_type']?.toString() ?? 'private',
       name: json['name']?.toString() ?? '',
       avatarUrl: json['avatar_url']?.toString(),
@@ -46,6 +49,7 @@ class Chat {
       isOnline: json['is_online'] ?? false,
       lastSeen: json['last_seen']?.toString(),
       isPinned: json['is_pinned'] ?? false,
+      otherUserId: json['other_user_id']?.toString() ?? json['otherUserId']?.toString(),
     );
   }
 
@@ -61,6 +65,7 @@ class Chat {
     bool? isOnline,
     String? lastSeen,
     bool? isPinned,
+    String? otherUserId,
   }) {
     return Chat(
       id: id ?? this.id,
@@ -74,6 +79,7 @@ class Chat {
       isOnline: isOnline ?? this.isOnline,
       lastSeen: lastSeen ?? this.lastSeen,
       isPinned: isPinned ?? this.isPinned,
+      otherUserId: otherUserId ?? this.otherUserId,
     );
   }
 }
@@ -431,6 +437,8 @@ class ChatParticipant {
   final String displayName;
   final String? avatarUrl;
   final String role;
+  final bool isOnline;
+  final DateTime? lastSeen;
 
   ChatParticipant({
     required this.id,
@@ -438,7 +446,29 @@ class ChatParticipant {
     required this.displayName,
     this.avatarUrl,
     required this.role,
+    this.isOnline = false,
+    this.lastSeen,
   });
+
+  ChatParticipant copyWith({
+    String? id,
+    String? username,
+    String? displayName,
+    String? avatarUrl,
+    String? role,
+    bool? isOnline,
+    DateTime? lastSeen,
+  }) {
+    return ChatParticipant(
+      id: id ?? this.id,
+      username: username ?? this.username,
+      displayName: displayName ?? this.displayName,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
+      role: role ?? this.role,
+      isOnline: isOnline ?? this.isOnline,
+      lastSeen: lastSeen ?? this.lastSeen,
+    );
+  }
 
   factory ChatParticipant.fromJson(Map<String, dynamic> json) {
     return ChatParticipant(
@@ -447,6 +477,8 @@ class ChatParticipant {
       displayName: json['display_name']?.toString() ?? '',
       avatarUrl: json['avatar_url']?.toString(),
       role: json['role']?.toString() ?? 'member',
+      isOnline: json['is_online'] == true,
+      lastSeen: DateTimeUtils.parseUtcDateTime(json['last_seen']),
     );
   }
 }
@@ -814,6 +846,56 @@ class ChatService {
       }
     } catch (e) {
       debugPrint('Mark messages as read error: $e');
+      return {'success': false, 'message': 'Network error: ${e.toString()}'};
+    }
+  }
+
+  /// Edits a message in a chat.
+  ///
+  /// [chatId] - The ID of the chat containing the message
+  /// [messageId] - The ID of the message to edit
+  /// [content] - The new content for the message
+  static Future<Map<String, dynamic>> editMessage({
+    required String chatId,
+    required String messageId,
+    required String content,
+  }) async {
+    try {
+      final token = await AuthService.getToken();
+      if (token == null) {
+        return {'success': false, 'message': 'Not authenticated'};
+      }
+
+      final body = <String, dynamic>{
+        'content': content,
+      };
+
+      final response = await http.put(
+        Uri.parse('${AppConfig.baseUrl}/api/chats/$chatId/messages/$messageId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(body),
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {
+          'success': true,
+          'message': data['message'] ?? 'Message edited successfully',
+          'message_id': data['message_id']?.toString() ?? messageId,
+          'content': data['content'] ?? content,
+          'is_edited': true,
+        };
+      } else {
+        return {
+          'success': false,
+          'message': data['message'] ?? 'Failed to edit message',
+        };
+      }
+    } catch (e) {
+      debugPrint('Edit message error: $e');
       return {'success': false, 'message': 'Network error: ${e.toString()}'};
     }
   }

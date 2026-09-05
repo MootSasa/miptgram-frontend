@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Разрешить cleartext traffic для localhost (разработка) -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">10.0.2.2</domain>
-    </domain-config>
-    <!-- Домены Miptgram (HTTPS) -->
+    <!-- Разрешить cleartext traffic по умолчанию для локальных IP, ZeroTier и разработки -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+    <!-- Домены Miptgram (строго HTTPS) -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">miptgram.ru</domain>
+        <domain includeSubdomains="true">api.miptgram.ru</domain>
+        <domain includeSubdomains="true">storage.miptgram.ru</domain>
     </domain-config>
 </network-security-config>

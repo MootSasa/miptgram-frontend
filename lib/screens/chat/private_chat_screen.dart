@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:flutter/services.dart';
-import 'package:characters/characters.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:provider/provider.dart';
 import 'dart:async';
@@ -10,12 +9,10 @@ import 'dart:math' as math;
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:http/http.dart' as http;
 import '../../config/app_config.dart';
-import '../../utils/haptic_utils.dart';
 import '../../services/chat_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/websocket_service.dart';
@@ -25,44 +22,35 @@ import '../../services/unread_count_provider.dart';
 import '../../services/sync_service.dart';
 import '../../utils/emoji_utils.dart';
 import '../../services/database/app_database.dart';
+import '../../l10n/app_localizations.dart';
 import 'package:drift/drift.dart' show Value;
-import '../../widgets/user/status_widget.dart';
-import '../../widgets/user/avatar_with_status.dart';
 import '../../widgets/chat/liquid_glass_input_field.dart';
 import '../../widgets/chat/floating_glass_app_bar.dart';
-import '../../widgets/chat/matte_app_bar.dart';
+import '../../widgets/chat/chat_scaffold.dart';
+import '../../widgets/chat/chat_input_bar.dart';
 import '../../widgets/chat/visible_message_detector.dart';
 import '../../widgets/chat/swipe_to_reply_wrapper.dart';
-import '../../widgets/chat/reply_preview_bar.dart';
-import '../../widgets/chat/message_reply_info.dart';
-import '../../widgets/chat/chat_menu_widget.dart';
-import '../../widgets/chat/reactions_panel.dart';
 import '../../widgets/chat/unread_separator.dart';
 import '../../widgets/chat/emoji_sticker_panel.dart';
 import '../../widgets/message/fullscreen_photo_viewer.dart';
-import '../../widgets/message/inline_video_player.dart';
-import '../../widgets/message/media_download_button.dart';
-import '../../services/settings_service.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import '../../services/message_context_menu_service.dart';
 import '../../services/glass_toast_service.dart';
 import '../../services/wallpaper_provider.dart';
-import '../../widgets/message/message_status_widget.dart';
-import '../../widgets/message/text_message_widget.dart';
 import '../../widgets/message/message_bubble.dart';
 import '../../utils/swipe_back_route.dart';
 import 'group_chat_screen.dart';
 import 'channel_screen.dart';
-
-// --- НАСТРОЙКИ СТИЛЯ СООБЩЕНИЙ ---
-/// Радиус скругления «облачка» сообщения.
-const double _kMessageBorderRadius = 18.0;
-// ---------------------------------
+import '../../utils/date_time_utils.dart';
 
 class PrivateChatScreen extends StatefulWidget {
   final String chatId;
   final String? otherUserName;
   final String? otherUserAvatar;
   final String? initialMessageId;
+  final bool? otherUserOnline;
+  final DateTime? otherUserLastSeen;
+  final String? otherUserId;
 
   const PrivateChatScreen({
     Key? key,
@@ -70,6 +58,9 @@ class PrivateChatScreen extends StatefulWidget {
     this.otherUserName,
     this.otherUserAvatar,
     this.initialMessageId,
+    this.otherUserOnline,
+    this.otherUserLastSeen,
+    this.otherUserId,
   }) : super(key: key);
 
   @override
@@ -164,6 +155,15 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.otherUserOnline != null) {
+      _isOtherUserOnline = widget.otherUserOnline!;
+    }
+    if (widget.otherUserLastSeen != null) {
+      _otherUserLastSeen = widget.otherUserLastSeen;
+    }
+    if (widget.otherUserId != null) {
+      _otherUserId = widget.otherUserId;
+    }
     _loadData();
     _initWebSocket();
     _scrollController.addListener(_onScroll);
@@ -224,7 +224,34 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       if (chatId == widget.chatId) {
         _onUnreadCountUpdated(event);
       }
+    } else if (event.type == WebSocketEventType.messageEdited) {
+      final chatId = event.data['chat_id']?.toString();
+      if (chatId == widget.chatId) {
+        _onMessageEdited(event);
+      }
     }
+  }
+
+  void _onMessageEdited(WebSocketEvent event) {
+    final messageId = event.data['message_id']?.toString();
+    final newContent = event.data['content']?.toString();
+    if (messageId == null || newContent == null) return;
+
+    if (mounted) {
+      setState(() {
+        final index = _messages.indexWhere((m) => m.id == messageId);
+        if (index != -1) {
+          _messages[index] = _messages[index].copyWith(
+            content: newContent,
+            isEdited: true,
+          );
+        }
+      });
+    }
+
+    try {
+      AppDatabase().updateMessageContent(messageId, newContent);
+    } catch (_) {}
   }
 
   void _onUnreadCountUpdated(WebSocketEvent event) {
@@ -262,6 +289,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     if (mounted) {
       setState(() {
+        // If typing user sent message, immediately cancel typing
+        if (_typingUserId == message.senderId || _isTyping) {
+          _typingTimer?.cancel();
+          _isTyping = false;
+          _typingUserId = null;
+        }
         _messages.insert(0, message);
       });
 
@@ -278,15 +311,27 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     final typingUserId = event.data['user_id']?.toString();
     if (typingUserId == _currentUserId) return;
 
+    final bool isTyping = event.data['is_typing'] != false;
+
     if (mounted) {
+      if (!isTyping) {
+        // User stopped typing / cleared input field
+        _typingTimer?.cancel();
+        setState(() {
+          _isTyping = false;
+          _typingUserId = null;
+        });
+        return;
+      }
+
       setState(() {
         _typingUserId = typingUserId;
         _isTyping = true;
       });
 
-      // Clear typing indicator after 3 seconds
+      // Clear typing indicator after 4 seconds (Telegram-like smooth safety window)
       _typingTimer?.cancel();
-      _typingTimer = Timer(const Duration(seconds: 3), () {
+      _typingTimer = Timer(const Duration(seconds: 4), () {
         if (mounted) {
           setState(() {
             _isTyping = false;
@@ -387,14 +432,43 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         _isOtherUserOnline = event.data['is_online'] == true;
         if (event.data['last_seen'] != null) {
           _otherUserLastSeen =
-              DateTime.tryParse(event.data['last_seen'].toString());
+              DateTimeUtils.parseUtcDateTime(event.data['last_seen']);
+        } else if (!_isOtherUserOnline) {
+          _otherUserLastSeen = DateTime.now();
         }
       });
     }
   }
 
-  void _sendTypingIndicator() {
-    _wsService.sendTypingIndicator(widget.chatId);
+  Timer? _typingKeepAliveTimer;
+  bool _amITyping = false;
+
+  void _onInputTextChanged(String text) {
+    final bool hasText = text.trim().isNotEmpty;
+    if (hasText) {
+      if (!_amITyping) {
+        _amITyping = true;
+        _wsService.sendTypingIndicator(widget.chatId, isTyping: true);
+      }
+      _typingKeepAliveTimer ??= Timer.periodic(const Duration(milliseconds: 2000), (_) {
+        if (_textController.text.trim().isNotEmpty) {
+          _wsService.sendTypingIndicator(widget.chatId, isTyping: true);
+        } else {
+          _stopMyTyping();
+        }
+      });
+    } else {
+      _stopMyTyping();
+    }
+  }
+
+  void _stopMyTyping() {
+    _typingKeepAliveTimer?.cancel();
+    _typingKeepAliveTimer = null;
+    if (_amITyping) {
+      _amITyping = false;
+      _wsService.sendTypingIndicator(widget.chatId, isTyping: false);
+    }
   }
 
   void _onMessageRead(WebSocketEvent event) {
@@ -550,6 +624,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
   /// Cancel current message editing
   void _cancelEditing() {
+    _stopMyTyping();
     setState(() {
       _isEditing = false;
       _editingMessageId = null;
@@ -781,6 +856,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                 : participant.username;
             _chatAvatar = participant.avatarUrl;
             _otherUserId = participant.id;
+            _isOtherUserOnline = participant.isOnline;
+            _otherUserLastSeen = participant.lastSeen;
           });
           break;
         }
@@ -1073,10 +1150,41 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     if ((text.isEmpty && _attachedFiles.isEmpty) || _isSending) return;
 
     if (_isEditing && _editingMessageId != null) {
-      // Handle message edit
-      // TODO: Implement actual server-side edit call
-      debugPrint('DEBUG: Editing message $_editingMessageId with new content: $text');
+      final messageId = _editingMessageId!;
       _cancelEditing();
+      try {
+        final res = await ChatService.editMessage(
+          chatId: widget.chatId,
+          messageId: messageId,
+          content: text,
+        );
+        if (res['success'] == true) {
+          if (mounted) {
+            setState(() {
+              final idx = _messages.indexWhere((m) => m.id == messageId);
+              if (idx != -1) {
+                _messages[idx] = _messages[idx].copyWith(
+                  content: text,
+                  isEdited: true,
+                );
+              }
+            });
+          }
+          await AppDatabase().updateMessageContent(messageId, text);
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  res['message'] ?? context.l10n.translate('chat_edit_error'),
+                ),
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('Error editing message: $e');
+      }
       return;
     }
 
@@ -1087,6 +1195,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     final replyQuoteOffset = _quoteOffset;
     final replyQuoteLength = _quoteLength;
 
+    _stopMyTyping();
     _textController.clear();
     setState(() {
       _isSending = true;
@@ -1350,28 +1459,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   String _formatTime(String timestamp) {
-    try {
-      // Parse UTC timestamp and convert to local time
-      final dateTime = DateTime.parse(timestamp);
-      // Convert to local timezone
-      final localDateTime = dateTime.toLocal();
-      final now = DateTime.now();
-      final difference = now.difference(localDateTime);
-
-      if (difference.inDays == 0) {
-        // Today - show time in local timezone
-        return '${localDateTime.hour.toString().padLeft(2, '0')}:${localDateTime.minute.toString().padLeft(2, '0')}';
-      } else if (difference.inDays == 1) {
-        return 'Yesterday';
-      } else if (difference.inDays < 7) {
-        final weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-        return weekdays[localDateTime.weekday - 1];
-      } else {
-        return '${localDateTime.day}.${localDateTime.month}.${localDateTime.year}';
-      }
-    } catch (e) {
-      return '';
-    }
+    return DateTimeUtils.formatTimeHHmm(timestamp);
   }
 
   /// Validates and returns a valid avatar URL, or null if invalid
@@ -1398,49 +1486,42 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       builder: (context, glassProvider, _) {
         final glassEnabled = glassProvider.enabled;
 
-        // Когда Liquid Glass включён — используем Stack с glass AppBar и input
-        // Когда выключён — обычный Scaffold с Column
-        return Scaffold(
-          resizeToAvoidBottomInset: false,
-          body: Stack(
-            children: [
-              // Основной контент (сообщения + поле ввода)
-              Positioned.fill(
-                child: _buildChatContent(glassEnabled),
-              ),
-              // Floating Glass AppBar поверх контента
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: FloatingGlassAppBar(
-                  name: displayName,
-                  avatarUrl: widget.otherUserAvatar ?? _chatAvatar,
-                  isOnline: _isOtherUserOnline,
-                  lastSeen: _otherUserLastSeen,
-                  onBack: () => Navigator.pop(context),
-                  onTitleTap: _viewUserProfile,
-                  onAvatarTap: () {
-                    GlassChatMenu.show(
-                      context,
-                      isMuted: _isMuted,
-                      onVoiceCall: _startVoiceCall,
-                      onVideoCall: _startVideoCall,
-                      onSearch: () {
-                        // Enter search mode locally if needed, or navigate
-                        _searchMessages();
-                      },
-                      onToggleMute: _toggleMuteNotifications,
-                      onClearHistory: _showClearHistoryDialog,
-                      onReport: _showBlockUserDialog,
-                      onViewProfile: _viewUserProfile,
-                    );
-                  },
-                ),
-              ),
-            ],
+        return ChatScaffold(
+          canPop: !_showEmojiPanel && MediaQuery.of(context).viewInsets.bottom == 0,
+          onPopInvoked: (didPop, _) {
+            if (!didPop) {
+              if (_showEmojiPanel) {
+                setState(() => _showEmojiPanel = false);
+              } else if (MediaQuery.of(context).viewInsets.bottom > 0) {
+                FocusScope.of(context).unfocus();
+              }
+            }
+          },
+          appBar: FloatingGlassAppBar(
+            name: displayName,
+            avatarUrl: widget.otherUserAvatar ?? _chatAvatar,
+            isOnline: _isOtherUserOnline,
+            lastSeen: _otherUserLastSeen,
+            statusText: _isTyping ? context.l10n.translate('chat_typing') : null,
+            onBack: () => Navigator.pop(context),
+            onTitleTap: _viewUserProfile,
+            onAvatarTap: () {
+              GlassChatMenu.show(
+                context,
+                isMuted: _isMuted,
+                onVoiceCall: _startVoiceCall,
+                onVideoCall: _startVideoCall,
+                onSearch: () {
+                  _searchMessages();
+                },
+                onToggleMute: _toggleMuteNotifications,
+                onClearHistory: _showClearHistoryDialog,
+                onReport: _showBlockUserDialog,
+                onViewProfile: _viewUserProfile,
+              );
+            },
           ),
-          floatingActionButton: null, // Кнопка перенесена в основной Stack экрана (см. _buildChatContent)
+          body: _buildChatContent(glassEnabled),
         );
       },
     );
@@ -1888,148 +1969,31 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   Widget _buildMessageInput() {
-    final glassEnabled = context.watch<LiquidGlassProvider>().enabled;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Editing message header
-        if (_isEditing)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
-            child: Row(
-              children: [
-                Icon(Icons.edit, size: 16, color: Theme.of(context).colorScheme.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Редактирование',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, size: 18),
-                  onPressed: _cancelEditing,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-              ],
-            ),
-          ),
-        // Reply/Quote preview floating bubble
-        if (_replyToMessage != null)
-          ReplyPreviewBar(
-            replyToMessage: _replyToMessage!,
-            isQuote: _isQuote,
-            quoteText: _quoteText,
-            onClose: _cancelReply,
-            onTap: () => _scrollToMessage(_replyToMessage!.id),
-            enabled: glassEnabled,
-            isLite: context.watch<LiquidGlassProvider>().isLite,
-          ),
-        // Show attached files preview (outside glass for both modes)
-        if (_attachedFiles.isNotEmpty)
-          Container(
-            height: 80,
-            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: _attachedFiles.length,
-              itemBuilder: (context, index) {
-                return Container(
-                  width: 80,
-                  margin: const EdgeInsets.only(right: 8),
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: _isImageFile(_attachedFileNames[index])
-                              ? Image.file(
-                                  _attachedFiles[index],
-                                  fit: BoxFit.cover,
-                                )
-                              : Container(
-                                  color: Colors.grey[300],
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(Icons.insert_drive_file,
-                                          size: 32),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        _attachedFileNames[index],
-                                        style: const TextStyle(fontSize: 10),
-                                        overflow: TextOverflow.ellipsis,
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                        ),
-                      ),
-                      Positioned(
-                        top: 0,
-                        right: 0,
-                        child: GestureDetector(
-                          onTap: () => _removeAttachedFile(index),
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: Colors.black54,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(
-                              Icons.close,
-                              size: 16,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-        // Show upload progress
-        if (_isUploading)
-          LinearProgressIndicator(
-            value: _uploadProgress,
-            backgroundColor: Colors.grey[300],
-          ),
-        // Message input — Liquid Glass or classic
-        LiquidGlassInputField(
-          enabled: glassEnabled,
-          isLite: context.watch<LiquidGlassProvider>().isLite,
-          controller: _textController,
-          focusNode: _inputFocusNode,
-          hintText: _attachedFiles.isNotEmpty
-              ? 'Add a caption...'
-              : 'Type a message...',
-          onChanged: (_) => _sendTypingIndicator(),
-          onSend: _isSending ? null : _sendMessage,
-          onAttach: _showAttachmentPicker,
-          onEmoji: _onEmojiToggle,
-          isSending: _isSending,
-          hasAttachments: _attachedFiles.isNotEmpty,
-        ),
-      ],
+    return ChatInputBar(
+      controller: _textController,
+      focusNode: _inputFocusNode,
+      isEditing: _isEditing,
+      onCancelEditing: _cancelEditing,
+      replyToMessage: _replyToMessage,
+      isQuote: _isQuote,
+      quoteText: _quoteText,
+      onCancelReply: _cancelReply,
+      onTapReply: _replyToMessage != null
+          ? () => _scrollToMessage(_replyToMessage!.id)
+          : null,
+      attachedFiles: _attachedFiles,
+      attachedFileNames: _attachedFileNames,
+      onRemoveAttachment: _removeAttachedFile,
+      isUploading: _isUploading,
+      uploadProgress: _uploadProgress,
+      onChanged: _onInputTextChanged,
+      onSend: _sendMessage,
+      onAttach: _showAttachmentPicker,
+      onEmoji: _onEmojiToggle,
+      isSending: _isSending,
     );
   }
 
-  /// Check if file is an image based on extension
-  bool _isImageFile(String fileName) {
-    final ext = fileName.split('.').last.toLowerCase();
-    return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].contains(ext);
-  }
 
   /// Navigate to user profile screen
   void _viewUserProfile() {
@@ -2384,193 +2348,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     );
   }
 
-  /// Check if media should be auto-downloaded based on settings
-  bool _shouldAutoDownload(String messageType) {
-    final settings = SettingsService().storageSettings;
-    // For now, always auto-download in chat view (user already received the message)
-    // In future: check connectivity type (wifi/cellular/roaming) and settings
-    return true;
-  }
-
-  /// Build file preview based on message type
-  Widget _buildFilePreview(
-      String fileUrl, String fileName, String messageType) {
-    final autoDownload = _shouldAutoDownload(messageType);
-
-    // Check if it's an image — show large preview with tap-to-fullscreen
-    if (messageType == 'image' || _isImageUrl(fileUrl)) {
-      if (!autoDownload) {
-        return MediaDownloadButton(
-          fileName: fileName,
-          fileSize: '',
-          onDownload: () => _openFile(fileUrl, fileName, messageType),
-        );
-      }
-      return GestureDetector(
-        onTap: () => FullscreenPhotoViewer.open(context, fileUrl),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12.0),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.65,
-              maxHeight: 300,
-            ),
-            child: Hero(
-              tag: 'photo_$fileUrl',
-              child: Image.network(
-                fileUrl,
-                fit: BoxFit.cover,
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return Container(
-                    width: 220,
-                    height: 180,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Center(
-                      child: CircularProgressIndicator(
-                        value: loadingProgress.expectedTotalBytes != null
-                            ? loadingProgress.cumulativeBytesLoaded /
-                                loadingProgress.expectedTotalBytes!
-                            : null,
-                      ),
-                    ),
-                  );
-                },
-                errorBuilder: (context, error, stackTrace) {
-                  return _buildFileFallback(fileName);
-                },
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    // Check if it's a video — show inline video player or download button
-    if (messageType == 'video' || _isVideoUrl(fileUrl)) {
-      if (!autoDownload) {
-        return MediaDownloadButton(
-          fileName: fileName,
-          fileSize: '',
-          onDownload: () => _openFile(fileUrl, fileName, messageType),
-          isVideo: true,
-        );
-      }
-      return ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.65,
-          maxHeight: 300,
-        ),
-        child: InlineVideoPlayer(url: fileUrl),
-      );
-    }
-
-    // Check if it's audio
-    if (messageType == 'audio' || _isAudioUrl(fileUrl)) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.grey[300],
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.audiotrack, size: 32),
-            const SizedBox(width: 12),
-            Flexible(
-              child: Text(
-                fileName,
-                style: const TextStyle(fontWeight: FontWeight.w500),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Default: document/file
-    return _buildFileFallback(fileName);
-  }
-
-  /// Build fallback widget for files that can't be previewed
-  Widget _buildFileFallback(String fileName) {
-    final ext = fileName.split('.').last.toLowerCase();
-    IconData icon;
-    Color color;
-
-    switch (ext) {
-      case 'pdf':
-        icon = Icons.picture_as_pdf;
-        color = Colors.red;
-        break;
-      case 'doc':
-      case 'docx':
-        icon = Icons.description;
-        color = Colors.blue;
-        break;
-      case 'xls':
-      case 'xlsx':
-        icon = Icons.table_chart;
-        color = Colors.green;
-        break;
-      case 'zip':
-      case 'rar':
-        icon = Icons.folder_zip;
-        color = Colors.orange;
-        break;
-      default:
-        icon = Icons.insert_drive_file;
-        color = Colors.grey;
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey[300],
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 32, color: color),
-          const SizedBox(width: 12),
-          Flexible(
-            child: Text(
-              fileName,
-              style: const TextStyle(fontWeight: FontWeight.w500),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Check if URL is an image
-  bool _isImageUrl(String url) {
-    final ext = url.split('.').last.toLowerCase().split('?').first;
-    return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].contains(ext);
-  }
-
-  /// Check if URL is a video
-  bool _isVideoUrl(String url) {
-    final ext = url.split('.').last.toLowerCase().split('?').first;
-    return ['mp4', 'webm', 'mov', 'avi', 'mkv'].contains(ext);
-  }
-
-  /// Check if URL is audio
-  bool _isAudioUrl(String url) {
-    final ext = url.split('.').last.toLowerCase().split('?').first;
-    return ['mp3', 'wav', 'ogg', 'm4a', 'aac'].contains(ext);
-  }
-
   /// Open file when tapped
   void _openFile(String fileUrl, String fileName, String messageType) {
+    if (messageType == 'image') {
+      FullscreenPhotoViewer.open(context, fileUrl);
+      return;
+    }
     showModalBottomSheet(
       context: context,
       builder: (context) => SafeArea(
@@ -2578,24 +2361,24 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.open_in_new),
-              title: const Text('Открыть файл'),
+              leading: const iconoir.OpenNewWindow(width: 22, height: 22),
+              title: Text(context.l10n.translate('chat_open_file')),
               onTap: () {
                 Navigator.pop(context);
                 _downloadAndOpenFile(fileUrl, fileName);
               },
             ),
             ListTile(
-              leading: const Icon(Icons.download),
-              title: const Text('Скачать файл'),
+              leading: const iconoir.Download(width: 22, height: 22),
+              title: Text(context.l10n.translate('chat_download')),
               onTap: () {
                 Navigator.pop(context);
                 _downloadFile(fileUrl, fileName);
               },
             ),
             ListTile(
-              leading: const Icon(Icons.share),
-              title: const Text('Поделиться'),
+              leading: const iconoir.ShareAndroid(width: 22, height: 22),
+              title: Text(context.l10n.translate('share')),
               onTap: () async {
                 Navigator.pop(context);
                 await SharePlus.instance.share(
@@ -2670,6 +2453,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
   @override
   void dispose() {
+    // Stop typing indicator if active
+    _stopMyTyping();
+
     // Flush any pending mark-as-read before leaving
     _markReadTimer?.cancel();
     _flushMarkRead();
@@ -2740,19 +2526,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   /// Extract date-only from DateTime
-  DateTime _dateOnly(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
+  DateTime _dateOnly(DateTime dt) => DateTimeUtils.startOfDay(dt);
 
   /// Format date label for date separator
-  String _formatDateLabel(DateTime dt) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-    final date = DateTime(dt.year, dt.month, dt.day);
-
-    if (date == today) return 'Сегодня';
-    if (date == yesterday) return 'Вчера';
-    return '${dt.day}.${dt.month.toString().padLeft(2, '0')}.${dt.year}';
-  }
+  String _formatDateLabel(DateTime dt) =>
+      DateTimeUtils.formatDateSeparator(dt, context: context);
 
   /// Show enhanced context menu on single tap
   void _showContextMenu(Message message, bool isMe, GlobalKey key) {
@@ -2791,36 +2569,6 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     );
   }
 
-  Widget _actionButton(IconData icon, String label, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 24),
-            const SizedBox(height: 4),
-            Text(label, style: const TextStyle(fontSize: 11)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showReactionsPanel(String messageId) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => ReactionsPanel(
-        onReactionSelected: (emoji) {
-          Navigator.pop(ctx);
-          _toggleReaction(messageId, emoji);
-        },
-      ),
-    );
-  }
 
   Future<void> _deleteMessage(Message message) async {
     try {

@@ -5,6 +5,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../config/app_config.dart';
 import 'auth_service.dart';
 import 'avatar_sync_service.dart';
+import 'account_manager.dart';
 
 /// Event types for WebSocket messages
 enum WebSocketEventType {
@@ -19,6 +20,9 @@ enum WebSocketEventType {
   userOffline,
   pong,
   unreadCountUpdated,
+  sessionTerminated,
+  messageEdited,
+  messageDeleted,
 }
 
 /// WebSocket event data
@@ -65,6 +69,12 @@ class WebSocketEvent {
         return WebSocketEventType.pong;
       case 'unread_count_updated':
         return WebSocketEventType.unreadCountUpdated;
+      case 'session_terminated':
+        return WebSocketEventType.sessionTerminated;
+      case 'message_edited':
+        return WebSocketEventType.messageEdited;
+      case 'message_deleted':
+        return WebSocketEventType.messageDeleted;
       default:
         return WebSocketEventType.connected;
     }
@@ -82,6 +92,7 @@ class WebSocketService {
 
   WebSocketChannel? _channel;
   bool _isConnected = false;
+  final ValueNotifier<bool> isConnectedNotifier = ValueNotifier<bool>(true);
   bool _isConnecting = false;
   Timer? _reconnectTimer;
   Timer? _pingTimer;
@@ -90,6 +101,14 @@ class WebSocketService {
   static const Duration _reconnectDelay = Duration(seconds: 3);
   static const Duration _pingInterval = Duration(seconds: 30);
   StreamSubscription? _streamSubscription;
+  bool _isSessionTerminated = false;
+
+  void _setConnected(bool connected) {
+    _isConnected = connected;
+    if (isConnectedNotifier.value != connected) {
+      isConnectedNotifier.value = connected;
+    }
+  }
 
   final StreamController<WebSocketEvent> _eventController = 
       StreamController<WebSocketEvent>.broadcast();
@@ -101,6 +120,7 @@ class WebSocketService {
 
   /// Update current user ID (call when switching accounts)
   Future<void> updateUserId(String? userId) async {
+    _isSessionTerminated = false;
     if (_currentUserId != userId) {
       debugPrint('WebSocket: Updating user ID from $_currentUserId to $userId');
       _currentUserId = userId;
@@ -117,6 +137,11 @@ class WebSocketService {
 
   /// Connect to WebSocket server
   Future<bool> connect() async {
+    if (_isSessionTerminated) {
+      debugPrint('WebSocket: Session was terminated, connect() skipped');
+      return false;
+    }
+
     if (_isConnected || _isConnecting) {
       debugPrint('WebSocket: Already connected or connecting');
       return _isConnected;
@@ -141,8 +166,13 @@ class WebSocketService {
         return false;
       }
 
-      // Build WebSocket URL with token
-      final wsUrl = '${AppConfig.wsUrl}?token=$token';
+      // Build WebSocket URL with token AND device_id
+      final accountManager = AccountManager();
+      final deviceId = accountManager.currentDeviceId;
+      var wsUrl = '${AppConfig.wsUrl}?token=$token';
+      if (deviceId != null && deviceId.isNotEmpty) {
+        wsUrl += '&device_id=${Uri.encodeComponent(deviceId)}';
+      }
       debugPrint('WebSocket: Connecting to $wsUrl');
 
       _channel = WebSocketChannel.connect(
@@ -152,7 +182,7 @@ class WebSocketService {
       // Wait for connection
       await _channel!.ready;
 
-      _isConnected = true;
+      _setConnected(true);
       _isConnecting = false;
       _reconnectAttempts = 0;
 
@@ -179,9 +209,11 @@ class WebSocketService {
       return true;
     } catch (e) {
       debugPrint('WebSocket: Connection error: $e');
-      _isConnected = false;
+      _setConnected(false);
       _isConnecting = false;
-      _scheduleReconnect();
+      if (!_isSessionTerminated) {
+        _scheduleReconnect();
+      }
       return false;
     }
   }
@@ -200,9 +232,11 @@ class WebSocketService {
 
     // Use 1000 (normal closure) instead of status.goingAway (1001)
     // to avoid "Invalid argument: 1001" error
-    _channel?.sink.close(1000);
+    try {
+      _channel?.sink.close(1000);
+    } catch (_) {}
     _channel = null;
-    _isConnected = false;
+    _setConnected(false);
     _isConnecting = false;
   }
 
@@ -224,13 +258,21 @@ class WebSocketService {
       },
       onError: (error) {
         debugPrint('WebSocket: Stream error: $error');
-        _isConnected = false;
-        _scheduleReconnect();
+        _setConnected(false);
+        if (!_isSessionTerminated) {
+          _scheduleReconnect();
+        }
       },
       onDone: () {
-        debugPrint('WebSocket: Stream closed');
-        _isConnected = false;
-        _scheduleReconnect();
+        debugPrint('WebSocket: Stream closed. CloseCode: ${_channel?.closeCode}');
+        _setConnected(false);
+        if (_channel?.closeCode == 4001 || _isSessionTerminated) {
+          _isSessionTerminated = true;
+          _reconnectTimer?.cancel();
+          AuthService.handleRemoteSessionTerminated(reason: 'Session terminated');
+        } else {
+          _scheduleReconnect();
+        }
       },
     );
   }
@@ -242,6 +284,17 @@ class WebSocketService {
       final event = WebSocketEvent.fromJson(json);
       
       debugPrint('WebSocket: Received event: ${event.type}');
+
+      if (event.type == WebSocketEventType.sessionTerminated) {
+        debugPrint('WebSocket: Remote session termination received. Logging out immediately.');
+        _isSessionTerminated = true;
+        _reconnectTimer?.cancel();
+        disconnect();
+        AuthService.handleRemoteSessionTerminated(
+          reason: event.data['reason']?.toString(),
+        );
+        return;
+      }
       
       // Add to stream
       _eventController.add(event);
@@ -330,8 +383,11 @@ class WebSocketService {
   }
 
   /// Send typing indicator
-  void sendTypingIndicator(String chatId) {
-    sendMessage('typing', {'chat_id': chatId});
+  void sendTypingIndicator(String chatId, {bool isTyping = true}) {
+    sendMessage('typing', {
+      'chat_id': chatId,
+      'is_typing': isTyping,
+    });
   }
 
   /// Send message read event

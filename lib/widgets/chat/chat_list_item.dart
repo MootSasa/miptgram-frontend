@@ -1,5 +1,6 @@
 import '../../utils/image_utils.dart';
 import '../../utils/emoji_utils.dart';
+import '../../utils/date_time_utils.dart';
 import 'package:flutter/material.dart';
 
 class ChatListItem extends StatelessWidget {
@@ -25,17 +26,15 @@ class ChatListItem extends StatelessWidget {
   }) : super(key: key);
 
   String _formatTime(DateTime time) {
+    final localTime = time.toLocal();
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-    final timeDate = DateTime(time.year, time.month, time.day);
 
-    if (timeDate == today) {
-      return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-    } else if (timeDate == yesterday) {
+    if (DateTimeUtils.isToday(localTime, now: now)) {
+      return '${localTime.hour.toString().padLeft(2, '0')}:${localTime.minute.toString().padLeft(2, '0')}';
+    } else if (DateTimeUtils.isYesterday(localTime, now: now)) {
       return 'Yesterday';
     } else {
-      return '${time.day}/${time.month}/${time.year}';
+      return '${localTime.day}/${localTime.month}/${localTime.year}';
     }
   }
 

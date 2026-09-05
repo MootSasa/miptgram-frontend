@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 
 /// Widget for displaying photo and video message previews.
 class MediaMessageWidget extends StatelessWidget {
@@ -54,10 +55,12 @@ class MediaMessageWidget extends StatelessWidget {
         errorBuilder: (context, error, stackTrace) {
           return Container(
             color: Colors.grey[300],
-            child: const Icon(
-              Icons.broken_image,
-              size: 40,
-              color: Colors.grey,
+            child: const Center(
+              child: iconoir.MediaImage(
+                width: 40,
+                height: 40,
+                color: Colors.grey,
+              ),
             ),
           );
         },
@@ -89,19 +92,21 @@ class MediaMessageWidget extends StatelessWidget {
             errorBuilder: (context, error, stackTrace) {
               return Container(
                 color: Colors.grey[300],
-                child: const Icon(
-                  Icons.videocam,
-                  size: 40,
-                  color: Colors.grey,
+                child: const Center(
+                  child: iconoir.MediaVideo(
+                    width: 40,
+                    height: 40,
+                    color: Colors.grey,
+                  ),
                 ),
               );
             },
           ),
         ),
-        const Icon(
-          Icons.play_circle_filled,
+        const iconoir.Play(
           color: Colors.white70,
-          size: 50,
+          width: 50,
+          height: 50,
         ),
       ],
     );

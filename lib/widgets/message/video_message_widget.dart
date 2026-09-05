@@ -1,4 +1,4 @@
-import 'dart:math' as Math;
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
@@ -242,8 +242,8 @@ class _CircularProgressPainter extends CustomPainter {
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round;
 
-    final startAngle = -Math.pi / 2;
-    final sweepAngle = 2 * Math.pi * progress.clamp(0.0, 1.0);
+    const startAngle = -math.pi / 2;
+    final sweepAngle = 2 * math.pi * progress.clamp(0.0, 1.0);
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
       startAngle,

@@ -29,6 +29,8 @@ import '../../widgets/chat/liquid_glass_app_bar.dart';
 import '../../widgets/settings/settings_group.dart';
 import '../auth/login_screen.dart';
 import '../../utils/swipe_back_route.dart';
+import '../../services/update_service.dart';
+import 'widgets/update_dialog.dart';
 
 /// Экран настроек.
 ///
@@ -51,6 +53,44 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   int _versionTapCount = 0;
   DateTime? _lastTapTime;
+  bool _isCheckingUpdate = false;
+
+  Future<void> _checkAppUpdates(BuildContext context) async {
+    if (_isCheckingUpdate) return;
+    setState(() => _isCheckingUpdate = true);
+    HapticUtils.tap();
+
+    try {
+      final update = await AppUpdateService.instance.checkForUpdate(silent: false);
+      if (!mounted) return;
+
+      if (update.hasUpdate) {
+        UpdateDialog.show(context, update, isManual: true);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('У вас установлена последняя версия Miptgram'),
+            duration: Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Не удалось проверить обновления: $e'),
+            duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isCheckingUpdate = false);
+      }
+    }
+  }
 
   String _getSystemAbi() {
     if (kIsWeb) return 'web';
@@ -89,31 +129,60 @@ class _SettingsScreenState extends State<SettingsScreen>
     const appVersion = AppConfig.appVersion;
 
     return Center(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _handleVersionTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 24.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Miptgram v$appVersion ($systemAbi)',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
-                ),
-                textAlign: TextAlign.center,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 24.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _handleVersionTap,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Miptgram v$appVersion ($systemAbi)',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    l10n.translate('build_date').replaceAll('{date}', buildDate),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                l10n.translate('build_date').replaceAll('{date}', buildDate),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+            ),
+            const SizedBox(height: 10),
+            TextButton.icon(
+              onPressed: _isCheckingUpdate ? null : () => _checkAppUpdates(context),
+              icon: _isCheckingUpdate
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh_rounded, size: 16),
+              label: Text(
+                _isCheckingUpdate ? 'Проверка...' : 'Проверить обновления',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
                 ),
-                textAlign: TextAlign.center,
               ),
-            ],
-          ),
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.08),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              ),
+            ),
+          ],
         ),
       ),
     );

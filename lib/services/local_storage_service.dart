@@ -30,6 +30,7 @@ class LocalStorageService {
       'is_online': c.isOnline,
       'last_seen': c.lastSeen,
       'is_pinned': c.isPinned,
+      'other_user_id': c.otherUserId,
     };
   }
 

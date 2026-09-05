@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -6,6 +7,9 @@ import 'package:provider/provider.dart';
 import '../../services/liquid_glass_provider.dart';
 import '../user/avatar_with_status.dart';
 import '../../l10n/app_localizations.dart';
+import '../../services/websocket_service.dart';
+import 'animated_ellipsis_text.dart';
+import '../../utils/date_time_utils.dart';
 
 // --- НАСТРОЙКИ СТИЛЯ ПАНЕЛИ ---
 /// Радиус скругления "облака" панели (AppBar).
@@ -42,6 +46,11 @@ class FloatingGlassAppBar extends StatelessWidget {
   final String name;
   final bool isOnline;
   final DateTime? lastSeen;
+  final String? statusText;
+  final Color? statusColor;
+  final bool? isConnected;
+  final Widget? titleWidget;
+  final Widget? avatarWidget;
   final VoidCallback onBack;
   final VoidCallback onTitleTap;
   final VoidCallback onAvatarTap;
@@ -52,6 +61,11 @@ class FloatingGlassAppBar extends StatelessWidget {
     required this.name,
     required this.isOnline,
     this.lastSeen,
+    this.statusText,
+    this.statusColor,
+    this.isConnected,
+    this.titleWidget,
+    this.avatarWidget,
     required this.onBack,
     required this.onTitleTap,
     required this.onAvatarTap,
@@ -147,15 +161,44 @@ class FloatingGlassAppBar extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(
-                  name,
-                  style: const TextStyle(
-                    fontSize: _kTitleFontSize,
-                    fontWeight: FontWeight.bold,
+                if (titleWidget != null)
+                  titleWidget!
+                else
+                  Text(
+                    name,
+                    style: const TextStyle(
+                      fontSize: _kTitleFontSize,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  overflow: TextOverflow.ellipsis,
+                ValueListenableBuilder<bool>(
+                  valueListenable: WebSocketService().isConnectedNotifier,
+                  builder: (context, wsConnected, _) {
+                    final bool serverAvailable = isConnected ?? wsConnected;
+                    if (!serverAvailable) {
+                      return AnimatedEllipsisText(
+                        text: context.l10n.translate('chat_status_connecting'),
+                        style: TextStyle(
+                          fontSize: _kStatusFontSize,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      );
+                    }
+                    if (statusText != null) {
+                      return AnimatedEllipsisText(
+                        text: statusText!,
+                        style: TextStyle(
+                          fontSize: _kStatusFontSize,
+                          color: statusColor ?? Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      );
+                    }
+                    return _buildStatusText(context);
+                  },
                 ),
-                if (lastSeen != null || isOnline) _buildStatusText(context),
               ],
             ),
           ),
@@ -164,12 +207,13 @@ class FloatingGlassAppBar extends StatelessWidget {
           onTap: onAvatarTap,
           child: Padding(
             padding: const EdgeInsets.only(right: 6),
-            child: AvatarWithStatus(
-              avatarUrl: avatarUrl,
-              name: name,
-              radius: _kAvatarRadius,
-              isOnline: isOnline,
-            ),
+            child: avatarWidget ??
+                AvatarWithStatus(
+                  avatarUrl: avatarUrl,
+                  name: name,
+                  radius: _kAvatarRadius,
+                  isOnline: isOnline,
+                ),
           ),
         ),
       ],
@@ -177,56 +221,10 @@ class FloatingGlassAppBar extends StatelessWidget {
   }
 
   Widget _buildStatusText(BuildContext context) {
-    String status = isOnline ? 'в сети' : _getLastSeenText();
-    return Text(
-      status,
-      style: TextStyle(
-        fontSize: _kStatusFontSize,
-        color: isOnline ? Colors.green : Colors.grey[600],
-      ),
+    return _AutoRefreshingLastSeenText(
+      isOnline: isOnline,
+      lastSeen: lastSeen,
     );
-  }
-
-  String _getLastSeenText() {
-    if (lastSeen == null) return '';
-    final now = DateTime.now();
-    final difference = now.difference(lastSeen!);
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-    final lastSeenDay = DateTime(lastSeen!.year, lastSeen!.month, lastSeen!.day);
-
-    if (lastSeenDay == yesterday) return 'был(а) вчера';
-    if (difference.inMinutes < 60) {
-      final minutes = difference.inMinutes;
-      return 'был(а) $minutes ${_getMinutesText(minutes)} назад';
-    }
-    if (difference.inHours < 24) {
-      final hours = difference.inHours;
-      return 'был(а) $hours ${_getHoursText(hours)} назад';
-    }
-    if (lastSeenDay == today) {
-      final hours = difference.inHours;
-      return 'был(а) $hours ${_getHoursText(hours)} назад';
-    }
-    return 'был(а) давно';
-  }
-
-  String _getMinutesText(int minutes) {
-    final lastDigit = minutes % 10;
-    final lastTwoDigits = minutes % 100;
-    if (lastTwoDigits >= 11 && lastTwoDigits <= 19) return 'минут';
-    if (lastDigit == 1) return 'минуту';
-    if (lastDigit >= 2 && lastDigit <= 4) return 'минуты';
-    return 'минут';
-  }
-
-  String _getHoursText(int hours) {
-    final lastDigit = hours % 10;
-    final lastTwoDigits = hours % 100;
-    if (lastTwoDigits >= 11 && lastTwoDigits <= 19) return 'часов';
-    if (lastDigit == 1) return 'час';
-    if (lastDigit >= 2 && lastDigit <= 4) return 'часа';
-    return 'часов';
   }
 
   Widget _buildCircularButton(BuildContext context,
@@ -239,6 +237,101 @@ class FloatingGlassAppBar extends StatelessWidget {
         color: Theme.of(context).colorScheme.onSurface,
       ),
       splashRadius: 24,
+    );
+  }
+}
+
+/// A widget that automatically and reactively updates the last seen status
+/// (e.g. from "just now" -> "1m ago" -> "2m ago") without requiring a page reload.
+class _AutoRefreshingLastSeenText extends StatefulWidget {
+  final bool isOnline;
+  final DateTime? lastSeen;
+
+  const _AutoRefreshingLastSeenText({
+    Key? key,
+    required this.isOnline,
+    this.lastSeen,
+  }) : super(key: key);
+
+  @override
+  State<_AutoRefreshingLastSeenText> createState() =>
+      _AutoRefreshingLastSeenTextState();
+}
+
+class _AutoRefreshingLastSeenTextState
+    extends State<_AutoRefreshingLastSeenText> {
+  Timer? _timer;
+  String _currentStatus = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimerIfNeeded();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _updateStatus(rebuild: false);
+  }
+
+  @override
+  void didUpdateWidget(covariant _AutoRefreshingLastSeenText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isOnline != widget.isOnline ||
+        oldWidget.lastSeen != widget.lastSeen) {
+      _startTimerIfNeeded();
+      _updateStatus(rebuild: true);
+    }
+  }
+
+  void _startTimerIfNeeded() {
+    _timer?.cancel();
+    _timer = null;
+    if (!widget.isOnline && widget.lastSeen != null) {
+      _timer = Timer.periodic(const Duration(seconds: 3), (_) {
+        _updateStatus(rebuild: true);
+      });
+    }
+  }
+
+  void _updateStatus({required bool rebuild}) {
+    if (!mounted) return;
+    final newStatus = widget.isOnline
+        ? context.l10n.translate('chat_status_online')
+        : DateTimeUtils.formatLastSeen(widget.lastSeen, context);
+
+    if (newStatus != _currentStatus) {
+      if (rebuild) {
+        setState(() {
+          _currentStatus = newStatus;
+        });
+      } else {
+        _currentStatus = newStatus;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = _currentStatus.isNotEmpty
+        ? _currentStatus
+        : (widget.isOnline
+            ? context.l10n.translate('chat_status_online')
+            : DateTimeUtils.formatLastSeen(widget.lastSeen, context));
+
+    return AnimatedEllipsisText(
+      text: status,
+      style: TextStyle(
+        fontSize: _kStatusFontSize,
+        color: widget.isOnline ? Colors.green : Colors.grey[600],
+      ),
     );
   }
 }
@@ -425,23 +518,24 @@ class _GlassChatMenuState extends State<GlassChatMenu> with SingleTickerProvider
   }
 
   Widget _buildMenuItems(ThemeData theme) {
+    final l10n = widget.chatContext.l10n;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _menuItem(Icons.person_outline, 'Профиль', widget.onViewProfile),
-          _menuItem(Icons.call_outlined, 'Голосовой звонок', widget.onVoiceCall),
-          _menuItem(Icons.videocam_outlined, 'Видеозвонок', widget.onVideoCall),
-          _menuItem(Icons.search, 'Поиск сообщений', widget.onSearch),
+          _menuItem(Icons.person_outline, l10n.translate('chat_menu_profile'), widget.onViewProfile),
+          _menuItem(Icons.call_outlined, l10n.translate('chat_menu_voice_call'), widget.onVoiceCall),
+          _menuItem(Icons.videocam_outlined, l10n.translate('chat_menu_video_call'), widget.onVideoCall),
+          _menuItem(Icons.search, l10n.translate('chat_menu_search_messages'), widget.onSearch),
           _menuItem(
             widget.isMuted ? Icons.notifications_off_outlined : Icons.notifications_none_outlined,
-            widget.isMuted ? 'Включить уведомления' : 'Без звука',
+            widget.isMuted ? l10n.translate('chat_menu_unmute') : l10n.translate('chat_menu_mute'),
             widget.onToggleMute,
           ),
-          _menuItem(Icons.delete_outline, 'Очистить историю', widget.onClearHistory, isDestructive: true),
-          _menuItem(Icons.report_gmailerrorred, 'Пожаловаться', widget.onReport, isDestructive: true),
+          _menuItem(Icons.delete_outline, l10n.translate('chat_menu_clear_history'), widget.onClearHistory, isDestructive: true),
+          _menuItem(Icons.report_gmailerrorred, l10n.translate('chat_menu_report'), widget.onReport, isDestructive: true),
         ],
       ),
     );

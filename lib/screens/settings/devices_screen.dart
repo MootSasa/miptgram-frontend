@@ -1,12 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
+import 'package:iconoir_flutter/regular/laptop.dart';
+import 'package:iconoir_flutter/regular/smartphone_device.dart';
+import 'package:iconoir_flutter/regular/globe.dart';
+import 'package:iconoir_flutter/regular/help_circle.dart';
+import 'package:iconoir_flutter/regular/log_out.dart';
+import 'package:iconoir_flutter/regular/edit_pencil.dart';
+import 'package:iconoir_flutter/regular/map_pin.dart';
+import 'package:iconoir_flutter/regular/clock.dart';
+import 'package:iconoir_flutter/regular/timer.dart';
+import 'package:iconoir_flutter/regular/refresh.dart';
+import 'package:iconoir_flutter/regular/nav_arrow_right.dart';
+import 'package:iconoir_flutter/regular/check.dart';
+import 'package:iconoir_flutter/regular/info_circle.dart';
+
 import '../../l10n/app_localizations.dart';
 import '../../services/account_manager.dart';
 import '../../services/auth_service.dart';
 import '../../config/app_config.dart';
+import '../../widgets/settings/settings_group.dart';
 
 /// Screen displaying all active device sessions for the current account.
-/// Allows users to view, rename, and terminate sessions on other devices.
+/// Allows users to view, rename, and terminate sessions on other devices,
+/// and configure automatic session termination TTL.
 class DevicesScreen extends StatefulWidget {
   const DevicesScreen({Key? key}) : super(key: key);
 
@@ -18,20 +35,43 @@ class _DevicesScreenState extends State<DevicesScreen> {
   List<DeviceSession> _sessions = [];
   bool _isLoading = true;
   String? _error;
+  int _sessionsTTLDays = 180;
   final AccountManager _accountManager = AccountManager();
 
   @override
   void initState() {
     super.initState();
-    _loadSessions();
+    _loadData();
   }
 
-  Future<void> _loadSessions() async {
+  Future<void> _loadData() async {
     setState(() {
       _isLoading = true;
       _error = null;
     });
 
+    await Future.wait([
+      _loadSessions(),
+      _loadTTL(),
+    ]);
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadTTL() async {
+    final ttl = await AuthService.getSessionsTTL();
+    if (mounted) {
+      setState(() {
+        _sessionsTTLDays = ttl;
+      });
+    }
+  }
+
+  Future<void> _loadSessions() async {
     final currentDeviceId = _accountManager.currentDeviceId ?? '';
 
     try {
@@ -54,17 +94,36 @@ class _DevicesScreenState extends State<DevicesScreen> {
             lastActive = DateTime.now();
           }
 
-          String deviceName = serverSession['device_name']?.toString() ?? 'Unknown Device';
-          String os = 'Unknown';
-          String osVersion = 'Unknown';
-          final userAgent = serverSession['user_agent']?.toString() ?? '';
-          if (userAgent.isNotEmpty) {
-            final osInfo = _parseUserAgent(userAgent);
-            os = osInfo['os'] ?? 'Unknown';
-            osVersion = osInfo['osVersion'] ?? 'Unknown';
+          final deviceName = serverSession['device_name']?.toString() ?? 'Unknown Device';
+          
+          // Prefer OS metadata directly from server
+          String os = serverSession['os_name']?.toString() ?? '';
+          String osVersion = serverSession['os_version']?.toString() ?? '';
+          if (os.isEmpty) {
+            final userAgent = serverSession['user_agent']?.toString() ?? '';
+            if (userAgent.isNotEmpty) {
+              final osInfo = _parseUserAgent(userAgent);
+              os = osInfo['os'] ?? 'Unknown';
+              osVersion = osInfo['osVersion'] ?? '';
+            } else {
+              os = deviceTypeStr.toUpperCase();
+            }
           }
 
-          final isCurrentDevice = deviceId == currentDeviceId;
+          final city = serverSession['city']?.toString();
+          final country = serverSession['country']?.toString();
+          final ip = serverSession['ip_address']?.toString();
+
+          String? loc;
+          if (city != null && city.isNotEmpty && country != null && country.isNotEmpty) {
+            loc = '$city, $country';
+          } else if (city != null && city.isNotEmpty) {
+            loc = city;
+          } else if (country != null && country.isNotEmpty) {
+            loc = country;
+          }
+
+          final isCurrentDevice = (serverSession['is_current'] == true) || (deviceId == currentDeviceId);
 
           sessions.add(DeviceSession(
             id: sessionId,
@@ -76,14 +135,18 @@ class _DevicesScreenState extends State<DevicesScreen> {
             osVersion: osVersion,
             lastActive: lastActive,
             isCurrent: isCurrentDevice,
-            location: serverSession['ip_address']?.toString(),
+            location: loc,
+            ipAddress: ip,
+            city: city,
+            country: country,
+            countryCode: serverSession['country_code']?.toString(),
+            appVersion: serverSession['app_version']?.toString(),
           ));
         }
 
         if (mounted) {
           setState(() {
             _sessions = sessions;
-            _isLoading = false;
           });
         }
       } else {
@@ -93,42 +156,35 @@ class _DevicesScreenState extends State<DevicesScreen> {
         if (mounted) {
           setState(() {
             _sessions = localSessions;
-            _isLoading = false;
           });
         }
       }
     } catch (e) {
-      final localSessions = _accountManager.getDeviceSessionsForAccount(
-        _accountManager.currentAccount?.userId ?? '',
-      );
       if (mounted) {
         setState(() {
-          _sessions = localSessions;
           _error = e.toString();
-          _isLoading = false;
         });
       }
     }
   }
 
   Map<String, String> _parseUserAgent(String userAgent) {
-    final result = <String, String>{'os': 'Unknown', 'osVersion': 'Unknown'};
+    final result = <String, String>{'os': 'Unknown', 'osVersion': ''};
     if (userAgent.contains('Android')) {
       result['os'] = 'Android';
-      final match = RegExp(r'Android (\d+(?:\.\d+)?)').firstMatch(userAgent);
-      if (match != null) result['osVersion'] = match.group(1) ?? 'Unknown';
+      final match = RegExp(r'Android\s+([0-9.]+)').firstMatch(userAgent);
+      if (match != null) result['osVersion'] = match.group(1) ?? '';
     } else if (userAgent.contains('iPhone') || userAgent.contains('iPad')) {
       result['os'] = 'iOS';
-      final match = RegExp(r'OS (\d+(?:\.\d+)?)').firstMatch(userAgent);
-      if (match != null) result['osVersion'] = match.group(1) ?? 'Unknown';
+      final match = RegExp(r'OS\s+([0-9_]+)').firstMatch(userAgent);
+      if (match != null) result['osVersion'] = match.group(1)?.replaceAll('_', '.') ?? '';
     } else if (userAgent.contains('Windows')) {
       result['os'] = 'Windows';
-      final match = RegExp(r'Windows NT (\d+(?:\.\d+)?)').firstMatch(userAgent);
-      if (match != null) result['osVersion'] = match.group(1) ?? 'Unknown';
-    } else if (userAgent.contains('Mac OS X')) {
+      if (userAgent.contains('Windows NT 10.0')) result['osVersion'] = '10/11';
+    } else if (userAgent.contains('Macintosh') || userAgent.contains('Mac OS')) {
       result['os'] = 'macOS';
       final match = RegExp(r'Mac OS X (\d+(?:[._]\d+)*)').firstMatch(userAgent);
-      if (match != null) result['osVersion'] = match.group(1)?.replaceAll('_', '.') ?? 'Unknown';
+      if (match != null) result['osVersion'] = match.group(1)?.replaceAll('_', '.') ?? '';
     } else if (userAgent.contains('Linux')) {
       result['os'] = 'Linux';
     }
@@ -149,8 +205,8 @@ class _DevicesScreenState extends State<DevicesScreen> {
 
   Future<void> _handleLogout(String sessionId, String deviceId) async {
     final l10n = context.l10n;
+    HapticFeedback.lightImpact();
 
-    // Check if this is the current device — extra confirmation
     final isCurrent = _sessions.any((s) => s.deviceId == deviceId && s.isCurrent);
 
     final confirmed = await showDialog<bool>(
@@ -201,10 +257,12 @@ class _DevicesScreenState extends State<DevicesScreen> {
     }
   }
 
-  /// Terminate all other sessions except the current device
   Future<void> _handleTerminateOthers() async {
     final l10n = context.l10n;
-    final currentDeviceId = _accountManager.currentDeviceId ?? '';
+    HapticFeedback.lightImpact();
+
+    final currentDevice = _sessions.where((s) => s.isCurrent).firstOrNull;
+    final currentDeviceId = currentDevice?.deviceId ?? _accountManager.currentDeviceId ?? '';
     final otherCount = _sessions.where((s) => !s.isCurrent).length;
 
     if (otherCount == 0) {
@@ -231,7 +289,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
             ),
-            child: Text(l10n.translate('devices_terminate_all')),
+            child: Text(l10n.translate('devices_terminate_all_short')),
           ),
         ],
       ),
@@ -240,19 +298,11 @@ class _DevicesScreenState extends State<DevicesScreen> {
     if (confirmed == true && mounted) {
       final scaffoldMessenger = ScaffoldMessenger.of(context);
       try {
-        final token = await AuthService.getToken();
-        final dio = Dio();
-        final response = await dio.post(
-          '${AppConfig.baseUrl}/api/auth/terminate-others',
-          data: {'current_device_id': currentDeviceId},
-          options: Options(headers: {'Authorization': 'Bearer $token'}),
-        );
+        final success = await AuthService.terminateOtherSessions(currentDeviceId);
         if (!mounted) return;
-        if (response.data['success'] == true) {
-          final count = response.data['terminated_count'] ?? 0;
+        if (success) {
           scaffoldMessenger.showSnackBar(
-            SnackBar(content: Text(l10n.translate('devices_terminate_all_success')
-                .replaceAll('{count}', count.toString()))),
+            SnackBar(content: Text(l10n.translate('devices_terminate_all_success'))),
           );
           await _loadSessions();
         } else {
@@ -269,9 +319,10 @@ class _DevicesScreenState extends State<DevicesScreen> {
     }
   }
 
-  /// Show rename dialog for a device
   Future<void> _handleRename(DeviceSession session) async {
     final l10n = context.l10n;
+    HapticFeedback.lightImpact();
+
     final controller = TextEditingController(text: session.deviceName);
 
     final newName = await showDialog<String>(
@@ -293,7 +344,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
             child: Text(l10n.translate('common_cancel')),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(controller.text),
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
             child: Text(l10n.translate('devices_rename_save')),
           ),
         ],
@@ -330,6 +381,98 @@ class _DevicesScreenState extends State<DevicesScreen> {
     }
   }
 
+  void _showTTLDialog() {
+    final l10n = context.l10n;
+    HapticFeedback.lightImpact();
+
+    final options = [
+      {'days': 7, 'label': l10n.translate('devices_ttl_1_week')},
+      {'days': 30, 'label': l10n.translate('devices_ttl_1_month')},
+      {'days': 90, 'label': l10n.translate('devices_ttl_3_months')},
+      {'days': 180, 'label': l10n.translate('devices_ttl_6_months')},
+      {'days': 365, 'label': l10n.translate('devices_ttl_1_year')},
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  child: Text(
+                    l10n.translate('devices_auto_terminate_title'),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                ),
+                const Divider(),
+                ...options.map((opt) {
+                  final days = opt['days'] as int;
+                  final label = opt['label'] as String;
+                  final isSelected = _sessionsTTLDays == days;
+
+                  return ListTile(
+                    title: Text(label),
+                    trailing: isSelected
+                        ? Check(
+                            width: 20,
+                            height: 20,
+                            color: Theme.of(context).primaryColor,
+                          )
+                        : null,
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      HapticFeedback.lightImpact();
+                      setState(() {
+                        _sessionsTTLDays = days;
+                      });
+                      final success = await AuthService.setSessionsTTL(days);
+                      if (mounted && success) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(l10n.translate('settings_saved')),
+                          ),
+                        );
+                      }
+                    },
+                  );
+                }).toList(),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _formatTTLString(int days) {
+    final l10n = context.l10n;
+    switch (days) {
+      case 7:
+        return l10n.translate('devices_ttl_1_week');
+      case 30:
+        return l10n.translate('devices_ttl_1_month');
+      case 90:
+        return l10n.translate('devices_ttl_3_months');
+      case 180:
+        return l10n.translate('devices_ttl_6_months');
+      case 365:
+        return l10n.translate('devices_ttl_1_year');
+      default:
+        return '$days ${l10n.translate('devices_days_ago')}';
+    }
+  }
+
   String _formatLastActive(DateTime lastActive) {
     final now = DateTime.now();
     final difference = now.difference(lastActive);
@@ -344,23 +487,23 @@ class _DevicesScreenState extends State<DevicesScreen> {
     } else if (difference.inDays < 7) {
       return '${difference.inDays} ${l10n.translate('devices_days_ago')}';
     } else {
-      return '${lastActive.day}.${lastActive.month}.${lastActive.year}';
+      return '${lastActive.day.toString().padLeft(2, '0')}.${lastActive.month.toString().padLeft(2, '0')}.${lastActive.year}';
     }
   }
 
-  IconData _getDeviceIcon(DeviceType type) {
+  Widget _buildDeviceIcon(DeviceType type, Color color) {
     switch (type) {
       case DeviceType.android:
       case DeviceType.ios:
-        return Icons.smartphone;
+        return SmartphoneDevice(width: 24, height: 24, color: color);
       case DeviceType.web:
-        return Icons.web;
+        return Globe(width: 24, height: 24, color: color);
       case DeviceType.windows:
       case DeviceType.macos:
       case DeviceType.linux:
-        return Icons.computer;
+        return Laptop(width: 24, height: 24, color: color);
       case DeviceType.unknown:
-        return Icons.device_unknown;
+        return HelpCircle(width: 24, height: 24, color: color);
     }
   }
 
@@ -374,8 +517,8 @@ class _DevicesScreenState extends State<DevicesScreen> {
         title: Text(l10n.translate('devices_title')),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadSessions,
+            icon: Refresh(width: 22, height: 22, color: theme.colorScheme.onSurface),
+            onPressed: _loadData,
             tooltip: l10n.translate('devices_refresh'),
           ),
         ],
@@ -394,26 +537,12 @@ class _DevicesScreenState extends State<DevicesScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, size: 64, color: Colors.grey[400]),
+            HelpCircle(width: 64, height: 64, color: Colors.grey[400]),
             const SizedBox(height: 16),
             Text(l10n.translate('devices_error').replaceAll('{error}', _error!),
                 style: const TextStyle(color: Colors.red), textAlign: TextAlign.center),
             const SizedBox(height: 16),
-            ElevatedButton(onPressed: _loadSessions, child: Text(l10n.translate('devices_retry'))),
-          ],
-        ),
-      );
-    }
-
-    if (_sessions.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.devices, size: 64, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(l10n.translate('devices_no_sessions'),
-                style: theme.textTheme.bodyLarge?.copyWith(color: Colors.grey[600])),
+            ElevatedButton(onPressed: _loadData, child: Text(l10n.translate('devices_retry'))),
           ],
         ),
       );
@@ -423,169 +552,277 @@ class _DevicesScreenState extends State<DevicesScreen> {
     final otherSessions = _sessions.where((s) => !s.isCurrent).toList();
 
     return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 12),
       children: [
+        // Current Device Group
         if (currentSession != null) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text(l10n.translate('devices_this_device'),
-                style: theme.textTheme.titleSmall?.copyWith(
-                    color: theme.colorScheme.primary, fontWeight: FontWeight.bold)),
+          SettingsGroup(
+            title: l10n.translate('devices_this_device'),
+            children: [
+              _buildSessionTile(
+                session: currentSession,
+                isCurrent: true,
+                onRename: () => _handleRename(currentSession),
+                onLogout: null,
+              ),
+            ],
           ),
-          _DeviceSessionTile(
-            session: currentSession,
-            deviceIcon: _getDeviceIcon(currentSession.deviceType),
-            formattedTime: _formatLastActive(currentSession.lastActive),
-            isCurrent: true,
-            onLogout: null,
-            onRename: () => _handleRename(currentSession),
-          ),
-          const Divider(height: 32),
         ],
-        if (otherSessions.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(l10n.translate('devices_other_sessions'),
-                    style: theme.textTheme.titleSmall?.copyWith(
-                        color: theme.colorScheme.primary, fontWeight: FontWeight.bold)),
-                TextButton.icon(
-                  onPressed: _handleTerminateOthers,
-                  icon: const Icon(Icons.logout, size: 18),
-                  label: Text(l10n.translate('devices_terminate_all_short')),
-                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+
+        // Session Auto-Termination TTL Group
+        SettingsGroup(
+          title: l10n.translate('devices_auto_terminate_section'),
+          children: [
+            ListTile(
+              leading: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-              ],
+                alignment: Alignment.center,
+                child: Timer(
+                  width: 22,
+                  height: 22,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              title: Text(l10n.translate('devices_auto_terminate_title')),
+              subtitle: Text(_formatTTLString(_sessionsTTLDays)),
+              trailing: NavArrowRight(
+                width: 18,
+                height: 18,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              onTap: _showTTLDialog,
             ),
+          ],
+        ),
+
+        // Other Sessions Group
+        if (otherSessions.isNotEmpty) ...[
+          SettingsGroup(
+            title: l10n.translate('devices_other_sessions'),
+            children: [
+              ListTile(
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  alignment: Alignment.center,
+                  child: const LogOut(
+                    width: 22,
+                    height: 22,
+                    color: Colors.red,
+                  ),
+                ),
+                title: Text(
+                  l10n.translate('devices_terminate_all_short'),
+                  style: const TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                onTap: _handleTerminateOthers,
+              ),
+              ...otherSessions.map((session) => _buildSessionTile(
+                session: session,
+                isCurrent: false,
+                onRename: () => _handleRename(session),
+                onLogout: () => _handleLogout(session.id, session.deviceId),
+              )),
+            ],
           ),
-          ...otherSessions.map((session) => _DeviceSessionTile(
-            session: session,
-            deviceIcon: _getDeviceIcon(session.deviceType),
-            formattedTime: _formatLastActive(session.lastActive),
-            isCurrent: false,
-            onLogout: () => _handleLogout(session.id, session.deviceId),
-            onRename: () => _handleRename(session),
-          )),
         ],
-        // Info section
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Card(
-            color: theme.colorScheme.surfaceContainerHighest,
-            child: Padding(
+
+        // Security Info Group
+        SettingsGroup(
+          title: l10n.translate('devices_info_title'),
+          children: [
+            Padding(
               padding: const EdgeInsets.all(16),
-              child: Column(
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(children: [
-                    Icon(Icons.info_outline, size: 20, color: theme.colorScheme.primary),
-                    const SizedBox(width: 8),
-                    Text(l10n.translate('devices_info_title'),
-                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-                  ]),
-                  const SizedBox(height: 8),
-                  Text(l10n.translate('devices_info_description'),
-                      style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                  InfoCircle(
+                    width: 22,
+                    height: 22,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      l10n.translate('devices_info_description'),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-          ),
+          ],
         ),
       ],
     );
   }
-}
 
-class _DeviceSessionTile extends StatelessWidget {
-  final DeviceSession session;
-  final IconData deviceIcon;
-  final String formattedTime;
-  final bool isCurrent;
-  final VoidCallback? onLogout;
-  final VoidCallback? onRename;
-
-  const _DeviceSessionTile({
-    required this.session,
-    required this.deviceIcon,
-    required this.formattedTime,
-    required this.isCurrent,
-    this.onLogout,
-    this.onRename,
-  });
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildSessionTile({
+    required DeviceSession session,
+    required bool isCurrent,
+    required VoidCallback onRename,
+    required VoidCallback? onLogout,
+  }) {
     final theme = Theme.of(context);
     final l10n = context.l10n;
 
+    final locationDisplay = <String>[];
+    if (session.location != null && session.location!.isNotEmpty) {
+      locationDisplay.add(session.location!);
+    }
+    if (session.ipAddress != null && session.ipAddress!.isNotEmpty) {
+      locationDisplay.add(session.ipAddress!);
+    }
+    final locationText = locationDisplay.join(' • ');
+
+    final osText = session.osVersion.isNotEmpty
+        ? '${session.os} ${session.osVersion}'
+        : session.os;
+
     return ListTile(
       leading: Container(
-        width: 48,
-        height: 48,
+        width: 44,
+        height: 44,
         decoration: BoxDecoration(
           color: isCurrent
               ? theme.colorScheme.primaryContainer
               : theme.colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Icon(deviceIcon,
-            color: isCurrent
-                ? theme.colorScheme.onPrimaryContainer
-                : theme.colorScheme.onSurfaceVariant),
+        alignment: Alignment.center,
+        child: _buildDeviceIcon(
+          session.deviceType,
+          isCurrent
+              ? theme.colorScheme.onPrimaryContainer
+              : theme.colorScheme.onSurfaceVariant,
+        ),
       ),
-      title: Text(session.deviceName,
-          style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal)),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      title: Row(
         children: [
-          Text('${session.os} ${session.osVersion}',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-          Row(children: [
-            Icon(Icons.access_time, size: 14, color: theme.colorScheme.onSurfaceVariant),
-            const SizedBox(width: 4),
-            Text(formattedTime,
-                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-            if (session.location != null && session.location!.isNotEmpty) ...[
-              const SizedBox(width: 8),
-              Icon(Icons.location_on_outlined, size: 14, color: theme.colorScheme.onSurfaceVariant),
-              const SizedBox(width: 4),
-              Text(session.location!,
-                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-            ],
-          ]),
-        ],
-      ),
-      trailing: isCurrent
-          ? Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          Expanded(
+            child: Text(
+              session.deviceName,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: isCurrent ? FontWeight.bold : FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (isCurrent)
+            Container(
+              margin: const EdgeInsets.only(left: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
                 color: theme.colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
               ),
-              child: Text(l10n.translate('devices_active_now'),
-                  style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onPrimaryContainer, fontWeight: FontWeight.bold)),
+              child: Text(
+                l10n.translate('devices_active_now'),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+        ],
+      ),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              osText,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Row(
+              children: [
+                Clock(
+                  width: 14,
+                  height: 14,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _formatLastActive(session.lastActive),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                if (locationText.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  MapPin(
+                    width: 14,
+                    height: 14,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      locationText,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+      trailing: isCurrent
+          ? IconButton(
+              icon: EditPencil(
+                width: 20,
+                height: 20,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              onPressed: onRename,
+              tooltip: l10n.translate('devices_rename_title'),
             )
-          : Row(mainAxisSize: MainAxisSize.min, children: [
-              // Rename button
-              IconButton(
-                icon: const Icon(Icons.edit, size: 20),
-                onPressed: onRename,
-                tooltip: l10n.translate('devices_rename_title'),
-                color: Colors.grey,
-              ),
-              // Logout button
-              IconButton(
-                icon: const Icon(Icons.logout),
-                onPressed: onLogout,
-                tooltip: l10n.translate('devices_terminate'),
-                color: Colors.red,
-              ),
-            ]),
-      // Long press to rename for current device
-      onLongPress: isCurrent ? onRename : null,
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: EditPencil(
+                    width: 20,
+                    height: 20,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  onPressed: onRename,
+                  tooltip: l10n.translate('devices_rename_title'),
+                ),
+                IconButton(
+                  icon: const LogOut(
+                    width: 20,
+                    height: 20,
+                    color: Colors.red,
+                  ),
+                  onPressed: onLogout,
+                  tooltip: l10n.translate('devices_terminate'),
+                ),
+              ],
+            ),
+      onLongPress: onRename,
     );
   }
 }

@@ -90,6 +90,7 @@ class _CreatePrivateChatScreenState extends State<CreatePrivateChatScreen> {
                 chatId: chat.id,
                 otherUserName: user.name,
                 otherUserAvatar: user.avatarUrl,
+                otherUserId: user.id,
               ),
             ),
           );

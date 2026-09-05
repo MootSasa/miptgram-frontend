@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 
 /// Download button overlay for media messages when auto-download is disabled
 class MediaDownloadButton extends StatelessWidget {
@@ -39,10 +40,18 @@ class MediaDownloadButton extends StatelessWidget {
                 color: const Color(0xFF0088CC).withValues(alpha: 0.15),
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                isVideo ? Icons.videocam : Icons.photo,
-                color: const Color(0xFF0088CC),
-                size: 28,
+              child: Center(
+                child: isVideo
+                    ? const iconoir.MediaVideo(
+                        color: Color(0xFF0088CC),
+                        width: 28,
+                        height: 28,
+                      )
+                    : const iconoir.MediaImage(
+                        color: Color(0xFF0088CC),
+                        width: 28,
+                        height: 28,
+                      ),
               ),
             ),
             const SizedBox(height: 12),
@@ -65,7 +74,11 @@ class MediaDownloadButton extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.download_rounded, size: 14, color: const Color(0xFF0088CC)),
+                const iconoir.Download(
+                  color: Color(0xFF0088CC),
+                  width: 14,
+                  height: 14,
+                ),
                 const SizedBox(width: 4),
                 Text(
                   fileSize,

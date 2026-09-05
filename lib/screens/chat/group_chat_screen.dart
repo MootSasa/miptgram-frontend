@@ -3,42 +3,33 @@ import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:provider/provider.dart';
 import 'package:dio/dio.dart';
 import 'dart:async';
-import 'dart:io';
-import 'dart:math' as math;
 import '../../services/chat_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/websocket_service.dart';
 import '../../services/liquid_glass_provider.dart';
 import '../../services/unread_count_provider.dart';
-import '../../services/wallpaper_provider.dart';
 import '../../services/database/app_database.dart';
 import '../../services/sync_service.dart';
+import '../../services/message_context_menu_service.dart';
+import '../../l10n/app_localizations.dart';
 import '../../config/app_config.dart';
 import 'package:drift/drift.dart' show Value;
 import '../../utils/image_utils.dart';
 import '../../utils/emoji_utils.dart';
-import '../../utils/haptic_utils.dart';
 import '../../widgets/chat/liquid_glass_input_field.dart';
 import '../../widgets/chat/floating_glass_app_bar.dart';
-import '../../widgets/chat/matte_app_bar.dart';
+import '../../widgets/chat/chat_scaffold.dart';
+import '../../widgets/chat/chat_input_bar.dart';
+import '../../widgets/chat/chat_messages_list_view.dart';
 import '../../widgets/chat/visible_message_detector.dart';
 import '../../widgets/chat/swipe_to_reply_wrapper.dart';
-import '../../widgets/chat/reply_preview_bar.dart';
-import '../../widgets/chat/message_reply_info.dart';
 import '../../widgets/chat/unread_separator.dart';
-import '../../widgets/chat/reactions_panel.dart';
-import '../../widgets/message/message_status_widget.dart';
-import '../../widgets/message/text_message_widget.dart';
 import '../../widgets/message/message_bubble.dart';
 import '../../utils/swipe_back_route.dart';
 import 'private_chat_screen.dart';
 import 'channel_screen.dart';
+import '../../utils/date_time_utils.dart';
 import 'group_info_screen.dart';
-import 'poll_create_screen.dart';
-
-// --- НАСТРОЙКИ СТИЛЯ СООБЩЕНИЙ ---
-/// Радиус скругления «облачка» сообщения.
-const double _kMessageBorderRadius = 18.0;
 // ---------------------------------
 
 class GroupChatScreen extends StatefulWidget {
@@ -92,6 +83,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
   bool _isTyping = false;
   Timer? _typingTimer;
   String? _typingUserName;
+  String? _typingUserId;
 
   // Reply / Quote state
   Message? _replyToMessage;
@@ -99,6 +91,19 @@ class _GroupChatScreenState extends State<GroupChatScreen>
   String? _quoteText;
   int _quoteOffset = 0;
   int _quoteLength = 0;
+
+  // Edit message state
+  bool _isEditing = false;
+  String? _editingMessageId;
+
+  void _cancelEditing() {
+    _stopMyTyping();
+    setState(() {
+      _isEditing = false;
+      _editingMessageId = null;
+      _messageController.clear();
+    });
+  }
 
   @override
   void initState() {
@@ -192,7 +197,51 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       if (chatId == widget.chatId) {
         _onTypingIndicator(event);
       }
+    } else if (event.type == WebSocketEventType.messageEdited) {
+      final chatId = event.data['chat_id']?.toString();
+      if (chatId == widget.chatId) {
+        _onMessageEdited(event);
+      }
+    } else if (event.type == WebSocketEventType.userStatus) {
+      _onUserStatusUpdate(event);
     }
+  }
+
+  void _onUserStatusUpdate(WebSocketEvent event) {
+    final userId = event.data['user_id']?.toString();
+    final isOnline = event.data['is_online'] == true;
+    if (userId == null) return;
+
+    if (mounted) {
+      setState(() {
+        final idx = _participants.indexWhere((p) => p.id == userId);
+        if (idx != -1) {
+          _participants[idx] = _participants[idx].copyWith(isOnline: isOnline);
+        }
+      });
+    }
+  }
+
+  void _onMessageEdited(WebSocketEvent event) {
+    final messageId = event.data['message_id']?.toString();
+    final newContent = event.data['content']?.toString();
+    if (messageId == null || newContent == null) return;
+
+    if (mounted) {
+      setState(() {
+        final index = _messages.indexWhere((m) => m.id == messageId);
+        if (index != -1) {
+          _messages[index] = _messages[index].copyWith(
+            content: newContent,
+            isEdited: true,
+          );
+        }
+      });
+    }
+
+    try {
+      AppDatabase().updateMessageContent(messageId, newContent);
+    } catch (_) {}
   }
 
   void _onNewMessage(WebSocketEvent event) {
@@ -216,6 +265,12 @@ class _GroupChatScreenState extends State<GroupChatScreen>
 
     if (mounted) {
       setState(() {
+        if (_typingUserId == message.senderId || _isTyping) {
+          _typingTimer?.cancel();
+          _isTyping = false;
+          _typingUserId = null;
+          _typingUserName = null;
+        }
         _messages.insert(0, message);
       });
       // Don't auto-scroll to bottom on new message - user should stay at current position
@@ -230,30 +285,53 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       setState(() => _showScrollDownFab = showFab);
     }
 
+    final chatId = event.data['chat_id']?.toString();
+    if (chatId != widget.chatId) return;
+
     final typingUserId = event.data['user_id']?.toString();
     if (typingUserId == _currentUserId) return;
 
-    // Get typing user name from participants
-    final typingUser = _participants.firstWhere(
-      (p) => p.id == typingUserId,
-      orElse: () => ChatParticipant(
-          id: '', username: '', displayName: 'Someone', role: 'member'),
-    );
+    final bool isTyping = event.data['is_typing'] != false;
+    if (!isTyping) {
+      if (mounted && _typingUserId == typingUserId) {
+        _typingTimer?.cancel();
+        setState(() {
+          _isTyping = false;
+          _typingUserId = null;
+          _typingUserName = null;
+        });
+      }
+      return;
+    }
+
+    // Get typing user name from event or participants
+    final eventUserName = event.data['user_name']?.toString();
+    String name = eventUserName ?? '';
+    if (name.isEmpty) {
+      final typingUser = _participants.firstWhere(
+        (p) => p.id == typingUserId,
+        orElse: () => ChatParticipant(
+            id: '', username: '', displayName: 'Someone', role: 'member'),
+      );
+      name = typingUser.displayName.isNotEmpty
+          ? typingUser.displayName
+          : typingUser.username;
+    }
 
     if (mounted) {
       setState(() {
-        _typingUserName = typingUser.displayName.isNotEmpty
-            ? typingUser.displayName
-            : typingUser.username;
+        _typingUserId = typingUserId;
+        _typingUserName = name;
         _isTyping = true;
       });
 
-      // Clear typing indicator after 3 seconds
+      // Clear typing indicator after 4 seconds (Telegram-like smooth window)
       _typingTimer?.cancel();
-      _typingTimer = Timer(const Duration(seconds: 3), () {
+      _typingTimer = Timer(const Duration(seconds: 4), () {
         if (mounted) {
           setState(() {
             _isTyping = false;
+            _typingUserId = null;
             _typingUserName = null;
           });
         }
@@ -261,8 +339,35 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     }
   }
 
-  void _sendTypingIndicator() {
-    _wsService.sendTypingIndicator(widget.chatId);
+  Timer? _typingKeepAliveTimer;
+  bool _amITyping = false;
+
+  void _onInputTextChanged(String text) {
+    final bool hasText = text.trim().isNotEmpty;
+    if (hasText) {
+      if (!_amITyping) {
+        _amITyping = true;
+        _wsService.sendTypingIndicator(widget.chatId, isTyping: true);
+      }
+      _typingKeepAliveTimer ??= Timer.periodic(const Duration(milliseconds: 2000), (_) {
+        if (_messageController.text.trim().isNotEmpty) {
+          _wsService.sendTypingIndicator(widget.chatId, isTyping: true);
+        } else {
+          _stopMyTyping();
+        }
+      });
+    } else {
+      _stopMyTyping();
+    }
+  }
+
+  void _stopMyTyping() {
+    _typingKeepAliveTimer?.cancel();
+    _typingKeepAliveTimer = null;
+    if (_amITyping) {
+      _amITyping = false;
+      _wsService.sendTypingIndicator(widget.chatId, isTyping: false);
+    }
   }
 
   void _onMessageRead(WebSocketEvent event) {
@@ -444,12 +549,52 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     final String text = _messageController.text.trim();
     if (text.isEmpty || _isSending) return;
 
+    if (_isEditing && _editingMessageId != null) {
+      final messageId = _editingMessageId!;
+      _cancelEditing();
+      try {
+        final res = await ChatService.editMessage(
+          chatId: widget.chatId,
+          messageId: messageId,
+          content: text,
+        );
+        if (res['success'] == true) {
+          if (mounted) {
+            setState(() {
+              final idx = _messages.indexWhere((m) => m.id == messageId);
+              if (idx != -1) {
+                _messages[idx] = _messages[idx].copyWith(
+                  content: text,
+                  isEdited: true,
+                );
+              }
+            });
+          }
+          await AppDatabase().updateMessageContent(messageId, text);
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  res['message'] ?? context.l10n.translate('chat_edit_error'),
+                ),
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('Error editing group message: $e');
+      }
+      return;
+    }
+
     final replyTo = _replyToMessage;
     final replyIsQuote = _isQuote;
     final replyQuoteText = _quoteText;
     final replyQuoteOffset = _quoteOffset;
     final replyQuoteLength = _quoteLength;
 
+    _stopMyTyping();
     _messageController.clear();
     setState(() {
       _isSending = true;
@@ -756,16 +901,12 @@ class _GroupChatScreenState extends State<GroupChatScreen>
   }
 
   String _formatTime(String timestamp) {
-    try {
-      final dateTime = DateTime.parse(timestamp);
-      return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
-    } catch (e) {
-      return '';
-    }
+    return DateTimeUtils.formatTimeHHmm(timestamp);
   }
 
   @override
   void dispose() {
+    _stopMyTyping();
     _tabController.dispose();
     _messageController.dispose();
     _scrollController.dispose();
@@ -820,32 +961,76 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final bool isKeyboardVisible = bottomInset > 0;
 
-    return PopScope(
+    final int onlineCount = _participants.where((p) => p.isOnline).length;
+    final String statusSubtitle;
+    if (_isTyping && _typingUserName != null && _typingUserName!.isNotEmpty) {
+      statusSubtitle = context.l10n
+          .translate('chat_user_typing')
+          .replaceAll('{name}', _typingUserName!);
+    } else if (onlineCount >= 1) {
+      statusSubtitle = context.l10n
+          .translate('chat_status_members_and_online')
+          .replaceAll('{count}', _participants.length.toString())
+          .replaceAll('{online}', onlineCount.toString());
+    } else {
+      statusSubtitle = context.l10n
+          .translate('chat_status_members_count')
+          .replaceAll('{count}', _participants.length.toString());
+    }
+
+    return ChatScaffold(
       canPop: !isKeyboardVisible,
-      onPopInvokedWithResult: (didPop, _) {
+      onPopInvoked: (didPop, _) {
         if (!didPop && isKeyboardVisible) {
           FocusScope.of(context).unfocus();
         }
       },
-      child: Scaffold(
-        resizeToAvoidBottomInset: false,
-        body: Stack(
-          children: [
-            // TabBarView на весь экран
-            Positioned.fill(
-              child: tabBarView,
-            ),
-            // Floating Glass AppBar поверх контента
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: FloatingGlassAppBar(
-                name: displayName,
-                avatarUrl: widget.groupAvatar ?? _groupAvatar,
-                isOnline: false, // Group itself doesn't have online status
-                onBack: () => Navigator.pop(context),
-                onTitleTap: () => Navigator.push(
+      appBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingGlassAppBar(
+            name: displayName,
+            avatarUrl: widget.groupAvatar ?? _groupAvatar,
+            isOnline: false, // Group itself doesn't have online status
+            statusText: statusSubtitle,
+            statusColor: _isTyping
+                ? Theme.of(context).colorScheme.primary
+                : Colors.grey[600],
+            onBack: () => Navigator.pop(context),
+            onTitleTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => GroupInfoScreen(
+                    chatId: widget.chatId,
+                    groupName: displayName,
+                    groupAvatar: widget.groupAvatar ?? _groupAvatar,
+                  ),
+                )),
+            onAvatarTap: () {
+              GlassChatMenu.show(
+                context,
+                isMuted: _isMuted,
+                onVoiceCall: () {
+                  /* TODO: Voice call */
+                },
+                onVideoCall: () {
+                  /* TODO: Video call */
+                },
+                onSearch: () {
+                  /* TODO: Search */
+                },
+                onToggleMute: () {
+                  setState(() => _isMuted = !_isMuted);
+                  ChatService.setMuteNotifications(
+                      chatId: widget.chatId, muted: _isMuted);
+                },
+                onClearHistory: () {
+                  // TODO: Clear history dialog
+                },
+                onReport: () {
+                  // TODO: Report dialog
+                },
+                onViewProfile: () => Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (_) => GroupInfoScreen(
@@ -854,80 +1039,38 @@ class _GroupChatScreenState extends State<GroupChatScreen>
                         groupAvatar: widget.groupAvatar ?? _groupAvatar,
                       ),
                     )),
-                onAvatarTap: () {
-                  GlassChatMenu.show(
-                    context,
-                    isMuted: _isMuted,
-                    onVoiceCall: () {
-                      /* TODO: Voice call */
-                    },
-                    onVideoCall: () {
-                      /* TODO: Video call */
-                    },
-                    onSearch: () {
-                      /* TODO: Search */
-                    },
-                    onToggleMute: () {
-                      setState(() => _isMuted = !_isMuted);
-                      ChatService.setMuteNotifications(
-                          chatId: widget.chatId, muted: _isMuted);
-                    },
-                    onClearHistory: () {
-                      // TODO: Clear history dialog
-                    },
-                    onReport: () {
-                      // TODO: Report dialog
-                    },
-                    onViewProfile: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => GroupInfoScreen(
-                            chatId: widget.chatId,
-                            groupName: displayName,
-                            groupAvatar: widget.groupAvatar ?? _groupAvatar,
-                          ),
-                        )),
-                  );
-                },
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: Theme.of(context)
+                    .colorScheme
+                    .surface
+                    .withValues(alpha: 0.8),
+                borderRadius: BorderRadius.circular(20),
               ),
+              child: tabBar,
             ),
-            // Positioned TabBar below the floating AppBar
-            Positioned(
-              top: MediaQuery.of(context).padding.top + kToolbarHeight + 16,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 16),
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surface
-                        .withValues(alpha: 0.8),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: tabBar,
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
+      body: tabBarView,
     );
   }
 
   Widget _buildChatTab() {
-    final glassEnabled = context.watch<LiquidGlassProvider>().enabled;
-    final wallpaperPath = context.watch<WallpaperProvider>().wallpaperPath;
-
-    // В glass-режиме Scaffold без appBar, нужен отступ для glass AppBar + TabBar
     final topPadding = MediaQuery.of(context).padding.top +
-            kToolbarHeight +
-            kTextTabBarHeight + 24.0;
+        kToolbarHeight +
+        kTextTabBarHeight +
+        24.0;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
-    final typingIndicator = _isTyping
+    final typingWidget = _isTyping
         ? Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
@@ -949,163 +1092,98 @@ class _GroupChatScreenState extends State<GroupChatScreen>
               ],
             ),
           )
-        : const SizedBox.shrink();
+        : null;
 
-    final messageList = _isLoading
-        ? const Center(child: CircularProgressIndicator())
-        : _messages.isEmpty
-            ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.chat_bubble_outline,
-                      size: 64,
-                      color: Colors.grey[400],
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'No messages yet',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            : ListView.builder(
-                controller: _scrollController,
-                reverse: true,
-                padding: EdgeInsets.only(
-                  top: topPadding,
-                  left: 12,
-                  right: 12,
-                  bottom: _inputHeight + bottomInset,
-                ),
-                itemCount: _messages.length,
-                itemBuilder: (context, index) {
-                  final message = _messages[index];
-                  final bool isMe = message.senderId == _currentUserId;
-                  final key = _messageKeys.putIfAbsent(message.id, () => GlobalKey());
-                  final isHighlighted = _highlightMessageId == message.id;
+    final messageList = ChatMessagesListView(
+      isLoading: _isLoading,
+      itemCount: _messages.length,
+      scrollController: _scrollController,
+      topPadding: topPadding,
+      bottomPadding: _inputHeight + bottomInset + 8,
+      typingIndicator: typingWidget,
+      itemBuilder: (context, index) {
+        final message = _messages[index];
+        final bool isMe = message.senderId == _currentUserId;
+        final key = _messageKeys.putIfAbsent(message.id, () => GlobalKey());
+        final isHighlighted = _highlightMessageId == message.id;
 
-                  Widget messageWidget = MessageBubble(
-                    key: key,
-                    message: message,
-                    isMe: isMe,
-                    currentUserId: _currentUserId ?? '',
-                    senderName: isMe ? null : message.senderName,
-                    isHighlighted: isHighlighted,
-                    onRetry: (msg) => _retryMessage(msg),
-                    onReplyTap: (replyToId, chatId) => _handleReplyTap(
-                      replyToId,
-                      chatId,
-                      fromMessageId: message.id,
-                    ),
-                    formatTime: _formatTime,
-                  );
+        Widget messageWidget = MessageBubble(
+          key: key,
+          message: message,
+          isMe: isMe,
+          currentUserId: _currentUserId ?? '',
+          senderName: isMe ? null : message.senderName,
+          isHighlighted: isHighlighted,
+          onRetry: (msg) => _retryMessage(msg),
+          onReplyTap: (replyToId, chatId) => _handleReplyTap(
+            replyToId,
+            chatId,
+            fromMessageId: message.id,
+          ),
+          formatTime: _formatTime,
+        );
 
-                  // Wrap incoming messages with VisibleMessageDetector
-                  if (!isMe) {
-                    messageWidget = VisibleMessageDetector(
-                      messageId: message.id,
-                      onMessageSeen: () => _onMessageVisible(message.id),
-                      visibilityThreshold: 0.3,
-                      visibleDuration: const Duration(milliseconds: 300),
-                      child: messageWidget,
-                    );
-                  }
+        if (!isMe) {
+          messageWidget = VisibleMessageDetector(
+            messageId: message.id,
+            onMessageSeen: () => _onMessageVisible(message.id),
+            visibilityThreshold: 0.3,
+            visibleDuration: const Duration(milliseconds: 300),
+            child: messageWidget,
+          );
+        }
 
-                  // Wrap with SwipeToReplyWrapper for swipe-to-reply gesture
-                  messageWidget = SwipeToReplyWrapper(
-                    onReply: () => _startReply(message),
-                    enabled: true,
-                    child: messageWidget,
-                  );
+        messageWidget = SwipeToReplyWrapper(
+          onReply: () => _startReply(message),
+          enabled: true,
+          child: messageWidget,
+        );
 
-                  // Date separator
-                  final prevMessage = index < _messages.length - 1 ? _messages[index + 1] : null;
-                  final currentDt = DateTime.tryParse(message.createdAt) ?? DateTime.now();
-                  final prevDt = prevMessage != null ? (DateTime.tryParse(prevMessage.createdAt) ?? DateTime.now()) : null;
-                  final currentDate = DateTime(currentDt.year, currentDt.month, currentDt.day);
-                  final prevDate = prevDt != null ? DateTime(prevDt.year, prevDt.month, prevDt.day) : null;
+        messageWidget = GestureDetector(
+          onTap: () {
+            _showContextMenu(message, isMe, key);
+          },
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            width: double.infinity,
+            color: Colors.transparent,
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: messageWidget,
+          ),
+        );
 
-                  final items = <Widget>[];
-                  if (currentDate != prevDate) {
-                    String label;
-                    final now = DateTime.now();
-                    final today = DateTime(now.year, now.month, now.day);
-                    final yesterday = today.subtract(const Duration(days: 1));
-                    if (currentDate == today) {
-                      label = 'Сегодня';
-                    } else if (currentDate == yesterday) {
-                      label = 'Вчера';
-                    } else {
-                      label = '${currentDt.day}.${currentDt.month.toString().padLeft(2, '0')}.${currentDt.year}';
-                    }
-                    items.add(DateSeparator(dateLabel: label));
-                  }
-                  items.add(messageWidget);
+        final prevMessage =
+            index < _messages.length - 1 ? _messages[index + 1] : null;
+        final currentDt =
+            DateTimeUtils.parseUtcDateTime(message.createdAt) ?? DateTime.now();
+        final prevDt = prevMessage != null
+            ? (DateTimeUtils.parseUtcDateTime(prevMessage.createdAt) ?? DateTime.now())
+            : null;
+        final currentDate = DateTimeUtils.startOfDay(currentDt);
+        final prevDate = prevDt != null ? DateTimeUtils.startOfDay(prevDt) : null;
 
-                  return Column(children: items);
-                },
-              );
+        final items = <Widget>[];
+        if (currentDate != prevDate) {
+          items.add(DateSeparator(
+              dateLabel: DateTimeUtils.formatDateSeparator(currentDt,
+                  context: context)));
+        }
+        items.add(messageWidget);
 
-    final messageInput = _buildMessageInput();
+        return Column(children: items);
+      },
+    );
 
-    // Always use Stack so the input floats over messages
     return Stack(
       children: [
-        // Background wallpaper
-        if (wallpaperPath != null)
-          Positioned.fill(
-            child: Image.file(
-              File(wallpaperPath),
-              fit: BoxFit.cover,
-            ),
-          ),
-        Positioned.fill(
-          child: ShaderMask(
-            shaderCallback: (Rect bounds) {
-              final statusBarHeight = MediaQuery.of(context).padding.top;
-              final appBarBottom = statusBarHeight + 54 + 8;
-              final fadeStart = appBarBottom + 20;
-              final fadeEnd = statusBarHeight + 10;
-
-              return LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.transparent,
-                  Colors.transparent,
-                  Colors.black,
-                  Colors.black,
-                ],
-                stops: [
-                  0.0,
-                  (fadeEnd / bounds.height).clamp(0.0, 1.0),
-                  (fadeStart / bounds.height).clamp(0.0, 1.0),
-                  1.0,
-                ],
-              ).createShader(bounds);
-            },
-            blendMode: BlendMode.dstIn,
-            child: Column(
-              children: [
-                typingIndicator,
-                Expanded(child: messageList),
-              ],
-            ),
-          ),
-        ),
+        Positioned.fill(child: messageList),
         Positioned(
           left: 0,
           right: 0,
           bottom: bottomInset,
           child: Container(
             key: _inputKey,
-            child: messageInput,
+            child: _buildMessageInput(),
           ),
         ),
         Positioned(
@@ -1113,7 +1191,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
           bottom: _inputHeight + 10 + bottomInset,
           child: ScrollDownFab(
             visible: _showScrollDownFab,
-            unreadCount: 0, // В группах пока без счетчика
+            unreadCount: 0,
             onPressed: () {
               if (_jumpHistory.isNotEmpty) {
                 final lastId = _jumpHistory.removeLast();
@@ -1191,39 +1269,52 @@ class _GroupChatScreenState extends State<GroupChatScreen>
   }
 
   Widget _buildMessageInput() {
-    final glassEnabled = context.watch<LiquidGlassProvider>().enabled;
+    return ChatInputBar(
+      controller: _messageController,
+      hintText: 'Type a message...',
+      isEditing: _isEditing,
+      onCancelEditing: _cancelEditing,
+      replyToMessage: _replyToMessage,
+      isQuote: _isQuote,
+      quoteText: _quoteText,
+      onCancelReply: _cancelReply,
+      onTapReply: _replyToMessage != null
+          ? () => _scrollToMessage(_replyToMessage!.id)
+          : null,
+      onChanged: _onInputTextChanged,
+      onSend: _sendMessage,
+      isSending: _isSending,
+    );
+  }
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Reply/Quote preview floating bubble
-        if (_replyToMessage != null)
-          ReplyPreviewBar(
-            replyToMessage: _replyToMessage!,
-            isQuote: _isQuote,
-            quoteText: _quoteText,
-            onClose: _cancelReply,
-            onTap: () => _scrollToMessage(_replyToMessage!.id),
-            enabled: glassEnabled,
-            isLite: context.watch<LiquidGlassProvider>().isLite,
-          ),
-        LiquidGlassInputField(
-          enabled: glassEnabled,
-          isLite: context.watch<LiquidGlassProvider>().isLite,
-          controller: _messageController,
-          hintText: 'Type a message...',
-          onChanged: (_) => _sendTypingIndicator(),
-          onSend: _isSending ? null : _sendMessage,
-          onAttach: () {
-            // TODO: Implement attachment picker
-          },
-          onEmoji: () {
-            // TODO: Implement emoji picker
-          },
-          isSending: _isSending,
-        ),
-      ],
+  void _showContextMenu(Message message, bool isMe, GlobalKey key) {
+    if (message.messageType == 'text' && _isSingleEmoji(message.content)) {
+      if (EmojiUtils.getAnimatedEmojiPath(message.content) != null) {
+        return;
+      }
+    }
+
+    MessageContextMenuService().show(
+      context: context,
+      message: message,
+      messageKey: key,
+      isMe: isMe,
+      onReply: () => _startReply(message),
+      onPin: () {},
+      onEdit: () {
+        setState(() {
+          _cancelReply();
+          _messageController.text = message.content;
+          _isEditing = true;
+          _editingMessageId = message.id;
+        });
+      },
+      onDelete: (msg) {
+        // Delete message
+      },
+      onReaction: (msgId, emoji) {
+        // Toggle reaction
+      },
     );
   }
 

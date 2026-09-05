@@ -2,13 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:provider/provider.dart';
 import 'dart:async';
-import 'dart:io';
 import '../../services/chat_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/websocket_service.dart';
-import '../../services/liquid_glass_provider.dart';
 import '../../services/unread_count_provider.dart';
-import '../../services/wallpaper_provider.dart';
 import '../../services/database/app_database.dart';
 import '../../services/sync_service.dart';
 import 'package:drift/drift.dart' show Value;
@@ -17,16 +14,19 @@ import '../../utils/emoji_utils.dart';
 import '../../utils/haptic_utils.dart';
 import '../../widgets/chat/liquid_glass_input_field.dart';
 import '../../widgets/chat/floating_glass_app_bar.dart';
+import '../../widgets/chat/chat_scaffold.dart';
+import '../../widgets/chat/chat_input_bar.dart';
+import '../../widgets/chat/chat_messages_list_view.dart';
 import '../../widgets/message/text_message_widget.dart';
 import '../../widgets/message/message_status_widget.dart';
-import '../../widgets/chat/matte_app_bar.dart';
 import '../../widgets/chat/message_reply_info.dart';
-import '../../widgets/chat/reply_preview_bar.dart';
 import '../../widgets/chat/swipe_to_reply_wrapper.dart';
 import '../../widgets/chat/unread_separator.dart';
 import '../../utils/swipe_back_route.dart';
 import 'private_chat_screen.dart';
 import 'group_chat_screen.dart';
+import '../../l10n/app_localizations.dart';
+import '../../utils/date_time_utils.dart';
 
 // --- НАСТРОЙКИ СТИЛЯ СООБЩЕНИЙ ---
 /// Радиус скругления «облачка» сообщения в канале.
@@ -166,7 +166,34 @@ class _ChannelScreenState extends State<ChannelScreen> {
       if (chatId == widget.channelId) {
         _onNewMessage(event);
       }
+    } else if (event.type == WebSocketEventType.messageEdited) {
+      final chatId = event.data['chat_id']?.toString();
+      if (chatId == widget.channelId) {
+        _onMessageEdited(event);
+      }
     }
+  }
+
+  void _onMessageEdited(WebSocketEvent event) {
+    final messageId = event.data['message_id']?.toString();
+    final newContent = event.data['content']?.toString();
+    if (messageId == null || newContent == null) return;
+
+    if (mounted) {
+      setState(() {
+        final index = _messages.indexWhere((m) => m.id == messageId);
+        if (index != -1) {
+          _messages[index] = _messages[index].copyWith(
+            content: newContent,
+            isEdited: true,
+          );
+        }
+      });
+    }
+
+    try {
+      AppDatabase().updateMessageContent(messageId, newContent);
+    } catch (_) {}
   }
 
   void _onNewMessage(WebSocketEvent event) {
@@ -679,21 +706,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
   }
 
   String _formatTime(String timestamp) {
-    try {
-      final dateTime = DateTime.parse(timestamp);
-      final now = DateTime.now();
-      final difference = now.difference(dateTime);
-
-      if (difference.inDays == 0) {
-        return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
-      } else if (difference.inDays == 1) {
-        return 'Yesterday ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
-      } else {
-        return '${dateTime.day}.${dateTime.month}.${dateTime.year}';
-      }
-    } catch (e) {
-      return '';
-    }
+    return DateTimeUtils.formatTimeHHmm(timestamp);
   }
 
   @override
@@ -735,185 +748,93 @@ class _ChannelScreenState extends State<ChannelScreen> {
   Widget build(BuildContext context) {
     _updateInputHeight();
     final displayName = widget.channelName ?? (_channelName.isNotEmpty ? _channelName : 'Channel');
+    final topPadding = ChatScaffold.getTopContentPadding(context);
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final bool isKeyboardVisible = bottomInset > 0;
 
-    return Consumer<LiquidGlassProvider>(
-      builder: (context, glassProvider, _) {
-        final glassEnabled = glassProvider.enabled;
-        final wallpaperPath = context.watch<WallpaperProvider>().wallpaperPath;
+    final String subscriberText = context.l10n
+        .translate('chat_status_subscribers_count')
+        .replaceAll('{count}', _subscriberCount.toString());
 
-        // В glass-режиме Scaffold без appBar, нужен отступ
-        final topPadding = MediaQuery.of(context).padding.top + kToolbarHeight + 16.0;
-        final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-        final bool isKeyboardVisible = bottomInset > 0;
-
-        final messageList = _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : _messages.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.campaign_outlined,
-                          size: 64,
-                          color: Colors.grey[400],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'No posts yet',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    controller: _scrollController,
-                    reverse: true,
-                    padding: EdgeInsets.only(
-                      top: topPadding,
-                      left: 8,
-                      right: 8,
-                      bottom: _isAdmin ? _inputHeight + bottomInset : 8 + bottomInset,
-                    ),
-                    itemCount: _messages.length,
-                    itemBuilder: (context, index) {
-                      final message = _messages[index];
-                      return _buildChannelMessage(message);
-                    },
-                  );
-
-        final messageInput =
-            _isAdmin ? _buildMessageInput() : const SizedBox.shrink();
-
-        return PopScope(
-          canPop: !isKeyboardVisible,
-          onPopInvokedWithResult: (didPop, _) {
-            if (!didPop && isKeyboardVisible) {
-              FocusScope.of(context).unfocus();
-            }
-          },
-          child: Scaffold(
-            resizeToAvoidBottomInset: false,
-            body: Stack(
-              children: [
-                // Background wallpaper
-                if (wallpaperPath != null)
-                  Positioned.fill(
-                    child: Image.file(
-                      File(wallpaperPath),
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                // Сообщения + поле ввода (если админ)
-                Positioned.fill(
-                  child: ShaderMask(
-                    shaderCallback: (Rect bounds) {
-                      final statusBarHeight = MediaQuery.of(context).padding.top;
-                      final appBarBottom = statusBarHeight + 54 + 8;
-                      final fadeStart = appBarBottom + 20;
-                      final fadeEnd = statusBarHeight + 10;
-
-                      return LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          Colors.transparent,
-                          Colors.black,
-                          Colors.black,
-                        ],
-                        stops: [
-                          0.0,
-                          (fadeEnd / bounds.height).clamp(0.0, 1.0),
-                          (fadeStart / bounds.height).clamp(0.0, 1.0),
-                          1.0,
-                        ],
-                      ).createShader(bounds);
-                    },
-                    blendMode: BlendMode.dstIn,
-                    child: messageList,
-                  ),
-                ),
-                if (_isAdmin)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: bottomInset,
-                    child: Container(
-                      key: _inputKey,
-                      child: messageInput,
-                    ),
-                  ),
-                Positioned(
-                  right: 16,
-                  bottom: (_isAdmin ? _inputHeight : 0) + 16 + bottomInset,
-                  child: ScrollDownFab(
-                    visible: _showScrollDownFab,
-                    unreadCount: 0,
-                    onPressed: () {
-                      if (_jumpHistory.isNotEmpty) {
-                        final lastId = _jumpHistory.removeLast();
-                        _scrollToMessage(lastId);
-                      } else {
-                        _scrollController.animateTo(
-                          0,
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeOut,
-                        );
-                      }
-                    },
-                  ),
-                ),
-                // Floating Glass AppBar поверх контента
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: FloatingGlassAppBar(
-                    name: displayName,
-                    avatarUrl: widget.channelAvatar ?? _channelAvatar,
-                    isOnline: false, // Channel doesn't have online status
-                    onBack: () => Navigator.pop(context),
-                    onTitleTap: () {
-                      // TODO: Open channel info
-                    },
-                    onAvatarTap: () {
-                      GlassChatMenu.show(
-                        context,
-                        isMuted: false, // TODO: Get muted state
-                        onVoiceCall: () {
-                          /* Not supported for channels usually */
-                        },
-                        onVideoCall: () {
-                          /* Not supported for channels usually */
-                        },
-                        onSearch: () {
-                          /* TODO: Search */
-                        },
-                        onToggleMute: () {
-                          // TODO: Toggle notifications
-                        },
-                        onClearHistory: () {
-                          // TODO: Clear history
-                        },
-                        onReport: () {
-                          // TODO: Report
-                        },
-                        onViewProfile: () {
-                          // TODO: View channel info
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
+    return ChatScaffold(
+      canPop: !isKeyboardVisible,
+      onPopInvoked: (didPop, _) {
+        if (!didPop && isKeyboardVisible) {
+          FocusScope.of(context).unfocus();
+        }
       },
+      appBar: FloatingGlassAppBar(
+        name: displayName,
+        avatarUrl: widget.channelAvatar ?? _channelAvatar,
+        isOnline: false, // Channel doesn't have online status
+        statusText: subscriberText,
+        statusColor: Colors.grey[600],
+        onBack: () => Navigator.pop(context),
+        onTitleTap: () {
+          // TODO: Open channel info
+        },
+        onAvatarTap: () {
+          GlassChatMenu.show(
+            context,
+            isMuted: false, // TODO: Get muted state
+            onVoiceCall: () {
+              /* Not supported for channels usually */
+            },
+            onVideoCall: () {
+              /* Not supported for channels usually */
+            },
+            onSearch: () {
+              /* TODO: Search */
+            },
+            onToggleMute: () {
+              // TODO: Toggle notifications
+            },
+            onClearHistory: () {
+              // TODO: Clear history
+            },
+            onReport: () {
+              // TODO: Report
+            },
+            onViewProfile: () {
+              // TODO: View channel info
+            },
+          );
+        },
+      ),
+      floatingActionButton: ScrollDownFab(
+        visible: _showScrollDownFab,
+        unreadCount: 0,
+        onPressed: () {
+          if (_jumpHistory.isNotEmpty) {
+            final lastId = _jumpHistory.removeLast();
+            _scrollToMessage(lastId);
+          } else {
+            _scrollController.animateTo(
+              0,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+            );
+          }
+        },
+      ),
+      body: ChatMessagesListView(
+        isLoading: _isLoading,
+        itemCount: _messages.length,
+        scrollController: _scrollController,
+        topPadding: topPadding,
+        bottomPadding: _isAdmin ? _inputHeight + 8 : 16,
+        emptyTitle: 'No posts yet',
+        itemBuilder: (context, index) {
+          final message = _messages[index];
+          return _buildChannelMessage(message);
+        },
+      ),
+      bottomBar: _isAdmin
+          ? Container(
+              key: _inputKey,
+              child: _buildMessageInput(),
+            )
+          : null,
     );
   }
 
@@ -1220,35 +1141,16 @@ class _ChannelScreenState extends State<ChannelScreen> {
   }
 
   Widget _buildMessageInput() {
-    final glassEnabled = context.watch<LiquidGlassProvider>().enabled;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Reply/Quote preview floating bubble
-        if (_replyToMessage != null)
-          ReplyPreviewBar(
-            replyToMessage: _replyToMessage!,
-            isQuote: _isQuote,
-            quoteText: _quoteText,
-            onClose: _cancelReply,
-            onTap: () => _scrollToMessage(_replyToMessage!.id),
-            enabled: glassEnabled,
-            isLite: context.watch<LiquidGlassProvider>().isLite,
-          ),
-        LiquidGlassInputField(
-          enabled: glassEnabled,
-          isLite: context.watch<LiquidGlassProvider>().isLite,
-          controller: _messageController,
-          hintText: 'Write a post...',
-          onSend: _isSending ? null : _sendMessage,
-          onAttach: () {
-            // TODO: Implement attachment picker
-          },
-          isSending: _isSending,
-        ),
-      ],
+    return ChatInputBar(
+      controller: _messageController,
+      hintText: 'Write a post...',
+      replyToMessage: _replyToMessage,
+      isQuote: _isQuote,
+      quoteText: _quoteText,
+      onCancelReply: _cancelReply,
+      onTapReply: _replyToMessage != null ? () => _scrollToMessage(_replyToMessage!.id) : null,
+      onSend: _sendMessage,
+      isSending: _isSending,
     );
   }
 

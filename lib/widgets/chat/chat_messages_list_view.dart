@@ -1,0 +1,134 @@
+import 'package:flutter/material.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
+
+/// Unified message list view for chat screens supporting reverse scrolling,
+/// top shader mask for floating glass app bar, empty state, and loading spinner.
+class ChatMessagesListView extends StatelessWidget {
+  final bool isLoading;
+  final int itemCount;
+  final IndexedWidgetBuilder itemBuilder;
+  final ScrollController? scrollController;
+  final double topPadding;
+  final double bottomPadding;
+  final Widget? emptyIcon;
+  final String? emptyTitle;
+  final String? emptySubtitle;
+  final Widget? typingIndicator;
+  final bool reverse;
+  final bool enableTopShaderMask;
+
+  const ChatMessagesListView({
+    Key? key,
+    required this.isLoading,
+    required this.itemCount,
+    required this.itemBuilder,
+    this.scrollController,
+    this.topPadding = 90.0,
+    this.bottomPadding = 16.0,
+    this.emptyIcon,
+    this.emptyTitle,
+    this.emptySubtitle,
+    this.typingIndicator,
+    this.reverse = true,
+    this.enableTopShaderMask = true,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (itemCount == 0) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            emptyIcon ??
+                iconoir.ChatBubbleEmpty(
+                  width: 64,
+                  height: 64,
+                  color: Colors.grey[400],
+                ),
+            const SizedBox(height: 16),
+            Text(
+              emptyTitle ?? 'No messages yet',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[600],
+              ),
+            ),
+            if (emptySubtitle != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                emptySubtitle!,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[500],
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    final listView = ListView.builder(
+      controller: scrollController,
+      reverse: reverse,
+      padding: EdgeInsets.only(
+        top: topPadding,
+        left: 8,
+        right: 8,
+        bottom: bottomPadding,
+      ),
+      itemCount: itemCount,
+      itemBuilder: itemBuilder,
+    );
+
+    final content = typingIndicator != null
+        ? Column(
+            children: [
+              typingIndicator!,
+              Expanded(child: listView),
+            ],
+          )
+        : listView;
+
+    if (!enableTopShaderMask) {
+      return content;
+    }
+
+    return ShaderMask(
+      shaderCallback: (Rect bounds) {
+        final statusBarHeight = MediaQuery.of(context).padding.top;
+        final appBarBottom = statusBarHeight + 54 + 8;
+        final fadeStart = appBarBottom + 20;
+        final fadeEnd = statusBarHeight;
+
+        return LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: const [
+            Colors.transparent,
+            Colors.transparent,
+            Colors.black,
+            Colors.black,
+          ],
+          stops: [
+            0.0,
+            (fadeEnd / bounds.height).clamp(0.0, 1.0),
+            (fadeStart / bounds.height).clamp(0.0, 1.0),
+            1.0,
+          ],
+        ).createShader(bounds);
+      },
+      blendMode: BlendMode.dstIn,
+      child: content,
+    );
+  }
+}

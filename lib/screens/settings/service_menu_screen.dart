@@ -1,8 +1,12 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import '../../config/app_config.dart';
 import '../../l10n/app_localizations.dart';
+import '../../services/auth_service.dart';
+import '../../services/websocket_service.dart';
+import '../auth/login_screen.dart';
 
 /// Экран сервисного меню (скрытый раздел для отладки и сервисных функций).
 class ServiceMenuScreen extends StatefulWidget {
@@ -16,10 +20,87 @@ class _ServiceMenuScreenState extends State<ServiceMenuScreen> {
   static OverlayEntry? _cutoutOverlayEntry;
   bool _isCutoutHighlighted = false;
 
+  bool _isCheckingConnection = false;
+  String? _connectionTestResult;
+  bool? _connectionTestSuccess;
+  String? _currentUserToken;
+  String? _currentUserId;
+
   @override
   void initState() {
     super.initState();
     _isCutoutHighlighted = _cutoutOverlayEntry != null;
+    _loadCurrentUserInfo();
+  }
+
+  Future<void> _loadCurrentUserInfo() async {
+    final token = await AuthService.getToken();
+    final userId = await AuthService.getUserId();
+    if (mounted) {
+      setState(() {
+        _currentUserToken = token;
+        _currentUserId = userId;
+      });
+    }
+  }
+
+  Future<void> _testServerConnection() async {
+    setState(() {
+      _isCheckingConnection = true;
+      _connectionTestResult = null;
+      _connectionTestSuccess = null;
+    });
+
+    try {
+      final startTime = DateTime.now();
+      final healthUri = Uri.parse('${AppConfig.baseUrl}/health');
+      final response = await http.get(healthUri).timeout(const Duration(seconds: 4));
+      final latency = DateTime.now().difference(startTime).inMilliseconds;
+
+      if (response.statusCode == 200) {
+        String msg = 'REST API: OK (${latency}мс)';
+        if (_currentUserToken == 'test_token_offline_mode') {
+          msg += '\n⚠️ Токен тестовый (офлайн). Сервер отклонит WebSocket (401). Для работы выйдите и зарегистрируйтесь.';
+          setState(() {
+            _connectionTestResult = msg;
+            _connectionTestSuccess = false;
+            _isCheckingConnection = false;
+          });
+        } else {
+          await WebSocketService().reconnect();
+          await Future.delayed(const Duration(milliseconds: 600));
+          final isWs = WebSocketService().isConnected;
+          msg += isWs ? '\nWebSocket: Подключено (OK)' : '\nWebSocket: В процессе подключения...';
+          setState(() {
+            _connectionTestResult = msg;
+            _connectionTestSuccess = true;
+            _isCheckingConnection = false;
+          });
+        }
+      } else {
+        setState(() {
+          _connectionTestResult = 'Ошибка HTTP ${response.statusCode}: ${response.body}';
+          _connectionTestSuccess = false;
+          _isCheckingConnection = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _connectionTestResult = 'Ошибка подключения: $e';
+        _connectionTestSuccess = false;
+        _isCheckingConnection = false;
+      });
+    }
+  }
+
+  Future<void> _logoutFromCurrentAccount() async {
+    await AuthService.logout();
+    WebSocketService().disconnect();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false,
+    );
   }
 
   void _showServerConfigDialog() {
@@ -47,16 +128,24 @@ class _ServiceMenuScreenState extends State<ServiceMenuScreen> {
           TextButton(
             onPressed: () async {
               await AppConfig.resetToDefaults();
+              await WebSocketService().reconnect();
               if (dialogCtx.mounted) Navigator.pop(dialogCtx);
-              if (mounted) setState(() {});
+              if (mounted) {
+                setState(() {});
+                _testServerConnection();
+              }
             },
             child: const Text('Сбросить'),
           ),
           FilledButton(
             onPressed: () async {
               await AppConfig.setCustomServerUrl(controller.text.trim());
+              await WebSocketService().reconnect();
               if (dialogCtx.mounted) Navigator.pop(dialogCtx);
-              if (mounted) setState(() {});
+              if (mounted) {
+                setState(() {});
+                _testServerConnection();
+              }
             },
             child: const Text('Сохранить'),
           ),
@@ -235,6 +324,42 @@ class _ServiceMenuScreenState extends State<ServiceMenuScreen> {
       ),
       body: ListView(
         children: [
+          if (_currentUserToken == 'test_token_offline_mode')
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.amber.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.amber),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 22),
+                      SizedBox(width: 8),
+                      Text(
+                        'Тестовый офлайн-аккаунт',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Вы авторизованы под локальным тестовым аккаунтом. Сервер вернёт ошибку 401 при подключении WebSocket и чатов. Для полноценной работы выйдите и зарегистрируйтесь на сервере.',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  const SizedBox(height: 10),
+                  FilledButton.tonalIcon(
+                    onPressed: _logoutFromCurrentAccount,
+                    icon: const Icon(Icons.logout, size: 18),
+                    label: const Text('Выйти и зарегистрироваться'),
+                  ),
+                ],
+              ),
+            ),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: Text(
@@ -267,6 +392,37 @@ class _ServiceMenuScreenState extends State<ServiceMenuScreen> {
             leading: const Icon(Icons.web, color: Color(0xFF0088CC)),
             title: const Text('Web Base URL'),
             subtitle: Text(AppConfig.webBaseUrl),
+          ),
+          ListTile(
+            leading: _isCheckingConnection
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(
+                    _connectionTestSuccess == null
+                        ? Icons.network_check
+                        : (_connectionTestSuccess! ? Icons.check_circle : Icons.error),
+                    color: _connectionTestSuccess == null
+                        ? const Color(0xFF0088CC)
+                        : (_connectionTestSuccess! ? Colors.green : Colors.red),
+                  ),
+            title: const Text('Проверить соединение с сервером'),
+            subtitle: _connectionTestResult != null
+                ? Text(
+                    _connectionTestResult!,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _connectionTestSuccess == true ? Colors.green : Colors.red,
+                    ),
+                  )
+                : const Text('Нажмите для проверки REST API и WebSocket'),
+            trailing: IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _isCheckingConnection ? null : _testServerConnection,
+            ),
+            onTap: _isCheckingConnection ? null : _testServerConnection,
           ),
           const Divider(),
           const Padding(

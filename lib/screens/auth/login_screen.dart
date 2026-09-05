@@ -8,6 +8,8 @@ import 'register_screen.dart';
 import 'recovery_screen.dart';
 import '../../l10n/app_localizations.dart';
 import '../../utils/swipe_back_route.dart';
+import '../../config/app_config.dart';
+import '../settings/service_menu_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -204,7 +206,33 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const SizedBox(height: 48),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      if (_suggestedLanguageCode != null)
+                        TextButton.icon(
+                          onPressed: _switchLanguage,
+                          icon: const Icon(Icons.language, size: 18),
+                          label: Text(_suggestedLanguageCode!.toUpperCase()),
+                        )
+                      else
+                        const SizedBox.shrink(),
+                      IconButton(
+                        icon: const Icon(Icons.dns_outlined),
+                        tooltip: 'Настройка сервера (${AppConfig.baseUrl})',
+                        onPressed: () async {
+                          await Navigator.push(
+                            context,
+                            SwipeBackPageRoute(
+                              builder: (_) => const ServiceMenuScreen(),
+                            ),
+                          );
+                          if (mounted) setState(() {});
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
                   // Logo or App Name
                   Text(
                     l10n.translate('app_title'),
@@ -214,7 +242,37 @@ class _LoginScreenState extends State<LoginScreen> {
                       color: Colors.blue,
                     ),
                   ),
-                  const SizedBox(height: 48),
+                  const SizedBox(height: 4),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () async {
+                      await Navigator.push(
+                        context,
+                        SwipeBackPageRoute(
+                          builder: (_) => const ServiceMenuScreen(),
+                        ),
+                      );
+                      if (mounted) setState(() {});
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.link, size: 14, color: Colors.grey[600]),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              AppConfig.baseUrl,
+                              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
                   // Email/Username Field
                   TextFormField(
                     controller: _emailController,

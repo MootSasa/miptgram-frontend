@@ -1,11 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import '../config/app_config.dart';
 import 'account_manager.dart';
 import 'database/app_database.dart';
+import 'deep_link_service.dart';
+import 'websocket_service.dart';
+import '../screens/auth/login_screen.dart';
+import '../utils/swipe_back_route.dart';
+import '../l10n/app_localizations.dart';
 
 /// AuthService handles authentication operations including login, logout,
 /// and token management. Integrates with AccountManager for multi-account support.
@@ -22,14 +27,33 @@ class AuthService {
     required String displayName,
   }) async {
     try {
+      final accountManager = AccountManager();
+      final deviceInfo = await accountManager.getCurrentDeviceInfo();
+      final deviceId = accountManager.currentDeviceId ??
+          'device_${DateTime.now().millisecondsSinceEpoch}';
+
       final response = await http.post(
         Uri.parse('${AppConfig.baseUrl}/api/auth/register'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Device-ID': deviceId,
+          'X-Device-Name': deviceInfo.deviceName,
+          'X-Device-Type': deviceInfo.deviceType.name,
+          'X-OS-Name': deviceInfo.os,
+          'X-OS-Version': deviceInfo.osVersion,
+          'X-App-Version': '1.0.0',
+        },
         body: jsonEncode({
           'username': username,
           'email': email,
           'password': password,
           'display_name': displayName,
+          'device_id': deviceId,
+          'device_name': deviceInfo.deviceName,
+          'device_type': deviceInfo.deviceType.name,
+          'os_name': deviceInfo.os,
+          'os_version': deviceInfo.osVersion,
+          'app_version': '1.0.0',
         }),
       );
 
@@ -82,32 +106,38 @@ class AuthService {
   /// Returns a map containing the auth token and user info on success.
   /// Throws an exception on failure.
   static Future<Map<String, dynamic>> login({
-  	required String usernameOrEmail,
-  	required String password,
+    required String usernameOrEmail,
+    required String password,
   }) async {
-  try {
-  	// Get device info for session tracking
-  	final accountManager = AccountManager();
-  	final deviceInfo = await accountManager.getCurrentDeviceInfo();
-  	final deviceId = accountManager.currentDeviceId ??
-  		'device_${DateTime.now().millisecondsSinceEpoch}';
- 
-  	final response = await http.post(
-  	Uri.parse('${AppConfig.baseUrl}/api/auth/login'),
-  	headers: {
-  		'Content-Type': 'application/json',
-  		'X-Device-ID': deviceId,
-  		'X-Device-Name': deviceInfo.deviceName,
-  		'X-Device-Type': deviceInfo.deviceType.name,
-  	},
-  	body: jsonEncode({
-  		'username_or_email': usernameOrEmail,
-  		'password': password,
-  		'device_id': deviceId,
-  		'device_name': deviceInfo.deviceName,
-  		'device_type': deviceInfo.deviceType.name,
-  	}),
-  	);
+    try {
+      // Get device info for session tracking
+      final accountManager = AccountManager();
+      final deviceInfo = await accountManager.getCurrentDeviceInfo();
+      final deviceId = accountManager.currentDeviceId ??
+          'device_${DateTime.now().millisecondsSinceEpoch}';
+
+      final response = await http.post(
+        Uri.parse('${AppConfig.baseUrl}/api/auth/login'),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Device-ID': deviceId,
+          'X-Device-Name': deviceInfo.deviceName,
+          'X-Device-Type': deviceInfo.deviceType.name,
+          'X-OS-Name': deviceInfo.os,
+          'X-OS-Version': deviceInfo.osVersion,
+          'X-App-Version': '1.0.0',
+        },
+        body: jsonEncode({
+          'username_or_email': usernameOrEmail,
+          'password': password,
+          'device_id': deviceId,
+          'device_name': deviceInfo.deviceName,
+          'device_type': deviceInfo.deviceType.name,
+          'os_name': deviceInfo.os,
+          'os_version': deviceInfo.osVersion,
+          'app_version': '1.0.0',
+        }),
+      );
  
   	if (response.statusCode == 200) {
   	final data = jsonDecode(response.body);
@@ -185,6 +215,67 @@ class AuthService {
     }
   }
 
+  static bool _isTerminating = false;
+
+  /// Handles remote termination of the current session
+  static Future<void> handleRemoteSessionTerminated({String? reason}) async {
+    if (_isTerminating) return;
+    _isTerminating = true;
+
+    try {
+      debugPrint('AuthService: Session terminated remotely. Reason: $reason');
+
+      // 1. Disconnect WebSocket
+      try {
+        WebSocketService().disconnect();
+      } catch (_) {}
+
+      // 2. Clear current account credentials locally
+      final accountManager = AccountManager();
+      final currentUserId = accountManager.currentAccount?.userId;
+      if (currentUserId != null) {
+        await accountManager.removeAccount(currentUserId);
+      }
+
+      // 3. Navigate to LoginScreen immediately via global navigatorKey
+      final nav = DeepLinkService().navigatorKey.currentState;
+      if (nav != null) {
+        nav.pushAndRemoveUntil(
+          SwipeBackPageRoute(builder: (_) => const LoginScreen()),
+          (route) => false,
+        );
+      }
+
+      // 4. Show SnackBar to the user
+      final context = DeepLinkService().navigatorKey.currentContext;
+      if (context != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Colors.white),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    context.l10n.translate('session_terminated_remotely'),
+                    style: const TextStyle(fontWeight: FontWeight.w500, color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.red[700],
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error in handleRemoteSessionTerminated: $e');
+    } finally {
+      _isTerminating = false;
+    }
+  }
+
   /// Logout from a specific device session.
   static Future<bool> logoutDevice(String deviceId) async {
     try {
@@ -208,6 +299,74 @@ class AuthService {
       return false;
     } catch (e) {
       debugPrint('Logout device error: $e');
+      return false;
+    }
+  }
+
+  /// Terminate all other sessions except the current device
+  static Future<bool> terminateOtherSessions(String currentDeviceId) async {
+    try {
+      final token = await getToken();
+      if (token == null) return false;
+
+      final response = await http.post(
+        Uri.parse('${AppConfig.baseUrl}/api/auth/terminate-others'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'current_device_id': currentDeviceId}),
+      );
+
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Terminate others error: $e');
+      return false;
+    }
+  }
+
+  /// Get sessions auto-termination TTL (in days).
+  static Future<int> getSessionsTTL() async {
+    try {
+      final token = await getToken();
+      if (token == null) return 180;
+
+      final response = await http.get(
+        Uri.parse('${AppConfig.baseUrl}/api/auth/sessions/ttl'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['ttl_days'] as int? ?? 180;
+      }
+    } catch (e) {
+      debugPrint('getSessionsTTL error: $e');
+    }
+    return 180;
+  }
+
+  /// Update sessions auto-termination TTL (in days).
+  static Future<bool> setSessionsTTL(int ttlDays) async {
+    try {
+      final token = await getToken();
+      if (token == null) return false;
+
+      final response = await http.put(
+        Uri.parse('${AppConfig.baseUrl}/api/auth/sessions/ttl'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'ttl_days': ttlDays}),
+      );
+
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('setSessionsTTL error: $e');
       return false;
     }
   }

@@ -551,6 +551,11 @@ class DeviceSession {
   final DateTime lastActive;
   final bool isCurrent;
   final String? location;
+  final String? ipAddress;
+  final String? city;
+  final String? country;
+  final String? countryCode;
+  final String? appVersion;
 
   DeviceSession({
     required this.id,
@@ -563,6 +568,11 @@ class DeviceSession {
     required this.lastActive,
     required this.isCurrent,
     this.location,
+    this.ipAddress,
+    this.city,
+    this.country,
+    this.countryCode,
+    this.appVersion,
   });
 
   Map<String, dynamic> toJson() {
@@ -577,6 +587,11 @@ class DeviceSession {
       'lastActive': lastActive.toIso8601String(),
       'isCurrent': isCurrent,
       'location': location,
+      'ipAddress': ipAddress,
+      'city': city,
+      'country': country,
+      'countryCode': countryCode,
+      'appVersion': appVersion,
     };
   }
 
@@ -592,6 +607,11 @@ class DeviceSession {
       lastActive: DateTime.parse(json['lastActive'] as String),
       isCurrent: json['isCurrent'] as bool,
       location: json['location'] as String?,
+      ipAddress: json['ipAddress'] as String?,
+      city: json['city'] as String?,
+      country: json['country'] as String?,
+      countryCode: json['countryCode'] as String?,
+      appVersion: json['appVersion'] as String?,
     );
   }
 
@@ -606,6 +626,11 @@ class DeviceSession {
     DateTime? lastActive,
     bool? isCurrent,
     String? location,
+    String? ipAddress,
+    String? city,
+    String? country,
+    String? countryCode,
+    String? appVersion,
   }) {
     return DeviceSession(
       id: id ?? this.id,
@@ -618,6 +643,11 @@ class DeviceSession {
       lastActive: lastActive ?? this.lastActive,
       isCurrent: isCurrent ?? this.isCurrent,
       location: location ?? this.location,
+      ipAddress: ipAddress ?? this.ipAddress,
+      city: city ?? this.city,
+      country: country ?? this.country,
+      countryCode: countryCode ?? this.countryCode,
+      appVersion: appVersion ?? this.appVersion,
     );
   }
 

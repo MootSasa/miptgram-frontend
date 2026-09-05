@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../utils/emoji_utils.dart';
 import '../../utils/haptic_utils.dart';
+import '../../l10n/app_localizations.dart';
 
 class MessageContextMenu extends StatefulWidget {
   final Offset messageOffset;
@@ -162,7 +163,7 @@ class _MessageContextMenuState extends State<MessageContextMenu> with SingleTick
           _buildActionItem(Icons.copy, 'Копировать', widget.onCopy, theme, enabled: !isSending),
           _buildActionItem(Icons.push_pin, 'Закрепить', widget.onPin, theme, enabled: !isSending),
           if (widget.isMe) 
-            _buildActionItem(Icons.edit, 'Изменить', widget.onEdit, theme, enabled: !isSending),
+            _buildActionItem(Icons.edit, context.l10n.translate('chat_edit_message'), widget.onEdit, theme, enabled: !isSending),
           const Divider(height: 1),
           _buildActionItem(Icons.delete, 'Удалить', widget.onDelete, theme, isDestructive: true),
         ],

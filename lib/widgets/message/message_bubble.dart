@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
+import '../../config/app_config.dart';
 import '../../services/chat_service.dart';
 import '../../utils/emoji_utils.dart';
 import '../../utils/haptic_utils.dart';
@@ -7,6 +9,11 @@ import '../chat/message_reply_info.dart';
 import '../chat/reactions_panel.dart';
 import 'message_status_widget.dart';
 import 'text_message_widget.dart';
+import 'fullscreen_photo_viewer.dart';
+import 'inline_video_player.dart';
+import 'document_message_widget.dart';
+import 'video_message_widget.dart';
+import '../../l10n/app_localizations.dart';
 
 /// Радиус скругления "облачка" сообщения.
 const double kMessageBorderRadius = 18.0;
@@ -155,8 +162,71 @@ class MessageBubble extends StatelessWidget {
     required this.formatTime,
   }) : super(key: key);
 
+  bool get _hasMedia {
+    final url = message.fileUrl?.trim();
+    return url != null && url.isNotEmpty;
+  }
+
+  bool _isImageUrl(String url) {
+    final clean = url.split('?').first.toLowerCase();
+    return clean.endsWith('.jpg') ||
+        clean.endsWith('.jpeg') ||
+        clean.endsWith('.png') ||
+        clean.endsWith('.gif') ||
+        clean.endsWith('.webp') ||
+        clean.endsWith('.bmp') ||
+        clean.endsWith('.heic') ||
+        url.startsWith('data:image/');
+  }
+
+  bool _isVideoUrl(String url) {
+    final clean = url.split('?').first.toLowerCase();
+    return clean.endsWith('.mp4') ||
+        clean.endsWith('.mov') ||
+        clean.endsWith('.avi') ||
+        clean.endsWith('.mkv') ||
+        clean.endsWith('.webm');
+  }
+
+  bool _isAudioUrl(String url) {
+    final clean = url.split('?').first.toLowerCase();
+    return clean.endsWith('.mp3') ||
+        clean.endsWith('.wav') ||
+        clean.endsWith('.ogg') ||
+        clean.endsWith('.m4a') ||
+        clean.endsWith('.aac');
+  }
+
+  bool get _isImage =>
+      _hasMedia &&
+      (message.messageType == 'image' ||
+          message.messageType == 'photo' ||
+          _isImageUrl(message.fileUrl!));
+
+  bool get _isVideo =>
+      _hasMedia &&
+      (message.messageType == 'video' || _isVideoUrl(message.fileUrl!));
+
+  bool get _isAudio =>
+      _hasMedia &&
+      (message.messageType == 'audio' ||
+          message.messageType == 'voice' ||
+          _isAudioUrl(message.fileUrl!));
+
+  bool get _isRoundVideo =>
+      _hasMedia && message.messageType == 'round';
+
+  bool get _hasCaption {
+    if (!_hasMedia) return false;
+    final trimmed = message.content.trim();
+    if (trimmed.isEmpty) return false;
+    if (trimmed == message.fileName) return false;
+    if (trimmed == message.fileUrl) return false;
+    return true;
+  }
+
   bool get _isSingleEmoji {
-    if (message.messageType != 'text' || message.fileUrl != null || message.hasReply) {
+    if (_hasMedia || message.messageType != 'text' || message.hasReply) {
       return false;
     }
     final trimmed = message.content.trim();
@@ -167,7 +237,10 @@ class MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool isBigEmoji = _isSingleEmoji;
+    final String? resolvedFileUrl = AppConfig.resolveMediaUrl(message.fileUrl);
+    final bool hasMedia = _hasMedia && resolvedFileUrl != null && resolvedFileUrl.isNotEmpty;
+    final bool hasCaption = _hasCaption;
+    final bool isBigEmoji = !hasMedia && _isSingleEmoji;
     final Alignment alignment = isMe ? Alignment.centerRight : Alignment.centerLeft;
 
     final Color backgroundColor = isBigEmoji
@@ -191,7 +264,7 @@ class MessageBubble extends StatelessWidget {
     final bool endsWithBlock = hasHeaderBlock ||
         message.content.trim().endsWith('```') ||
         message.content.trim().endsWith('\$\$') ||
-        (message.messageType != 'text' && message.fileUrl != null);
+        hasMedia;
 
     // Build Metadata Widget
     final Widget metadataWidget = isBigEmoji
@@ -204,6 +277,17 @@ class MessageBubble extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (message.isEdited) ...[
+                  Text(
+                    context.l10n.translate('chat_edited'),
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 10,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
                 Text(
                   formatTime(message.createdAt),
                   style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w500),
@@ -219,7 +303,7 @@ class MessageBubble extends StatelessWidget {
                   else if (message.sendStatus == 2)
                     GestureDetector(
                       onTap: () => onRetry?.call(message),
-                      child: const Icon(Icons.error_outline, size: 14, color: Colors.redAccent),
+                      child: const iconoir.WarningCircle(width: 14, height: 14, color: Colors.redAccent),
                     )
                   else
                     MessageStatusWidget(
@@ -237,6 +321,17 @@ class MessageBubble extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
+                if (message.isEdited) ...[
+                  Text(
+                    context.l10n.translate('chat_edited'),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontStyle: FontStyle.italic,
+                      color: textStyle.color?.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
                 Text(
                   formatTime(message.createdAt),
                   style: TextStyle(
@@ -256,7 +351,7 @@ class MessageBubble extends StatelessWidget {
                   else if (message.sendStatus == 2)
                     GestureDetector(
                       onTap: () => onRetry?.call(message),
-                      child: const Icon(Icons.error_outline, size: 14, color: Colors.red),
+                      child: const iconoir.WarningCircle(width: 14, height: 14, color: Colors.red),
                     )
                   else
                     MessageStatusWidget(
@@ -342,7 +437,88 @@ class MessageBubble extends StatelessWidget {
     targetContentWidth = math.min(targetContentWidth, maxBubbleWidth);
 
     Widget contentWidget;
-    if (replyWidget != null) {
+    if (hasMedia) {
+      final double mediaWidth = math.min(maxBubbleWidth, 340.0);
+      final Widget mediaWidget = _buildMediaWidget(context, mediaWidth, resolvedFileUrl);
+
+      Widget innerContent;
+      if (hasCaption) {
+        final Widget captionWidget = TextMessageWidget(
+          text: message.content,
+          style: textStyle,
+          isMe: isMe,
+        );
+
+        innerContent = Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            mediaWidget,
+            const SizedBox(height: 6.0),
+            captionWidget,
+            const SizedBox(height: 3.0),
+            metadataWidget,
+          ],
+        );
+      } else if (_isImage || _isVideo) {
+        innerContent = Stack(
+          alignment: Alignment.bottomRight,
+          children: [
+            mediaWidget,
+            Positioned(
+              bottom: 6,
+              right: 6,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.55),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: _buildFloatingMetadata(context),
+              ),
+            ),
+          ],
+        );
+      } else {
+        innerContent = Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            mediaWidget,
+            const SizedBox(height: 3.0),
+            metadataWidget,
+          ],
+        );
+      }
+
+      if (replyWidget != null || (!isMe && senderName != null && senderName!.isNotEmpty)) {
+        contentWidget = Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            if (!isMe && senderName != null && senderName!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4.0),
+                child: Text(
+                  senderName!,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ),
+            if (replyWidget != null) ...[
+              SizedBox(width: mediaWidth, child: replyWidget),
+              const SizedBox(height: 4.0),
+            ],
+            innerContent,
+          ],
+        );
+      } else {
+        contentWidget = innerContent;
+      }
+    } else if (replyWidget != null) {
       Widget textBodyWidget;
       if (isBigEmoji) {
         textBodyWidget = Padding(
@@ -460,9 +636,15 @@ class MessageBubble extends StatelessWidget {
       );
     }
 
+    final EdgeInsets bubblePadding = isBigEmoji
+        ? EdgeInsets.zero
+        : (hasMedia && !hasCaption && replyWidget == null && (senderName == null || senderName!.isEmpty || isMe))
+            ? const EdgeInsets.all(4.0)
+            : const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0);
+
     Widget bubbleCore = Container(
       margin: const EdgeInsets.symmetric(vertical: 3.0, horizontal: 8.0),
-      padding: isBigEmoji ? EdgeInsets.zero : const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+      padding: bubblePadding,
       constraints: BoxConstraints(
         maxWidth: MediaQuery.of(context).size.width * 0.76,
       ),
@@ -470,7 +652,7 @@ class MessageBubble extends StatelessWidget {
         color: backgroundColor,
         borderRadius: BorderRadius.circular(kMessageBorderRadius),
       ),
-      child: replyWidget != null
+      child: (replyWidget != null || hasMedia)
           ? contentWidget
           : MessageBubbleLayout(
               content: contentWidget,
@@ -514,5 +696,197 @@ class MessageBubble extends StatelessWidget {
     }
 
     return result;
+  }
+
+  Widget _buildMediaWidget(
+    BuildContext context,
+    double maxWidth,
+    String resolvedUrl,
+  ) {
+    if (_isRoundVideo) {
+      return VideoMessageWidget(videoUrl: resolvedUrl);
+    }
+
+    if (_isImage) {
+      final heroTag = 'msg_photo_${message.id}_$resolvedUrl';
+      return GestureDetector(
+        onTap: () {
+          FullscreenPhotoViewer.open(context, resolvedUrl, tag: heroTag);
+          onFileTap?.call(
+            resolvedUrl,
+            message.fileName ?? 'image.jpg',
+            'image',
+          );
+        },
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12.0),
+          child: Hero(
+            tag: heroTag,
+            child: Image.network(
+              resolvedUrl,
+              width: maxWidth,
+              fit: BoxFit.cover,
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+                return Container(
+                  width: maxWidth,
+                  height: 180,
+                  decoration: BoxDecoration(
+                    color: Colors.black12,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      value: loadingProgress.expectedTotalBytes != null
+                          ? loadingProgress.cumulativeBytesLoaded /
+                              loadingProgress.expectedTotalBytes!
+                          : null,
+                      strokeWidth: 2.0,
+                    ),
+                  ),
+                );
+              },
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  width: maxWidth,
+                  height: 140,
+                  decoration: BoxDecoration(
+                    color: Colors.black12,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      iconoir.MediaImage(
+                        width: 36,
+                        height: 36,
+                        color: isMe
+                            ? Colors.white70
+                            : Theme.of(context)
+                                .colorScheme
+                                .onSecondaryContainer
+                                .withValues(alpha: 0.6),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        context.l10n.translate('chat_file_not_found'),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isMe
+                              ? Colors.white70
+                              : Theme.of(context)
+                                  .colorScheme
+                                  .onSecondaryContainer
+                                  .withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_isVideo) {
+      return ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: maxWidth,
+          maxHeight: 280,
+        ),
+        child: InlineVideoPlayer(url: resolvedUrl),
+      );
+    }
+
+    if (_isAudio) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.05),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const iconoir.MusicNote(width: 28, height: 28, color: Color(0xFF0088CC)),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                message.fileName ?? 'Audio',
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Default: Document / File
+    return DocumentMessageWidget(
+      fileUrl: resolvedUrl,
+      fileName: message.fileName ??
+          (message.content.trim().isNotEmpty ? message.content.trim() : 'file'),
+      fileSize: 0,
+    );
+  }
+
+  Widget _buildFloatingMetadata(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        if (message.isEdited) ...[
+          Text(
+            context.l10n.translate('chat_edited'),
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 10,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+          const SizedBox(width: 4),
+        ],
+        Text(
+          formatTime(message.createdAt),
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        if (isMe) ...[
+          const SizedBox(width: 4),
+          if (message.sendStatus == 0)
+            const SizedBox(
+              width: 10,
+              height: 10,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.0,
+                color: Colors.white,
+              ),
+            )
+          else if (message.sendStatus == 2)
+            GestureDetector(
+              onTap: () => onRetry?.call(message),
+              child: const iconoir.WarningCircle(
+                color: Colors.redAccent,
+                width: 14,
+                height: 14,
+              ),
+            )
+          else
+            MessageStatusWidget(
+              isRead: message.isRead,
+              isOutgoing: isMe,
+              colorOverride: Colors.white.withValues(alpha: 0.9),
+            ),
+        ],
+      ],
+    );
   }
 }

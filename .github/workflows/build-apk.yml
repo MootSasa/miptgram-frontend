@@ -1,0 +1,119 @@
+name: Build Android APK (Split per ABI)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Тип сборки (release / debug)'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - debug
+      api_base_url:
+        description: 'Кастомный API Base URL (опционально, например https://api.miptgram.ru)'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Checkout submodules (frontend)
+        run: |
+          if [ -f .gitmodules ]; then
+            git config --global url."https://github.com/".insteadOf "git@github.com:"
+            git submodule sync
+            git submodule update --init --recursive
+          fi
+
+      - name: Locate Flutter project directory
+        id: locate_project
+        run: |
+          if [ -d "frontend" ] && [ -f "frontend/pubspec.yaml" ]; then
+            echo "path=frontend" >> $GITHUB_OUTPUT
+          elif [ -f "pubspec.yaml" ]; then
+            echo "path=." >> $GITHUB_OUTPUT
+          else
+            echo "Error: Flutter pubspec.yaml not found!" >&2
+            exit 1
+          fi
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.38.5
+          cache: true
+
+      - name: Adjust Gradle memory for CI runner
+        working-directory: ${{ steps.locate_project.outputs.path }}
+        run: |
+          if [ -f android/gradle.properties ]; then
+            sed -i 's/-Xmx8G/-Xmx3500m/g' android/gradle.properties
+            sed -i 's/-XX:MaxMetaspaceSize=4G/-XX:MaxMetaspaceSize=1024m/g' android/gradle.properties
+          fi
+
+      - name: Accept Android SDK licenses
+        run: yes | flutter doctor --android-licenses || true
+
+      - name: Install dependencies
+        working-directory: ${{ steps.locate_project.outputs.path }}
+        run: flutter pub get
+
+      - name: Build APK (Split per ABI)
+        working-directory: ${{ steps.locate_project.outputs.path }}
+        run: |
+          BUILD_ARGS="--${{ inputs.build_type }} --split-per-abi"
+          if [ -n "${{ inputs.api_base_url }}" ]; then
+            BUILD_ARGS="$BUILD_ARGS --dart-define=API_BASE_URL=${{ inputs.api_base_url }}"
+          fi
+          echo "Executing: flutter build apk $BUILD_ARGS"
+          flutter build apk $BUILD_ARGS
+
+      - name: Upload all split APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: miptgram-${{ inputs.build_type }}-all-abis
+          path: |
+            ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/*.apk
+            ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/*.sha1
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload ARM64 APK (arm64-v8a)
+        uses: actions/upload-artifact@v4
+        with:
+          name: miptgram-${{ inputs.build_type }}-arm64-v8a
+          path: ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/*arm64-v8a*.apk
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload ARMv7 APK (armeabi-v7a)
+        uses: actions/upload-artifact@v4
+        with:
+          name: miptgram-${{ inputs.build_type }}-armeabi-v7a
+          path: ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/*armeabi-v7a*.apk
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload x86_64 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: miptgram-${{ inputs.build_type }}-x86_64
+          path: ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/*x86_64*.apk
+          if-no-files-found: warn
+          retention-days: 30

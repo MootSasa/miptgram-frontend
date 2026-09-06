@@ -989,15 +989,17 @@ class ChatService {
       }
 
       final response = await http.post(
-        Uri.parse('${AppConfig.baseUrl}/api/users/$userId/block'),
+        Uri.parse('${AppConfig.baseUrl}/api/security/blocked'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
+        body: jsonEncode({'blocked_user_id': userId}),
       );
 
       final data = jsonDecode(response.body);
-      if (response.statusCode == 200 && data['success'] == true) {
+      if ((response.statusCode == 200 || response.statusCode == 201) &&
+          (data['success'] == true || data['success'] == null)) {
         return {
           'success': true,
           'message': data['message'] ?? 'User blocked successfully',
@@ -1005,11 +1007,50 @@ class ChatService {
       } else {
         return {
           'success': false,
-          'message': data['message'] ?? 'Failed to block user',
+          'message': data['error'] ?? data['message'] ?? 'Failed to block user',
         };
       }
     } catch (e) {
       debugPrint('Block user error: $e');
+      return {'success': false, 'message': 'Network error: ${e.toString()}'};
+    }
+  }
+
+  /// Unblocks a user.
+  ///
+  /// [userId] - The ID of the user to unblock
+  static Future<Map<String, dynamic>> unblockUser({
+    required String userId,
+  }) async {
+    try {
+      final token = await AuthService.getToken();
+      if (token == null) {
+        return {'success': false, 'message': 'Not authenticated'};
+      }
+
+      final response = await http.delete(
+        Uri.parse('${AppConfig.baseUrl}/api/security/blocked/$userId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200 &&
+          (data['success'] == true || data['success'] == null)) {
+        return {
+          'success': true,
+          'message': data['message'] ?? 'User unblocked successfully',
+        };
+      } else {
+        return {
+          'success': false,
+          'message': data['error'] ?? data['message'] ?? 'Failed to unblock user',
+        };
+      }
+    } catch (e) {
+      debugPrint('Unblock user error: $e');
       return {'success': false, 'message': 'Network error: ${e.toString()}'};
     }
   }

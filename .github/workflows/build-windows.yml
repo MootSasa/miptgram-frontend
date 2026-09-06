@@ -1,0 +1,103 @@
+name: Build Windows (x64)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Тип сборки (release / debug)'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - debug
+      flutter_version:
+        description: 'Версия Flutter'
+        required: true
+        default: '3.41.9'
+        type: string
+      api_base_url:
+        description: 'Кастомный API Base URL (опционально, например https://api.miptgram.ru)'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  build-windows:
+    name: Build Windows App (x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Checkout submodules
+        shell: pwsh
+        run: |
+          if (Test-Path ".gitmodules") {
+            git config --global url."https://github.com/".insteadOf "git@github.com:"
+            git submodule sync
+            git submodule update --init --recursive
+          }
+
+      - name: Locate Flutter project directory
+        id: locate_project
+        shell: pwsh
+        run: |
+          if ((Test-Path "frontend") -and (Test-Path "frontend/pubspec.yaml")) {
+            echo "path=frontend" >> $env:GITHUB_OUTPUT
+          } elseif (Test-Path "pubspec.yaml") {
+            echo "path=." >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Error "Flutter pubspec.yaml not found!"
+            exit 1
+          }
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ inputs.flutter_version }}
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Install dependencies
+        working-directory: ${{ steps.locate_project.outputs.path }}
+        run: flutter pub get
+
+      - name: Build Windows
+        working-directory: ${{ steps.locate_project.outputs.path }}
+        shell: pwsh
+        run: |
+          $extraArgs = ""
+          if ("${{ inputs.api_base_url }}" -ne "") {
+            $extraArgs = "--dart-define=API_BASE_URL=${{ inputs.api_base_url }}"
+          }
+          Write-Host "Executing: flutter build windows --${{ inputs.build_type }} $extraArgs"
+          flutter build windows --${{ inputs.build_type }} $extraArgs
+
+      - name: Package Windows Bundle into ZIP
+        shell: pwsh
+        run: |
+          $buildMode = if ("${{ inputs.build_type }}" -eq "release") { "Release" } else { "Debug" }
+          $projectDir = "${{ steps.locate_project.outputs.path }}"
+          $releaseDir = Join-Path $projectDir "build/windows/x64/runner/$buildMode"
+          $zipOutput = "miptgram-windows-${{ inputs.build_type }}-x64.zip"
+          
+          if (-not (Test-Path $releaseDir)) {
+            Write-Error "Release directory not found: $releaseDir"
+            exit 1
+          }
+          
+          Write-Host "Compressing $releaseDir into $zipOutput..."
+          Compress-Archive -Path "$releaseDir\*" -DestinationPath $zipOutput -Force
+          Write-Host "Created $zipOutput"
+
+      - name: Upload Windows x64 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: miptgram-windows-${{ inputs.build_type }}-x64
+          path: miptgram-windows-${{ inputs.build_type }}-x64.zip
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,95 @@
+name: Build iOS (Unsigned IPA for Sideloading)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Тип сборки (release / debug)'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - debug
+      flutter_version:
+        description: 'Версия Flutter'
+        required: true
+        default: '3.41.9'
+        type: string
+      api_base_url:
+        description: 'Кастомный API Base URL (опционально, например https://api.miptgram.ru)'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  build-ios:
+    name: Build iOS IPA (No Codesign)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Checkout submodules
+        run: |
+          if [ -f .gitmodules ]; then
+            git config --global url."https://github.com/".insteadOf "git@github.com:"
+            git submodule sync
+            git submodule update --init --recursive
+          fi
+
+      - name: Locate Flutter project directory
+        id: locate_project
+        run: |
+          if [ -d "frontend" ] && [ -f "frontend/pubspec.yaml" ]; then
+            echo "path=frontend" >> $GITHUB_OUTPUT
+          elif [ -f "pubspec.yaml" ]; then
+            echo "path=." >> $GITHUB_OUTPUT
+          else
+            echo "Error: Flutter pubspec.yaml not found!" >&2
+            exit 1
+          fi
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ inputs.flutter_version }}
+          cache: true
+
+      - name: Install dependencies
+        working-directory: ${{ steps.locate_project.outputs.path }}
+        run: flutter pub get
+
+      - name: Build iOS Application (No Codesign)
+        working-directory: ${{ steps.locate_project.outputs.path }}
+        run: |
+          EXTRA_ARGS=""
+          if [ -n "${{ inputs.api_base_url }}" ]; then
+            EXTRA_ARGS="--dart-define=API_BASE_URL=${{ inputs.api_base_url }}"
+          fi
+          echo "Building iOS app without code signing..."
+          flutter build ios --${{ inputs.build_type }} --no-codesign $EXTRA_ARGS
+
+      - name: Package Unsigned IPA for Sideloading
+        run: |
+          PROJECT_DIR="${{ steps.locate_project.outputs.path }}"
+          APP_DIR="$PROJECT_DIR/build/ios/iphoneos/Runner.app"
+          
+          if [ ! -d "$APP_DIR" ]; then
+            echo "Error: Runner.app not found at $APP_DIR" >&2
+            exit 1
+          fi
+          
+          mkdir -p Payload
+          cp -R "$APP_DIR" Payload/
+          zip -r -y "miptgram-ios-${{ inputs.build_type }}-unsigned.ipa" Payload
+          rm -rf Payload
+
+      - name: Upload iOS Unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: miptgram-ios-${{ inputs.build_type }}-unsigned-ipa
+          path: miptgram-ios-${{ inputs.build_type }}-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30

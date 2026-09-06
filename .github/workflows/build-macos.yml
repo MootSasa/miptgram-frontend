@@ -1,0 +1,149 @@
+name: Build macOS (Universal, Apple Silicon, Intel)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Тип сборки (release / debug)'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - debug
+      flutter_version:
+        description: 'Версия Flutter'
+        required: true
+        default: '3.41.9'
+        type: string
+      api_base_url:
+        description: 'Кастомный API Base URL (опционально, например https://api.miptgram.ru)'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  build-macos:
+    name: Build macOS Apps
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Checkout submodules
+        run: |
+          if [ -f .gitmodules ]; then
+            git config --global url."https://github.com/".insteadOf "git@github.com:"
+            git submodule sync
+            git submodule update --init --recursive
+          fi
+
+      - name: Locate Flutter project directory
+        id: locate_project
+        run: |
+          if [ -d "frontend" ] && [ -f "frontend/pubspec.yaml" ]; then
+            echo "path=frontend" >> $GITHUB_OUTPUT
+          elif [ -f "pubspec.yaml" ]; then
+            echo "path=." >> $GITHUB_OUTPUT
+          else
+            echo "Error: Flutter pubspec.yaml not found!" >&2
+            exit 1
+          fi
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ inputs.flutter_version }}
+          cache: true
+
+      - name: Enable macOS desktop
+        run: flutter config --enable-macos-desktop
+
+      - name: Install dependencies
+        working-directory: ${{ steps.locate_project.outputs.path }}
+        run: flutter pub get
+
+      - name: Build macOS Application
+        working-directory: ${{ steps.locate_project.outputs.path }}
+        run: |
+          EXTRA_ARGS=""
+          if [ -n "${{ inputs.api_base_url }}" ]; then
+            EXTRA_ARGS="--dart-define=API_BASE_URL=${{ inputs.api_base_url }}"
+          fi
+          echo "Building macOS app..."
+          flutter build macos --${{ inputs.build_type }} $EXTRA_ARGS
+
+      - name: Package Universal and Sliced Architectures
+        run: |
+          PROJECT_DIR="${{ steps.locate_project.outputs.path }}"
+          BUILD_MODE="${{ inputs.build_type == 'release' && 'Release' || 'Debug' }}"
+          PRODUCTS_DIR="$PROJECT_DIR/build/macos/Build/Products/$BUILD_MODE"
+          APP_NAME=$(basename "$PRODUCTS_DIR"/*.app)
+          
+          echo "Found app: $APP_NAME in $PRODUCTS_DIR"
+          cd "$PRODUCTS_DIR"
+          
+          # 1. Package Universal app (.app is universal by default in Flutter macOS)
+          ditto -c -k --keepParent "$APP_NAME" "miptgram-macos-${{ inputs.build_type }}-universal.zip"
+          echo "Created Universal ZIP"
+          
+          # 2. Extract and package ARM64 (Apple Silicon M-series)
+          cp -R "$APP_NAME" "miptgram-arm64.app"
+          APP_BIN="miptgram-arm64.app/Contents/MacOS/${APP_NAME%.app}"
+          if [ -f "$APP_BIN" ]; then
+            lipo "$APP_BIN" -thin arm64 -output "$APP_BIN" 2>/dev/null || true
+          fi
+          # Also thin Frameworks if universal
+          for FW in miptgram-arm64.app/Contents/Frameworks/*.framework; do
+            [ -d "$FW" ] || continue
+            FW_NAME=$(basename "$FW" .framework)
+            if [ -f "$FW/$FW_NAME" ]; then
+              lipo "$FW/$FW_NAME" -thin arm64 -output "$FW/$FW_NAME" 2>/dev/null || true
+            fi
+          done
+          ditto -c -k --keepParent "miptgram-arm64.app" "miptgram-macos-${{ inputs.build_type }}-arm64.zip"
+          echo "Created ARM64 ZIP"
+          
+          # 3. Extract and package x86_64 (Intel)
+          cp -R "$APP_NAME" "miptgram-x86_64.app"
+          APP_BIN_INTEL="miptgram-x86_64.app/Contents/MacOS/${APP_NAME%.app}"
+          if [ -f "$APP_BIN_INTEL" ]; then
+            lipo "$APP_BIN_INTEL" -thin x86_64 -output "$APP_BIN_INTEL" 2>/dev/null || true
+          fi
+          for FW in miptgram-x86_64.app/Contents/Frameworks/*.framework; do
+            [ -d "$FW" ] || continue
+            FW_NAME=$(basename "$FW" .framework)
+            if [ -f "$FW/$FW_NAME" ]; then
+              lipo "$FW/$FW_NAME" -thin x86_64 -output "$FW/$FW_NAME" 2>/dev/null || true
+            fi
+          done
+          ditto -c -k --keepParent "miptgram-x86_64.app" "miptgram-macos-${{ inputs.build_type }}-x86_64.zip"
+          echo "Created x86_64 ZIP"
+          
+          # Move archives to workspace root for easy upload
+          mv *.zip "$GITHUB_WORKSPACE/"
+
+      - name: Upload macOS Universal Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: miptgram-macos-${{ inputs.build_type }}-universal
+          path: miptgram-macos-${{ inputs.build_type }}-universal.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload macOS Apple Silicon (ARM64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: miptgram-macos-${{ inputs.build_type }}-arm64
+          path: miptgram-macos-${{ inputs.build_type }}-arm64.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload macOS Intel (x86_64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: miptgram-macos-${{ inputs.build_type }}-x86_64
+          path: miptgram-macos-${{ inputs.build_type }}-x86_64.zip
+          if-no-files-found: error
+          retention-days: 30

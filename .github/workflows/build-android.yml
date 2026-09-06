@@ -1,4 +1,4 @@
-name: Build Android APK (Split per ABI)
+name: Build Android (APK)
 
 on:
   workflow_dispatch:
@@ -11,6 +11,20 @@ on:
         options:
           - release
           - debug
+      target_format:
+        description: 'Формат сборки (all = split + universal)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - split-per-abi
+          - universal
+      flutter_version:
+        description: 'Версия Flutter'
+        required: true
+        default: '3.41.9'
+        type: string
       api_base_url:
         description: 'Кастомный API Base URL (опционально, например https://api.miptgram.ru)'
         required: false
@@ -18,7 +32,7 @@ on:
         type: string
 
 jobs:
-  build-apk:
+  build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
 
@@ -26,7 +40,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Checkout submodules (frontend)
+      - name: Checkout submodules
         run: |
           if [ -f .gitmodules ]; then
             git config --global url."https://github.com/".insteadOf "git@github.com:"
@@ -56,7 +70,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.41.9
+          flutter-version: ${{ inputs.flutter_version }}
           cache: true
 
       - name: Adjust Gradle memory for CI runner
@@ -74,46 +88,76 @@ jobs:
         working-directory: ${{ steps.locate_project.outputs.path }}
         run: flutter pub get
 
-      - name: Build APK (Split per ABI)
+      - name: Build Universal (Fat) APK
+        if: ${{ inputs.target_format == 'universal' || inputs.target_format == 'all' }}
         working-directory: ${{ steps.locate_project.outputs.path }}
         run: |
-          BUILD_ARGS="--${{ inputs.build_type }} --split-per-abi"
+          EXTRA_ARGS=""
           if [ -n "${{ inputs.api_base_url }}" ]; then
-            BUILD_ARGS="$BUILD_ARGS --dart-define=API_BASE_URL=${{ inputs.api_base_url }}"
+            EXTRA_ARGS="--dart-define=API_BASE_URL=${{ inputs.api_base_url }}"
           fi
-          echo "Executing: flutter build apk $BUILD_ARGS"
-          flutter build apk $BUILD_ARGS
+          echo "Building Universal APK..."
+          flutter build apk --${{ inputs.build_type }} $EXTRA_ARGS
+          
+          OUTPUT_DIR="build/app/outputs/flutter-apk"
+          if [ -f "$OUTPUT_DIR/app-${{ inputs.build_type }}.apk" ]; then
+            cp "$OUTPUT_DIR/app-${{ inputs.build_type }}.apk" "$OUTPUT_DIR/app-universal-${{ inputs.build_type }}.apk"
+            echo "Universal APK created: $OUTPUT_DIR/app-universal-${{ inputs.build_type }}.apk"
+          fi
 
-      - name: Upload all split APKs
+      - name: Build Split per ABI APKs
+        if: ${{ inputs.target_format == 'split-per-abi' || inputs.target_format == 'all' }}
+        working-directory: ${{ steps.locate_project.outputs.path }}
+        run: |
+          EXTRA_ARGS=""
+          if [ -n "${{ inputs.api_base_url }}" ]; then
+            EXTRA_ARGS="--dart-define=API_BASE_URL=${{ inputs.api_base_url }}"
+          fi
+          echo "Building Split APKs (arm64-v8a, armeabi-v7a, x86_64)..."
+          flutter build apk --${{ inputs.build_type }} --split-per-abi $EXTRA_ARGS
+
+      - name: Upload All Android APKs (Archive)
         uses: actions/upload-artifact@v4
         with:
-          name: miptgram-${{ inputs.build_type }}-all-abis
+          name: miptgram-android-${{ inputs.build_type }}-all-apks
           path: |
             ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/*.apk
             ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/*.sha1
           if-no-files-found: error
           retention-days: 30
 
-      - name: Upload ARM64 APK (arm64-v8a)
+      - name: Upload Universal (Fat) APK
+        if: ${{ inputs.target_format == 'universal' || inputs.target_format == 'all' }}
         uses: actions/upload-artifact@v4
         with:
-          name: miptgram-${{ inputs.build_type }}-arm64-v8a
+          name: miptgram-android-${{ inputs.build_type }}-universal
+          path: ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/app-universal-${{ inputs.build_type }}.apk
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload ARM64 APK (arm64-v8a)
+        if: ${{ inputs.target_format == 'split-per-abi' || inputs.target_format == 'all' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: miptgram-android-${{ inputs.build_type }}-arm64-v8a
           path: ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/*arm64-v8a*.apk
           if-no-files-found: warn
           retention-days: 30
 
       - name: Upload ARMv7 APK (armeabi-v7a)
+        if: ${{ inputs.target_format == 'split-per-abi' || inputs.target_format == 'all' }}
         uses: actions/upload-artifact@v4
         with:
-          name: miptgram-${{ inputs.build_type }}-armeabi-v7a
+          name: miptgram-android-${{ inputs.build_type }}-armeabi-v7a
           path: ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/*armeabi-v7a*.apk
           if-no-files-found: warn
           retention-days: 30
 
       - name: Upload x86_64 APK
+        if: ${{ inputs.target_format == 'split-per-abi' || inputs.target_format == 'all' }}
         uses: actions/upload-artifact@v4
         with:
-          name: miptgram-${{ inputs.build_type }}-x86_64
+          name: miptgram-android-${{ inputs.build_type }}-x86_64
           path: ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/*x86_64*.apk
           if-no-files-found: warn
           retention-days: 30

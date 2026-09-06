@@ -89,7 +89,6 @@ jobs:
   build-android:
     name: 🤖 Build Android APKs
     needs: prepare-release
-    continue-on-error: ${{ github.ref != 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -169,7 +168,6 @@ jobs:
   build-windows:
     name: 🪟 Build Windows x64
     needs: prepare-release
-    continue-on-error: ${{ github.ref != 'refs/heads/main' }}
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -194,6 +192,7 @@ jobs:
         run: flutter pub get
 
       - name: Build Windows Executable
+        shell: pwsh
         run: flutter build windows --release
 
       - name: Package Windows Bundle into ZIP
@@ -219,7 +218,6 @@ jobs:
   build-linux:
     name: 🐧 Build Linux x64
     needs: prepare-release
-    continue-on-error: ${{ github.ref != 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -282,7 +280,6 @@ jobs:
   build-macos:
     name: 🍏 Build macOS Apps
     needs: prepare-release
-    continue-on-error: ${{ github.ref != 'refs/heads/main' }}
     runs-on: macos-latest
     steps:
       - name: Checkout repository
@@ -371,7 +368,6 @@ jobs:
   build-ios:
     name: 📱 Build iOS IPA
     needs: prepare-release
-    continue-on-error: ${{ github.ref != 'refs/heads/main' }}
     runs-on: macos-latest
     steps:
       - name: Checkout repository
@@ -471,19 +467,18 @@ jobs:
       - build-macos
       - build-ios
     if: |
-      always() && 
+      always() &&
       needs.prepare-release.result == 'success' &&
       !contains(needs.*.result, 'cancelled') &&
       (
-        github.ref == 'refs/heads/main'
-          ? (!contains(needs.*.result, 'failure'))
-          : (
-              needs.build-android.result == 'success' || 
-              needs.build-windows.result == 'success' || 
-              needs.build-linux.result == 'success' || 
-              needs.build-macos.result == 'success' || 
-              needs.build-ios.result == 'success'
-            )
+        (github.ref == 'refs/heads/main' && !contains(needs.*.result, 'failure')) ||
+        (github.ref != 'refs/heads/main' && (
+          needs.build-android.result == 'success' ||
+          needs.build-windows.result == 'success' ||
+          needs.build-linux.result == 'success' ||
+          needs.build-macos.result == 'success' ||
+          needs.build-ios.result == 'success'
+        ))
       )
     runs-on: ubuntu-latest
     steps:

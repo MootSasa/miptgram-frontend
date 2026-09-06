@@ -3,6 +3,7 @@ import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:provider/provider.dart';
 import 'package:dio/dio.dart';
 import 'dart:async';
+import 'dart:convert';
 import '../../services/chat_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/websocket_service.dart';
@@ -76,6 +77,8 @@ class _GroupChatScreenState extends State<GroupChatScreen>
   double _inputHeight = 90.0;
   Timer? _highlightTimer;
   final List<String> _jumpHistory = [];
+  final Map<String, Map<String, int>> _messageReactions = {}; // msgId → {emoji → count}
+  final Map<String, Set<String>> _myReactions = {}; // msgId → Set<emoji>
 
   // WebSocket
   final WebSocketService _wsService = WebSocketService();
@@ -209,6 +212,68 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       }
     } else if (event.type == WebSocketEventType.userStatus) {
       _onUserStatusUpdate(event);
+    } else if (event.type == WebSocketEventType.messageReactionUpdated) {
+      final chatId = event.data['chat_id']?.toString();
+      if (chatId == widget.chatId) {
+        _onMessageReactionUpdated(event);
+      }
+    }
+  }
+
+  void _onMessageReactionUpdated(WebSocketEvent event) {
+    final messageId = event.data['message_id']?.toString();
+    if (messageId == null) return;
+
+    final userId = event.data['user_id']?.toString();
+    final emoji = event.data['emoji']?.toString();
+    final action = event.data['action']?.toString(); // "added" or "removed"
+
+    final Map<String, int> reactionsMap = {};
+    if (event.data['reactions'] is List) {
+      for (final r in event.data['reactions']) {
+        if (r is Map && r['emoji'] != null && r['count'] != null) {
+          final cnt = (r['count'] as num).toInt();
+          if (cnt > 0) {
+            reactionsMap[r['emoji'].toString()] = cnt;
+          }
+        }
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _messageReactions[messageId] = reactionsMap;
+
+        if (userId != null && userId == _currentUserId && emoji != null) {
+          final mySet = _myReactions.putIfAbsent(messageId, () => <String>{});
+          if (action == 'added') {
+            mySet.add(emoji);
+          } else if (action == 'removed') {
+            mySet.remove(emoji);
+          }
+          if (mySet.isEmpty) {
+            _myReactions.remove(messageId);
+          }
+        }
+
+        final idx = _messages.indexWhere((m) => m.id == messageId);
+        if (idx != -1) {
+          _messages[idx] = _messages[idx].copyWith(
+            reactions: reactionsMap,
+            myReactions: _myReactions[messageId] ?? _messages[idx].myReactions,
+          );
+        }
+      });
+
+      try {
+        AppDatabase().updateMessageReactions(
+          messageId,
+          reactionsMap,
+          _myReactions[messageId] ?? {},
+        );
+      } catch (e) {
+        debugPrint('GroupChatScreen: error updating reactions in DB: $e');
+      }
     }
   }
 
@@ -477,6 +542,14 @@ class _GroupChatScreenState extends State<GroupChatScreen>
         _messages.clear();
         _messages.addAll(
             fixedMessages.map((m) => Message.fromDbMessage(m)).toList());
+        for (final m in _messages) {
+          if (m.reactions.isNotEmpty) {
+            _messageReactions[m.id] = Map.from(m.reactions);
+          }
+          if (m.myReactions.isNotEmpty) {
+            _myReactions[m.id] = Set.from(m.myReactions);
+          }
+        }
       });
       _scrollToBottom();
     }
@@ -504,6 +577,15 @@ class _GroupChatScreenState extends State<GroupChatScreen>
             for (final pending in pendingMessages) {
               if (!_messages.any((m) => m.localId == pending.localId)) {
                 _messages.add(pending);
+              }
+            }
+
+            for (final m in _messages) {
+              if (m.reactions.isNotEmpty) {
+                _messageReactions[m.id] = Map.from(m.reactions);
+              }
+              if (m.myReactions.isNotEmpty) {
+                _myReactions[m.id] = Set.from(m.myReactions);
               }
             }
 
@@ -564,6 +646,12 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       senderName: Value(msg.senderName),
       senderAvatarUrl: Value(msg.senderAvatarUrl),
       createdAt: Value(msg.createdAt),
+      reactions: msg.reactions.isNotEmpty || msg.myReactions.isNotEmpty
+          ? Value(jsonEncode({
+              'reactions': msg.reactions,
+              'my_reactions': msg.myReactions.toList(),
+            }))
+          : const Value.absent(),
     );
   }
 
@@ -1136,6 +1224,9 @@ class _GroupChatScreenState extends State<GroupChatScreen>
           currentUserId: _currentUserId ?? '',
           senderName: isMe ? null : message.senderName,
           isHighlighted: isHighlighted,
+          reactions: _messageReactions[message.id] ?? (message.reactions.isNotEmpty ? message.reactions : null),
+          myReactions: _myReactions[message.id] ?? (message.myReactions.isNotEmpty ? message.myReactions : null),
+          onReactionTap: (emoji) => _toggleReaction(message.id, emoji),
           onRetry: (msg) => _retryMessage(msg),
           onReplyTap: (replyToId, chatId) => _handleReplyTap(
             replyToId,
@@ -1309,6 +1400,61 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     );
   }
 
+  /// Toggle reaction on a message — optimistic update + API call
+  void _toggleReaction(String messageId, String emoji) {
+    setState(() {
+      final mySet = _myReactions.putIfAbsent(messageId, () => <String>{});
+      final reactions = _messageReactions.putIfAbsent(messageId, () => <String, int>{});
+
+      final isCurrentlySelected = mySet.contains(emoji);
+      if (isCurrentlySelected) {
+        mySet.remove(emoji);
+        if (mySet.isEmpty) {
+          _myReactions.remove(messageId);
+        }
+        reactions[emoji] = (reactions[emoji] ?? 1) - 1;
+        if (reactions[emoji]! <= 0) {
+          reactions.remove(emoji);
+        }
+      } else {
+        mySet.add(emoji);
+        reactions[emoji] = (reactions[emoji] ?? 0) + 1;
+      }
+
+      final idx = _messages.indexWhere((m) => m.id == messageId);
+      if (idx != -1) {
+        _messages[idx] = _messages[idx].copyWith(
+          reactions: Map.from(reactions),
+          myReactions: Set.from(mySet),
+        );
+      }
+    });
+
+    try {
+      AppDatabase().updateMessageReactions(
+        messageId,
+        _messageReactions[messageId] ?? {},
+        _myReactions[messageId] ?? {},
+      );
+    } catch (e) {
+      debugPrint('GroupChatScreen: error saving reactions to DB: $e');
+    }
+
+    _sendReactionToggle(messageId, emoji);
+  }
+
+  Future<void> _sendReactionToggle(String messageId, String emoji) async {
+    try {
+      await ChatService.toggleReaction(
+        chatId: widget.chatId,
+        messageId: messageId,
+        emoji: emoji,
+      );
+    } catch (_) {
+      // Silently fail — optimistic update already applied
+    }
+  }
+
   void _showContextMenu(Message message, bool isMe, GlobalKey key) {
     if (message.messageType == 'text' && _isSingleEmoji(message.content)) {
       if (EmojiUtils.getAnimatedEmojiPath(message.content) != null) {
@@ -1332,9 +1478,8 @@ class _GroupChatScreenState extends State<GroupChatScreen>
         });
       },
       onDelete: (msg) => _confirmDeleteMessage(msg),
-      onReaction: (msgId, emoji) {
-        // Toggle reaction
-      },
+      onReaction: (msgId, emoji) => _toggleReaction(msgId, emoji),
+      selectedEmojis: _myReactions[message.id] ?? message.myReactions,
     );
   }
 

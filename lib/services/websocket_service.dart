@@ -23,6 +23,7 @@ enum WebSocketEventType {
   sessionTerminated,
   messageEdited,
   messageDeleted,
+  messageReactionUpdated,
 }
 
 /// WebSocket event data
@@ -76,6 +77,8 @@ class WebSocketEvent {
       case 'message_deleted':
       case 'delete_message':
         return WebSocketEventType.messageDeleted;
+      case 'message_reaction_updated':
+        return WebSocketEventType.messageReactionUpdated;
       default:
         return WebSocketEventType.connected;
     }

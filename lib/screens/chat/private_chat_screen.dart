@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:provider/provider.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:file_picker/file_picker.dart';
@@ -89,8 +90,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   int _searchCurrentIndex = 0;
   int _searchTotalCount = 0;
   String _searchQuery = '';
-  Map<String, Map<String, int>> _messageReactions = {}; // msgId → {emoji → count}
-  Map<String, String> _myReactions = {}; // msgId → emoji
+  final Map<String, Map<String, int>> _messageReactions = {}; // msgId → {emoji → count}
+  final Map<String, Set<String>> _myReactions = {}; // msgId → Set<emoji>
   bool _showScrollDownFab = false;
   double _lastScrollOffset = 0;
   double _accumulatedScrollDown = 0;
@@ -231,6 +232,68 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       final chatId = event.data['chat_id']?.toString();
       if (chatId == widget.chatId) {
         _onMessageDeleted(event);
+      }
+    } else if (event.type == WebSocketEventType.messageReactionUpdated) {
+      final chatId = event.data['chat_id']?.toString();
+      if (chatId == widget.chatId) {
+        _onMessageReactionUpdated(event);
+      }
+    }
+  }
+
+  void _onMessageReactionUpdated(WebSocketEvent event) {
+    final messageId = event.data['message_id']?.toString();
+    if (messageId == null) return;
+
+    final userId = event.data['user_id']?.toString();
+    final emoji = event.data['emoji']?.toString();
+    final action = event.data['action']?.toString(); // "added" or "removed"
+
+    final Map<String, int> reactionsMap = {};
+    if (event.data['reactions'] is List) {
+      for (final r in event.data['reactions']) {
+        if (r is Map && r['emoji'] != null && r['count'] != null) {
+          final cnt = (r['count'] as num).toInt();
+          if (cnt > 0) {
+            reactionsMap[r['emoji'].toString()] = cnt;
+          }
+        }
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _messageReactions[messageId] = reactionsMap;
+
+        if (userId != null && userId == _currentUserId && emoji != null) {
+          final mySet = _myReactions.putIfAbsent(messageId, () => <String>{});
+          if (action == 'added') {
+            mySet.add(emoji);
+          } else if (action == 'removed') {
+            mySet.remove(emoji);
+          }
+          if (mySet.isEmpty) {
+            _myReactions.remove(messageId);
+          }
+        }
+
+        final idx = _messages.indexWhere((m) => m.id == messageId);
+        if (idx != -1) {
+          _messages[idx] = _messages[idx].copyWith(
+            reactions: reactionsMap,
+            myReactions: _myReactions[messageId] ?? _messages[idx].myReactions,
+          );
+        }
+      });
+
+      try {
+        AppDatabase().updateMessageReactions(
+          messageId,
+          reactionsMap,
+          _myReactions[messageId] ?? {},
+        );
+      } catch (e) {
+        debugPrint('PrivateChatScreen: error updating reactions in DB: $e');
       }
     }
   }
@@ -968,6 +1031,14 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         _messages.clear();
         _messages.addAll(
             fixedMessages.map((m) => Message.fromDbMessage(m)).toList());
+        for (final m in _messages) {
+          if (m.reactions.isNotEmpty) {
+            _messageReactions[m.id] = Map.from(m.reactions);
+          }
+          if (m.myReactions.isNotEmpty) {
+            _myReactions[m.id] = Set.from(m.myReactions);
+          }
+        }
       });
     }
 
@@ -996,6 +1067,15 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           for (final pending in pendingMessages) {
             if (!_messages.any((m) => m.localId == pending.localId)) {
               _messages.add(pending);
+            }
+          }
+
+          for (final m in _messages) {
+            if (m.reactions.isNotEmpty) {
+              _messageReactions[m.id] = Map.from(m.reactions);
+            }
+            if (m.myReactions.isNotEmpty) {
+              _myReactions[m.id] = Set.from(m.myReactions);
             }
           }
 
@@ -1056,6 +1136,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                 existing.id == m.id ||
                 (m.localId != null && existing.localId == m.localId))) {
               _messages.add(m);
+              if (m.reactions.isNotEmpty) {
+                _messageReactions[m.id] = Map.from(m.reactions);
+              }
+              if (m.myReactions.isNotEmpty) {
+                _myReactions[m.id] = Set.from(m.myReactions);
+              }
             }
           }
           _isLoadingMore = false;
@@ -1090,6 +1176,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         for (final m in newMessages) {
           if (!_messages.any((existing) => existing.id == m.id)) {
             _messages.add(m);
+            if (m.reactions.isNotEmpty) {
+              _messageReactions[m.id] = Map.from(m.reactions);
+            }
+            if (m.myReactions.isNotEmpty) {
+              _myReactions[m.id] = Set.from(m.myReactions);
+            }
           }
         }
         _isLoadingMore = false;
@@ -1127,6 +1219,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       senderName: Value(msg.senderName),
       senderAvatarUrl: Value(msg.senderAvatarUrl),
       createdAt: Value(msg.createdAt),
+      reactions: msg.reactions.isNotEmpty || msg.myReactions.isNotEmpty
+          ? Value(jsonEncode({
+              'reactions': msg.reactions,
+              'my_reactions': msg.myReactions.toList(),
+            }))
+          : const Value.absent(),
       // isForward: Value(msg.isForward),
       // forwardFromId: Value(msg.forwardFromId),
       // forwardFromName: Value(msg.forwardFromName),
@@ -1911,8 +2009,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       currentUserId: _currentUserId ?? '',
       chatType: _chatType,
       isHighlighted: isHighlighted,
-      reactions: _messageReactions[message.id],
-      myReaction: _myReactions[message.id],
+      reactions: _messageReactions[message.id] ?? (message.reactions.isNotEmpty ? message.reactions : null),
+      myReactions: _myReactions[message.id] ?? (message.myReactions.isNotEmpty ? message.myReactions : null),
       onReactionTap: (emoji) => _toggleReaction(message.id, emoji),
       onRetry: (msg) => _retryMessage(msg),
       onReplyTap: (replyToId, chatId) => _handleReplyTap(
@@ -2515,19 +2613,42 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   void _toggleReaction(String messageId, String emoji) {
     // Optimistic update
     setState(() {
-      if (_myReactions[messageId] == emoji) {
-        _myReactions.remove(messageId);
-        final reactions = _messageReactions[messageId];
-        if (reactions != null) {
-          reactions[emoji] = (reactions[emoji] ?? 1) - 1;
-          if (reactions[emoji]! <= 0) reactions.remove(emoji);
+      final mySet = _myReactions.putIfAbsent(messageId, () => <String>{});
+      final reactions = _messageReactions.putIfAbsent(messageId, () => <String, int>{});
+
+      final isCurrentlySelected = mySet.contains(emoji);
+      if (isCurrentlySelected) {
+        mySet.remove(emoji);
+        if (mySet.isEmpty) {
+          _myReactions.remove(messageId);
+        }
+        reactions[emoji] = (reactions[emoji] ?? 1) - 1;
+        if (reactions[emoji]! <= 0) {
+          reactions.remove(emoji);
         }
       } else {
-        _myReactions[messageId] = emoji;
-        _messageReactions.putIfAbsent(messageId, () => {});
-        _messageReactions[messageId]![emoji] = (_messageReactions[messageId]![emoji] ?? 0) + 1;
+        mySet.add(emoji);
+        reactions[emoji] = (reactions[emoji] ?? 0) + 1;
+      }
+
+      final idx = _messages.indexWhere((m) => m.id == messageId);
+      if (idx != -1) {
+        _messages[idx] = _messages[idx].copyWith(
+          reactions: Map.from(reactions),
+          myReactions: Set.from(mySet),
+        );
       }
     });
+
+    try {
+      AppDatabase().updateMessageReactions(
+        messageId,
+        _messageReactions[messageId] ?? {},
+        _myReactions[messageId] ?? {},
+      );
+    } catch (e) {
+      debugPrint('PrivateChatScreen: error saving reactions to DB: $e');
+    }
 
     // API call
     _sendReactionToggle(messageId, emoji);
@@ -2586,6 +2707,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       },
       onDelete: (msg) => _confirmDeleteMessage(msg),
       onReaction: (msgId, emoji) => _toggleReaction(msgId, emoji),
+      selectedEmojis: _myReactions[message.id] ?? message.myReactions,
     );
   }
 

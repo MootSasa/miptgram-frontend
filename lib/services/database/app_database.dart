@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'connection/connection.dart' as impl;
@@ -70,6 +71,9 @@ class Messages extends Table {
   TextColumn get groupedId => text().nullable()();
   TextColumn get entities => text().nullable()(); // JSON string of List<MessageEntity>
 
+  // Reactions JSON string
+  TextColumn get reactions => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {localId};
 }
@@ -114,7 +118,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -177,6 +181,11 @@ class AppDatabase extends _$AppDatabase {
             );
             await customStatement(
               'CREATE INDEX IF NOT EXISTS idx_messages_grouped_id ON messages(grouped_id) WHERE grouped_id IS NOT NULL',
+            );
+          }
+          if (from < 5) {
+            await customStatement(
+              'ALTER TABLE messages ADD COLUMN reactions TEXT',
             );
           }
         },
@@ -376,6 +385,24 @@ class AppDatabase extends _$AppDatabase {
         .write(MessagesCompanion(
       content: Value(content),
       isEdited: const Value(true),
+    ));
+  }
+
+  /// Обновить реакции на сообщении по serverId или localId
+  Future<void> updateMessageReactions(
+    String messageId,
+    Map<String, int> reactions,
+    Set<String> myReactions,
+  ) async {
+    await ensureInitialized();
+    final jsonStr = jsonEncode({
+      'reactions': reactions,
+      'my_reactions': myReactions.toList(),
+    });
+    await (update(messages)
+          ..where((t) => t.serverId.equals(messageId) | t.localId.equals(messageId)))
+        .write(MessagesCompanion(
+      reactions: Value(jsonStr),
     ));
   }
 

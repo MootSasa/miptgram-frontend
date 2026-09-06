@@ -139,6 +139,7 @@ class MessageBubble extends StatelessWidget {
   final bool isHighlighted;
   final Map<String, int>? reactions;
   final String? myReaction;
+  final Set<String>? myReactions;
   final Function(String emoji)? onReactionTap;
   final Function(Message message)? onRetry;
   final Function(String replyToId, String? chatId)? onReplyTap;
@@ -155,6 +156,7 @@ class MessageBubble extends StatelessWidget {
     this.isHighlighted = false,
     this.reactions,
     this.myReaction,
+    this.myReactions,
     this.onReactionTap,
     this.onRetry,
     this.onReplyTap,
@@ -678,7 +680,9 @@ class MessageBubble extends StatelessWidget {
     );
 
     // Reactions row below message bubble if present
-    if (reactions != null && reactions!.isNotEmpty) {
+    final effectiveReactions = reactions ?? (message.reactions.isNotEmpty ? message.reactions : null);
+    if (effectiveReactions != null && effectiveReactions.isNotEmpty) {
+      final effectiveMyReactions = myReactions ?? (myReaction != null && myReaction!.isNotEmpty ? {myReaction!} : message.myReactions);
       result = Column(
         crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
@@ -686,7 +690,8 @@ class MessageBubble extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 4.0, left: 12, right: 12),
             child: MessageReactionsRow(
-              reactions: reactions!,
+              reactions: effectiveReactions,
+              myReactions: effectiveMyReactions,
               myReaction: myReaction,
               onTap: onReactionTap,
             ),

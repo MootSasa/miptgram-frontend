@@ -770,6 +770,12 @@ class $MessagesTable extends Messages
   late final GeneratedColumn<String> entities = GeneratedColumn<String>(
       'entities', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _reactionsMeta =
+      const VerificationMeta('reactions');
+  @override
+  late final GeneratedColumn<String> reactions = GeneratedColumn<String>(
+      'reactions', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         localId,
@@ -799,7 +805,8 @@ class $MessagesTable extends Messages
         forwardFromId,
         forwardFromName,
         groupedId,
-        entities
+        entities,
+        reactions
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -959,6 +966,10 @@ class $MessagesTable extends Messages
       context.handle(_entitiesMeta,
           entities.isAcceptableOrUnknown(data['entities']!, _entitiesMeta));
     }
+    if (data.containsKey('reactions')) {
+      context.handle(_reactionsMeta,
+          reactions.isAcceptableOrUnknown(data['reactions']!, _reactionsMeta));
+    }
     return context;
   }
 
@@ -1024,6 +1035,8 @@ class $MessagesTable extends Messages
           .read(DriftSqlType.string, data['${effectivePrefix}grouped_id']),
       entities: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}entities']),
+      reactions: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}reactions']),
     );
   }
 
@@ -1062,6 +1075,7 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
   final String? forwardFromName;
   final String? groupedId;
   final String? entities;
+  final String? reactions;
   const DbMessage(
       {required this.localId,
       this.serverId,
@@ -1090,7 +1104,8 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       this.forwardFromId,
       this.forwardFromName,
       this.groupedId,
-      this.entities});
+      this.entities,
+      this.reactions});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -1149,6 +1164,9 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
     }
     if (!nullToAbsent || entities != null) {
       map['entities'] = Variable<String>(entities);
+    }
+    if (!nullToAbsent || reactions != null) {
+      map['reactions'] = Variable<String>(reactions);
     }
     return map;
   }
@@ -1211,6 +1229,9 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       entities: entities == null && nullToAbsent
           ? const Value.absent()
           : Value(entities),
+      reactions: reactions == null && nullToAbsent
+          ? const Value.absent()
+          : Value(reactions),
     );
   }
 
@@ -1248,6 +1269,7 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       forwardFromName: serializer.fromJson<String?>(json['forwardFromName']),
       groupedId: serializer.fromJson<String?>(json['groupedId']),
       entities: serializer.fromJson<String?>(json['entities']),
+      reactions: serializer.fromJson<String?>(json['reactions']),
     );
   }
   @override
@@ -1282,6 +1304,7 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       'forwardFromName': serializer.toJson<String?>(forwardFromName),
       'groupedId': serializer.toJson<String?>(groupedId),
       'entities': serializer.toJson<String?>(entities),
+      'reactions': serializer.toJson<String?>(reactions),
     };
   }
 
@@ -1313,7 +1336,8 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
           Value<String?> forwardFromId = const Value.absent(),
           Value<String?> forwardFromName = const Value.absent(),
           Value<String?> groupedId = const Value.absent(),
-          Value<String?> entities = const Value.absent()}) =>
+          Value<String?> entities = const Value.absent(),
+          Value<String?> reactions = const Value.absent()}) =>
       DbMessage(
         localId: localId ?? this.localId,
         serverId: serverId.present ? serverId.value : this.serverId,
@@ -1355,6 +1379,7 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
             : this.forwardFromName,
         groupedId: groupedId.present ? groupedId.value : this.groupedId,
         entities: entities.present ? entities.value : this.entities,
+        reactions: reactions.present ? reactions.value : this.reactions,
       );
   DbMessage copyWithCompanion(MessagesCompanion data) {
     return DbMessage(
@@ -1407,6 +1432,7 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
           : this.forwardFromName,
       groupedId: data.groupedId.present ? data.groupedId.value : this.groupedId,
       entities: data.entities.present ? data.entities.value : this.entities,
+      reactions: data.reactions.present ? data.reactions.value : this.reactions,
     );
   }
 
@@ -1440,7 +1466,8 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
           ..write('forwardFromId: $forwardFromId, ')
           ..write('forwardFromName: $forwardFromName, ')
           ..write('groupedId: $groupedId, ')
-          ..write('entities: $entities')
+          ..write('entities: $entities, ')
+          ..write('reactions: $reactions')
           ..write(')'))
         .toString();
   }
@@ -1474,7 +1501,8 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
         forwardFromId,
         forwardFromName,
         groupedId,
-        entities
+        entities,
+        reactions
       ]);
   @override
   bool operator ==(Object other) =>
@@ -1507,7 +1535,8 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
           other.forwardFromId == this.forwardFromId &&
           other.forwardFromName == this.forwardFromName &&
           other.groupedId == this.groupedId &&
-          other.entities == this.entities);
+          other.entities == this.entities &&
+          other.reactions == this.reactions);
 }
 
 class MessagesCompanion extends UpdateCompanion<DbMessage> {
@@ -1539,6 +1568,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
   final Value<String?> forwardFromName;
   final Value<String?> groupedId;
   final Value<String?> entities;
+  final Value<String?> reactions;
   final Value<int> rowid;
   const MessagesCompanion({
     this.localId = const Value.absent(),
@@ -1569,6 +1599,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
     this.forwardFromName = const Value.absent(),
     this.groupedId = const Value.absent(),
     this.entities = const Value.absent(),
+    this.reactions = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   MessagesCompanion.insert({
@@ -1600,6 +1631,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
     this.forwardFromName = const Value.absent(),
     this.groupedId = const Value.absent(),
     this.entities = const Value.absent(),
+    this.reactions = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : localId = Value(localId),
         chatId = Value(chatId),
@@ -1635,6 +1667,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
     Expression<String>? forwardFromName,
     Expression<String>? groupedId,
     Expression<String>? entities,
+    Expression<String>? reactions,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1667,6 +1700,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
       if (forwardFromName != null) 'forward_from_name': forwardFromName,
       if (groupedId != null) 'grouped_id': groupedId,
       if (entities != null) 'entities': entities,
+      if (reactions != null) 'reactions': reactions,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1700,6 +1734,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
       Value<String?>? forwardFromName,
       Value<String?>? groupedId,
       Value<String?>? entities,
+      Value<String?>? reactions,
       Value<int>? rowid}) {
     return MessagesCompanion(
       localId: localId ?? this.localId,
@@ -1730,6 +1765,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
       forwardFromName: forwardFromName ?? this.forwardFromName,
       groupedId: groupedId ?? this.groupedId,
       entities: entities ?? this.entities,
+      reactions: reactions ?? this.reactions,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1821,6 +1857,9 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
     if (entities.present) {
       map['entities'] = Variable<String>(entities.value);
     }
+    if (reactions.present) {
+      map['reactions'] = Variable<String>(reactions.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1858,6 +1897,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
           ..write('forwardFromName: $forwardFromName, ')
           ..write('groupedId: $groupedId, ')
           ..write('entities: $entities, ')
+          ..write('reactions: $reactions, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2832,6 +2872,7 @@ typedef $$MessagesTableCreateCompanionBuilder = MessagesCompanion Function({
   Value<String?> forwardFromName,
   Value<String?> groupedId,
   Value<String?> entities,
+  Value<String?> reactions,
   Value<int> rowid,
 });
 typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
@@ -2863,6 +2904,7 @@ typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
   Value<String?> forwardFromName,
   Value<String?> groupedId,
   Value<String?> entities,
+  Value<String?> reactions,
   Value<int> rowid,
 });
 
@@ -2965,6 +3007,9 @@ class $$MessagesTableFilterComposer
 
   ColumnFilters<String> get entities => $composableBuilder(
       column: $table.entities, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get reactions => $composableBuilder(
+      column: $table.reactions, builder: (column) => ColumnFilters(column));
 }
 
 class $$MessagesTableOrderingComposer
@@ -3067,6 +3112,9 @@ class $$MessagesTableOrderingComposer
 
   ColumnOrderings<String> get entities => $composableBuilder(
       column: $table.entities, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get reactions => $composableBuilder(
+      column: $table.reactions, builder: (column) => ColumnOrderings(column));
 }
 
 class $$MessagesTableAnnotationComposer
@@ -3161,6 +3209,9 @@ class $$MessagesTableAnnotationComposer
 
   GeneratedColumn<String> get entities =>
       $composableBuilder(column: $table.entities, builder: (column) => column);
+
+  GeneratedColumn<String> get reactions =>
+      $composableBuilder(column: $table.reactions, builder: (column) => column);
 }
 
 class $$MessagesTableTableManager extends RootTableManager<
@@ -3214,6 +3265,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             Value<String?> forwardFromName = const Value.absent(),
             Value<String?> groupedId = const Value.absent(),
             Value<String?> entities = const Value.absent(),
+            Value<String?> reactions = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               MessagesCompanion(
@@ -3245,6 +3297,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             forwardFromName: forwardFromName,
             groupedId: groupedId,
             entities: entities,
+            reactions: reactions,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -3276,6 +3329,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             Value<String?> forwardFromName = const Value.absent(),
             Value<String?> groupedId = const Value.absent(),
             Value<String?> entities = const Value.absent(),
+            Value<String?> reactions = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               MessagesCompanion.insert(
@@ -3307,6 +3361,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             forwardFromName: forwardFromName,
             groupedId: groupedId,
             entities: entities,
+            reactions: reactions,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0

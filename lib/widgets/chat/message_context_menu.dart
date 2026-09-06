@@ -14,6 +14,7 @@ class MessageContextMenu extends StatefulWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final Function(String emoji) onReaction;
+  final Set<String> selectedEmojis;
 
   const MessageContextMenu({
     Key? key,
@@ -27,6 +28,7 @@ class MessageContextMenu extends StatefulWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onReaction,
+    this.selectedEmojis = const {},
   }) : super(key: key);
 
   @override
@@ -125,18 +127,34 @@ class _MessageContextMenuState extends State<MessageContextMenu> with SingleTick
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        children: emojis.map((emoji) => InkWell(
-          onTap: () {
-            HapticUtils.tap();
-            widget.onReaction(emoji);
-            _handleDismiss();
-          },
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: EmojiUtils.appleEmoji(emoji, size: 24),
-          ),
-        )).toList(),
+        children: emojis.map((emoji) {
+          final isSelected = widget.selectedEmojis.contains(emoji);
+          return InkWell(
+            onTap: () {
+              HapticUtils.tap();
+              widget.onReaction(emoji);
+              _handleDismiss();
+            },
+            borderRadius: BorderRadius.circular(20),
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              padding: const EdgeInsets.all(4),
+              decoration: isSelected
+                  ? BoxDecoration(
+                      color: theme.colorScheme.primaryContainer,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: theme.colorScheme.primary,
+                        width: 1.5,
+                      ),
+                    )
+                  : null,
+              child: Center(
+                child: EmojiUtils.appleEmoji(emoji, size: 24),
+              ),
+            ),
+          );
+        }).toList(),
       ),
     );
   }

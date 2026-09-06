@@ -193,6 +193,10 @@ class Message {
   final String? groupedId;
   final List<MessageEntity> entities;
 
+  // Reactions
+  final Map<String, int> reactions; // emoji -> count
+  final Set<String> myReactions; // emojis selected by current user
+
   Message({
     required this.id,
     required this.chatId,
@@ -220,6 +224,8 @@ class Message {
     this.forwardFromName,
     this.groupedId,
     this.entities = const [],
+    this.reactions = const {},
+    this.myReactions = const {},
   });
 
   /// Whether this message has a reply or quote
@@ -240,6 +246,40 @@ class Message {
         content: json['reply_to_content']?.toString() ?? '',
         messageType: json['reply_to_message_type']?.toString() ?? 'text',
       );
+    }
+
+    final Map<String, int> parsedReactions = {};
+    final Set<String> parsedMyReactions = {};
+    if (json['reactions'] is List) {
+      for (final item in json['reactions']) {
+        if (item is Map) {
+          final emoji = item['emoji']?.toString() ?? '';
+          final count = (item['count'] as num?)?.toInt() ?? 0;
+          if (emoji.isNotEmpty && count > 0) {
+            parsedReactions[emoji] = count;
+          }
+          if (item['is_mine'] == true && emoji.isNotEmpty) {
+            parsedMyReactions.add(emoji);
+          }
+        }
+      }
+    } else if (json['reactions'] is Map) {
+      (json['reactions'] as Map).forEach((k, v) {
+        final emoji = k.toString();
+        final count = (v as num?)?.toInt() ?? 0;
+        if (emoji.isNotEmpty && count > 0) {
+          parsedReactions[emoji] = count;
+        }
+      });
+      if (json['my_reactions'] is List) {
+        for (final e in json['my_reactions']) {
+          if (e != null && e.toString().isNotEmpty) {
+            parsedMyReactions.add(e.toString());
+          }
+        }
+      } else if (json['my_reaction'] != null) {
+        parsedMyReactions.add(json['my_reaction'].toString());
+      }
     }
 
     return Message(
@@ -272,6 +312,8 @@ class Message {
               ?.map((e) => MessageEntity.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],
+      reactions: parsedReactions,
+      myReactions: parsedMyReactions,
     );
   }
 
@@ -296,6 +338,32 @@ class Message {
         parsedEntities = decoded
             .map((e) => MessageEntity.fromJson(e as Map<String, dynamic>))
             .toList();
+      } catch (_) {}
+    }
+
+    final Map<String, int> dbReactions = {};
+    final Set<String> dbMyReactions = {};
+    if (model.reactions != null && model.reactions!.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(model.reactions!);
+        if (decoded is Map) {
+          if (decoded['reactions'] is Map) {
+            (decoded['reactions'] as Map).forEach((k, v) {
+              final emoji = k.toString();
+              final count = (v as num?)?.toInt() ?? 0;
+              if (emoji.isNotEmpty && count > 0) {
+                dbReactions[emoji] = count;
+              }
+            });
+          }
+          if (decoded['my_reactions'] is List) {
+            for (final e in decoded['my_reactions']) {
+              if (e != null && e.toString().isNotEmpty) {
+                dbMyReactions.add(e.toString());
+              }
+            }
+          }
+        }
       } catch (_) {}
     }
 
@@ -325,6 +393,8 @@ class Message {
       forwardFromName: model.forwardFromName,
       groupedId: model.groupedId,
       entities: parsedEntities,
+      reactions: dbReactions,
+      myReactions: dbMyReactions,
     );
   }
 
@@ -356,6 +426,8 @@ class Message {
     String? forwardFromName,
     String? groupedId,
     List<MessageEntity>? entities,
+    Map<String, int>? reactions,
+    Set<String>? myReactions,
   }) {
     return Message(
       id: id ?? this.id,
@@ -384,6 +456,8 @@ class Message {
       forwardFromName: forwardFromName ?? this.forwardFromName,
       groupedId: groupedId ?? this.groupedId,
       entities: entities ?? this.entities,
+      reactions: reactions ?? this.reactions,
+      myReactions: myReactions ?? this.myReactions,
     );
   }
 }

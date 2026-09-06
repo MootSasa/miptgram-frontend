@@ -20,6 +20,7 @@ class MessageContextMenuService {
     required VoidCallback onEdit,
     required Function(Message message) onDelete,
     required Function(String messageId, String emoji) onReaction,
+    Set<String>? selectedEmojis,
   }) {
     if (_isShowing) return;
 
@@ -49,6 +50,7 @@ class MessageContextMenuService {
           onEdit: onEdit,
           onDelete: () => onDelete(message),
           onReaction: (emoji) => onReaction(message.id, emoji),
+          selectedEmojis: selectedEmojis ?? message.myReactions,
         ),
         transitionsBuilder: (context, animation, _, child) {
           return FadeTransition(opacity: animation, child: child);

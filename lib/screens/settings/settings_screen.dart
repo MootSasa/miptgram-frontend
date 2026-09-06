@@ -123,6 +123,113 @@ class _SettingsScreenState extends State<SettingsScreen>
     }
   }
 
+  String _updateChannel = 'stable';
+
+  Future<void> _loadUpdateChannel() async {
+    final ch = await AppUpdateService.instance.getChannel();
+    if (mounted) {
+      setState(() => _updateChannel = ch);
+    }
+  }
+
+  Future<void> _selectUpdateChannel(BuildContext context) async {
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (dialogCtx) => SimpleDialog(
+        title: const Text('Канал обновлений'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(dialogCtx, 'stable'),
+            child: Row(
+              children: [
+                Icon(
+                  _updateChannel == 'stable' ? Icons.radio_button_checked : Icons.radio_button_off,
+                  color: Theme.of(dialogCtx).colorScheme.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Stable (Стабильный)', style: TextStyle(fontWeight: FontWeight.w600)),
+                    Text('Рекомендуется для всех пользователей', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const Divider(),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(dialogCtx, 'beta'),
+            child: Row(
+              children: [
+                Icon(
+                  _updateChannel == 'beta' ? Icons.radio_button_checked : Icons.radio_button_off,
+                  color: Theme.of(dialogCtx).colorScheme.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Beta (Бета-тестирование)', style: TextStyle(fontWeight: FontWeight.w600)),
+                    Text('Новые функции до официального релиза', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const Divider(),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(dialogCtx, 'alpha'),
+            child: Row(
+              children: [
+                Icon(
+                  _updateChannel == 'alpha' ? Icons.radio_button_checked : Icons.radio_button_off,
+                  color: Theme.of(dialogCtx).colorScheme.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Alpha / Dev (Разработка)', style: TextStyle(fontWeight: FontWeight.w600)),
+                    Text('Ранние сборки для тестирования', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (selected != null && selected != _updateChannel) {
+      await AppUpdateService.instance.setChannel(selected);
+      if (mounted) {
+        setState(() => _updateChannel = selected);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Выбран канал обновлений: ${_getChannelTitle(selected)}'),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  String _getChannelTitle(String ch) {
+    switch (ch) {
+      case 'beta':
+        return 'Beta';
+      case 'alpha':
+        return 'Alpha';
+      default:
+        return 'Stable';
+    }
+  }
+
   Widget _buildVersionInfoSection(ThemeData theme, AppLocalizations l10n) {
     final systemAbi = _getSystemAbi();
     final buildDate = AppConfig.buildDate;
@@ -160,28 +267,59 @@ class _SettingsScreenState extends State<SettingsScreen>
               ),
             ),
             const SizedBox(height: 10),
-            TextButton.icon(
-              onPressed: _isCheckingUpdate ? null : () => _checkAppUpdates(context),
-              icon: _isCheckingUpdate
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh_rounded, size: 16),
-              label: Text(
-                _isCheckingUpdate ? 'Проверка...' : 'Проверить обновления',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w600,
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                TextButton.icon(
+                  onPressed: _isCheckingUpdate ? null : () => _checkAppUpdates(context),
+                  icon: _isCheckingUpdate
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh_rounded, size: 16),
+                  label: Text(
+                    _isCheckingUpdate ? 'Проверка...' : 'Проверить обновления',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.08),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  ),
                 ),
-              ),
-              style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.08),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              ),
+                TextButton.icon(
+                  onPressed: () => _selectUpdateChannel(context),
+                  icon: Icon(
+                    _updateChannel == 'beta'
+                        ? Icons.science_outlined
+                        : (_updateChannel == 'alpha'
+                            ? Icons.developer_mode_outlined
+                            : Icons.verified_outlined),
+                    size: 16,
+                  ),
+                  label: Text(
+                    'Канал: ${_getChannelTitle(_updateChannel)}',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    backgroundColor: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.08),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -196,6 +334,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   void initState() {
     super.initState();
     _currentAccount = _accountManager.currentAccount;
+    _loadUpdateChannel();
   }
 
   @override

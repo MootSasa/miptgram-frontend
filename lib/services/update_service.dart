@@ -20,6 +20,7 @@ class AppUpdateInfo {
   final String sha256;
   final String releaseNotes;
   final String architecture;
+  final String channel;
 
   const AppUpdateInfo({
     required this.hasUpdate,
@@ -32,6 +33,7 @@ class AppUpdateInfo {
     required this.sha256,
     required this.releaseNotes,
     this.architecture = 'universal',
+    this.channel = 'stable',
   });
 
   factory AppUpdateInfo.fromJson(Map<String, dynamic> json) {
@@ -48,6 +50,7 @@ class AppUpdateInfo {
       sha256: json['sha256'] as String? ?? '',
       releaseNotes: json['release_notes'] as String? ?? '',
       architecture: json['architecture'] as String? ?? 'universal',
+      channel: json['channel'] as String? ?? 'stable',
     );
   }
 
@@ -63,6 +66,7 @@ class AppUpdateInfo {
       sha256: '',
       releaseNotes: '',
       architecture: 'universal',
+      channel: 'stable',
     );
   }
 
@@ -80,6 +84,7 @@ class AppUpdateService {
 
   static const String prefAutoCheckKey = 'auto_check_updates';
   static const String prefIgnoredBuildKey = 'ignored_update_build';
+  static const String prefChannelKey = 'update_channel';
 
   final Dio _dio = Dio(
     BaseOptions(
@@ -105,6 +110,26 @@ class AppUpdateService {
       await prefs.setBool(prefAutoCheckKey, enabled);
     } catch (e) {
       debugPrint('[AppUpdateService] Error saving auto check: $e');
+    }
+  }
+
+  /// Получить выбранный канал обновлений ('stable', 'beta', 'alpha')
+  Future<String> getChannel() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(prefChannelKey) ?? 'stable';
+    } catch (_) {
+      return 'stable';
+    }
+  }
+
+  /// Установить выбранный канал обновлений
+  Future<void> setChannel(String channel) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(prefChannelKey, channel);
+    } catch (e) {
+      debugPrint('[AppUpdateService] Error saving update channel: $e');
     }
   }
 
@@ -202,12 +227,13 @@ class AppUpdateService {
   }
 
   /// Запросить информацию о наличии обновления на сервере
-  Future<AppUpdateInfo> checkForUpdate({bool silent = false}) async {
+  Future<AppUpdateInfo> checkForUpdate({bool silent = false, String? channel}) async {
     try {
       final platform = getPlatform();
       final arch = await getArchitecture();
       final currentBuild = await getCurrentBuildNumber();
       final currentVer = await getCurrentVersion();
+      final ch = channel ?? await getChannel();
 
       final baseUrl = AppConfig.baseUrl.replaceAll(RegExp(r'/+$'), '');
       final url = '$baseUrl/api/app/check-update';
@@ -217,6 +243,7 @@ class AppUpdateService {
         queryParameters: {
           'platform': platform,
           'arch': arch,
+          'channel': ch,
           'build_number': currentBuild,
           'version': currentVer,
         },

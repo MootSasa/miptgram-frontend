@@ -109,7 +109,7 @@ def main():
         sys.exit(1)
 
     # Collect distribution files
-    valid_exts = (".apk", ".zip", ".tar.gz", ".exe", ".msix", ".dmg", ".deb", ".rpm", ".appimage")
+    valid_exts = (".apk", ".ipa", ".zip", ".tar.gz", ".exe", ".msix", ".dmg", ".deb", ".rpm", ".appimage")
     files_to_deploy = []
     for root, _, files in os.walk(args.artifacts_dir):
         for f in files:

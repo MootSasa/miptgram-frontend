@@ -89,10 +89,15 @@ jobs:
   build-android:
     name: 🤖 Build Android APKs
     needs: prepare-release
+    continue-on-error: ${{ github.ref != 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Inject Version into pubspec.yaml
+        run: |
+          python3 -c "import re; p='pubspec.yaml'; s=open(p,'r',encoding='utf-8').read(); open(p,'w',encoding='utf-8').write(re.sub(r'version:\s*[^\n]+', 'version: ${{ needs.prepare-release.outputs.clean_version }}+${{ needs.prepare-release.outputs.build_number }}', s))"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -164,10 +169,17 @@ jobs:
   build-windows:
     name: 🪟 Build Windows x64
     needs: prepare-release
+    continue-on-error: ${{ github.ref != 'refs/heads/main' }}
     runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Inject Version into pubspec.yaml
+        shell: pwsh
+        run: |
+          $ver = "${{ needs.prepare-release.outputs.clean_version }}+${{ needs.prepare-release.outputs.build_number }}"
+          (Get-Content pubspec.yaml -Raw) -replace 'version:\s*[^\r\n]+', "version: $ver" | Set-Content pubspec.yaml -NoNewline
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -182,12 +194,7 @@ jobs:
         run: flutter pub get
 
       - name: Build Windows Executable
-        shell: pwsh
-        run: |
-          $ver = "${{ needs.prepare-release.outputs.version }}"
-          $build = "${{ needs.prepare-release.outputs.build_number }}"
-          Write-Host "Building Windows (v$ver #$build)..."
-          flutter build windows --release --build-name="$ver" --build-number="$build"
+        run: flutter build windows --release
 
       - name: Package Windows Bundle into ZIP
         shell: pwsh
@@ -212,10 +219,15 @@ jobs:
   build-linux:
     name: 🐧 Build Linux x64
     needs: prepare-release
+    continue-on-error: ${{ github.ref != 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Inject Version into pubspec.yaml
+        run: |
+          python3 -c "import re; p='pubspec.yaml'; s=open(p,'r',encoding='utf-8').read(); open(p,'w',encoding='utf-8').write(re.sub(r'version:\s*[^\n]+', 'version: ${{ needs.prepare-release.outputs.clean_version }}+${{ needs.prepare-release.outputs.build_number }}', s))"
 
       - name: Install Linux Build Dependencies
         run: |
@@ -229,7 +241,10 @@ jobs:
             liblzma-dev \
             libstdc++-12-dev \
             libasound2-dev \
-            libpulse-dev
+            libpulse-dev \
+            libsecret-1-dev \
+            libjsoncpp-dev \
+            libsqlite3-dev
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -244,11 +259,7 @@ jobs:
         run: flutter pub get
 
       - name: Build Linux Application
-        run: |
-          VER="${{ needs.prepare-release.outputs.version }}"
-          BUILD="${{ needs.prepare-release.outputs.build_number }}"
-          echo "Building Linux x86_64 (v$VER #$BUILD)..."
-          flutter build linux --release --build-name="$VER" --build-number="$BUILD"
+        run: flutter build linux --release
 
       - name: Package Linux Bundle into tar.gz
         run: |
@@ -268,6 +279,188 @@ jobs:
           path: dist/linux/*.tar.gz
           retention-days: 7
 
+  build-macos:
+    name: 🍏 Build macOS Apps
+    needs: prepare-release
+    continue-on-error: ${{ github.ref != 'refs/heads/main' }}
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Inject Version into pubspec.yaml
+        run: |
+          python3 -c "import re; p='pubspec.yaml'; s=open(p,'r',encoding='utf-8').read(); open(p,'w',encoding='utf-8').write(re.sub(r'version:\s*[^\n]+', 'version: ${{ needs.prepare-release.outputs.clean_version }}+${{ needs.prepare-release.outputs.build_number }}', s))"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          cache: true
+
+      - name: Enable macOS desktop
+        run: flutter config --enable-macos-desktop
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build macOS Application
+        run: flutter build macos --release
+
+      - name: Package Universal and Sliced macOS Bundles
+        run: |
+          VER="${{ needs.prepare-release.outputs.version }}"
+          CH="${{ needs.prepare-release.outputs.channel }}"
+          mkdir -p dist/macos
+          PRODUCTS_DIR="build/macos/Build/Products/Release"
+          APP_PATH=$(ls -d "$PRODUCTS_DIR"/*.app | head -n 1)
+          APP_NAME=$(basename "$APP_PATH")
+          
+          echo "Packaging macOS app: $APP_NAME in $PRODUCTS_DIR..."
+          cd "$PRODUCTS_DIR"
+          
+          # 1. Universal ZIP
+          ditto -c -k --keepParent "$APP_NAME" "../../../dist/macos/miptgram-v${VER}-${CH}-macos-universal.zip"
+          echo "Created Universal ZIP"
+          
+          # 2. ARM64 (Apple Silicon M-series)
+          cp -R "$APP_NAME" "miptgram-arm64.app"
+          APP_BIN="miptgram-arm64.app/Contents/MacOS/${APP_NAME%.app}"
+          if [ -f "$APP_BIN" ]; then
+            lipo "$APP_BIN" -thin arm64 -output "$APP_BIN" 2>/dev/null || true
+          fi
+          for FW in miptgram-arm64.app/Contents/Frameworks/*.framework; do
+            [ -d "$FW" ] || continue
+            FW_NAME=$(basename "$FW" .framework)
+            if [ -f "$FW/$FW_NAME" ]; then
+              lipo "$FW/$FW_NAME" -thin arm64 -output "$FW/$FW_NAME" 2>/dev/null || true
+            fi
+          done
+          ditto -c -k --keepParent "miptgram-arm64.app" "../../../dist/macos/miptgram-v${VER}-${CH}-macos-arm64.zip"
+          rm -rf "miptgram-arm64.app"
+          echo "Created ARM64 ZIP"
+          
+          # 3. x86_64 (Intel)
+          cp -R "$APP_NAME" "miptgram-x86_64.app"
+          APP_BIN_INTEL="miptgram-x86_64.app/Contents/MacOS/${APP_NAME%.app}"
+          if [ -f "$APP_BIN_INTEL" ]; then
+            lipo "$APP_BIN_INTEL" -thin x86_64 -output "$APP_BIN_INTEL" 2>/dev/null || true
+          fi
+          for FW in miptgram-x86_64.app/Contents/Frameworks/*.framework; do
+            [ -d "$FW" ] || continue
+            FW_NAME=$(basename "$FW" .framework)
+            if [ -f "$FW/$FW_NAME" ]; then
+              lipo "$FW/$FW_NAME" -thin x86_64 -output "$FW/$FW_NAME" 2>/dev/null || true
+            fi
+          done
+          ditto -c -k --keepParent "miptgram-x86_64.app" "../../../dist/macos/miptgram-v${VER}-${CH}-macos-x64.zip"
+          rm -rf "miptgram-x86_64.app"
+          echo "Created x86_64 ZIP"
+          
+          cd ../../..
+          echo "Prepared macOS binaries:"
+          ls -lh dist/macos/
+
+      - name: Upload macOS Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-binaries
+          path: dist/macos/*.zip
+          retention-days: 7
+
+  build-ios:
+    name: 📱 Build iOS IPA
+    needs: prepare-release
+    continue-on-error: ${{ github.ref != 'refs/heads/main' }}
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Inject Version into pubspec.yaml
+        run: |
+          python3 -c "import re; p='pubspec.yaml'; s=open(p,'r',encoding='utf-8').read(); open(p,'w',encoding='utf-8').write(re.sub(r'version:\s*[^\n]+', 'version: ${{ needs.prepare-release.outputs.clean_version }}+${{ needs.prepare-release.outputs.build_number }}', s))"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          cache: true
+
+      - name: Build and Sign iOS IPA
+        env:
+          IOS_P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
+          IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
+          IOS_MOBILEPROVISION_BASE64: ${{ secrets.IOS_MOBILEPROVISION_BASE64 }}
+        run: |
+          VER="${{ needs.prepare-release.outputs.version }}"
+          BUILD="${{ needs.prepare-release.outputs.build_number }}"
+          CH="${{ needs.prepare-release.outputs.channel }}"
+          mkdir -p dist/ios
+
+          if [ -n "$IOS_P12_BASE64" ] && [ -n "$IOS_MOBILEPROVISION_BASE64" ]; then
+            echo "🔑 Apple signing credentials detected. Setting up temporary keychain..."
+            CERTIFICATE_PATH="$RUNNER_TEMP/build_cert.p12"
+            PP_PATH="$RUNNER_TEMP/build_pp.mobileprovision"
+            KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+            KEYCHAIN_PASSWORD="temp_keychain_password_987"
+
+            echo -n "$IOS_P12_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
+            echo -n "$IOS_MOBILEPROVISION_BASE64" | base64 --decode -o "$PP_PATH"
+
+            security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+            security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+            security import "$CERTIFICATE_PATH" -P "$IOS_P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+            security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed -e s/\"//g)
+
+            mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+            UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(security cms -D -i "$PP_PATH" 2>/dev/null) 2>/dev/null || true)
+            if [ -n "$UUID" ]; then
+              echo "Installed provisioning profile with UUID: $UUID"
+              cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID.mobileprovision"
+            fi
+            cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/
+
+            echo "📱 Building signed iOS IPA (v$VER #$BUILD)..."
+            flutter pub get
+            flutter build ipa --release --build-name="$VER" --build-number="$BUILD" || {
+              echo "⚠️ flutter build ipa exited with an error, trying flutter build ios..."
+              flutter build ios --release --build-name="$VER" --build-number="$BUILD"
+            }
+
+            if [ -d "build/ios/ipa" ] && [ $(ls build/ios/ipa/*.ipa 2>/dev/null | wc -l) -gt 0 ]; then
+              cp build/ios/ipa/*.ipa "dist/ios/miptgram-v${VER}-${CH}-ios.ipa"
+            elif [ -d "build/ios/iphoneos/Runner.app" ]; then
+              mkdir -p Payload
+              cp -R build/ios/iphoneos/Runner.app Payload/
+              zip -r -y "dist/ios/miptgram-v${VER}-${CH}-ios.ipa" Payload
+              rm -rf Payload
+            fi
+          else
+            echo "ℹ️ No Apple signing secrets provided. Building unsigned IPA for sideloading..."
+            flutter pub get
+            flutter build ios --release --no-codesign --build-name="$VER" --build-number="$BUILD"
+
+            if [ -d "build/ios/iphoneos/Runner.app" ]; then
+              mkdir -p Payload
+              cp -R build/ios/iphoneos/Runner.app Payload/
+              zip -r -y "dist/ios/miptgram-v${VER}-${CH}-ios-unsigned.ipa" Payload
+              rm -rf Payload
+            fi
+          fi
+
+          echo "Prepared iOS binaries:"
+          ls -lh dist/ios/
+
+      - name: Upload iOS Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-binaries
+          path: dist/ios/*.ipa
+          retention-days: 7
+
   publish-and-deploy:
     name: 🚀 Deploy to Storage & Create GitHub Release
     needs:
@@ -275,6 +468,23 @@ jobs:
       - build-android
       - build-windows
       - build-linux
+      - build-macos
+      - build-ios
+    if: |
+      always() && 
+      needs.prepare-release.result == 'success' &&
+      !contains(needs.*.result, 'cancelled') &&
+      (
+        github.ref == 'refs/heads/main'
+          ? (!contains(needs.*.result, 'failure'))
+          : (
+              needs.build-android.result == 'success' || 
+              needs.build-windows.result == 'success' || 
+              needs.build-linux.result == 'success' || 
+              needs.build-macos.result == 'success' || 
+              needs.build-ios.result == 'success'
+            )
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -293,28 +503,51 @@ jobs:
 
       - name: Download Android Binaries
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: android-binaries
           path: dist/
 
       - name: Download Windows Binaries
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: windows-binaries
           path: dist/
 
       - name: Download Linux Binaries
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: linux-binaries
+          path: dist/
+
+      - name: Download macOS Binaries
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: macos-binaries
+          path: dist/
+
+      - name: Download iOS Binaries
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: ios-binaries
           path: dist/
 
       - name: List Artifacts to Deploy
         run: |
           echo "Distribution artifacts prepared:"
-          find dist/ -type f -exec ls -lh {} +
+          find dist/ -type f -exec ls -lh {} + 2>/dev/null || true
+          COUNT=$(find dist/ -type f 2>/dev/null | wc -l)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "❌ No binary artifacts were successfully built and downloaded. Aborting release."
+            exit 1
+          fi
 
       - name: Deploy to Miptgram API & MinIO Storage
+        continue-on-error: true
         env:
           MIPTGRAM_API_URL: ${{ secrets.MIPTGRAM_API_URL }}
           MIPTGRAM_ADMIN_SECRET: ${{ secrets.MIPTGRAM_ADMIN_SECRET }}

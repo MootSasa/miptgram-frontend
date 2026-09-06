@@ -176,8 +176,7 @@ jobs:
       - name: Inject Version into pubspec.yaml
         shell: pwsh
         run: |
-          $ver = "${{ needs.prepare-release.outputs.clean_version }}+${{ needs.prepare-release.outputs.build_number }}"
-          (Get-Content pubspec.yaml -Raw) -replace 'version:\s*[^\r\n]+', "version: $ver" | Set-Content pubspec.yaml -NoNewline
+          python -c "import re, os; path='pubspec.yaml'; ver='${{ needs.prepare-release.outputs.clean_version }}+${{ needs.prepare-release.outputs.build_number }}'; text=open(path, 'r', encoding='utf-8').read(); open(path, 'w', encoding='utf-8').write(re.sub(r'version:\s*[^\n]+', f'version: {ver}', text))"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -308,16 +307,18 @@ jobs:
         run: |
           VER="${{ needs.prepare-release.outputs.version }}"
           CH="${{ needs.prepare-release.outputs.channel }}"
-          mkdir -p dist/macos
+          OUT_DIR="$GITHUB_WORKSPACE/dist/macos"
+          mkdir -p "$OUT_DIR"
+          
           PRODUCTS_DIR="build/macos/Build/Products/Release"
           APP_PATH=$(ls -d "$PRODUCTS_DIR"/*.app | head -n 1)
           APP_NAME=$(basename "$APP_PATH")
           
-          echo "Packaging macOS app: $APP_NAME in $PRODUCTS_DIR..."
+          echo "Packaging macOS app: $APP_NAME in $PRODUCTS_DIR to $OUT_DIR..."
           cd "$PRODUCTS_DIR"
           
           # 1. Universal ZIP
-          ditto -c -k --keepParent "$APP_NAME" "../../../dist/macos/miptgram-v${VER}-${CH}-macos-universal.zip"
+          ditto -c -k --keepParent "$APP_NAME" "$OUT_DIR/miptgram-v${VER}-${CH}-macos-universal.zip"
           echo "Created Universal ZIP"
           
           # 2. ARM64 (Apple Silicon M-series)
@@ -333,7 +334,7 @@ jobs:
               lipo "$FW/$FW_NAME" -thin arm64 -output "$FW/$FW_NAME" 2>/dev/null || true
             fi
           done
-          ditto -c -k --keepParent "miptgram-arm64.app" "../../../dist/macos/miptgram-v${VER}-${CH}-macos-arm64.zip"
+          ditto -c -k --keepParent "miptgram-arm64.app" "$OUT_DIR/miptgram-v${VER}-${CH}-macos-arm64.zip"
           rm -rf "miptgram-arm64.app"
           echo "Created ARM64 ZIP"
           
@@ -350,13 +351,12 @@ jobs:
               lipo "$FW/$FW_NAME" -thin x86_64 -output "$FW/$FW_NAME" 2>/dev/null || true
             fi
           done
-          ditto -c -k --keepParent "miptgram-x86_64.app" "../../../dist/macos/miptgram-v${VER}-${CH}-macos-x64.zip"
+          ditto -c -k --keepParent "miptgram-x86_64.app" "$OUT_DIR/miptgram-v${VER}-${CH}-macos-x64.zip"
           rm -rf "miptgram-x86_64.app"
           echo "Created x86_64 ZIP"
           
-          cd ../../..
           echo "Prepared macOS binaries:"
-          ls -lh dist/macos/
+          ls -lh "$OUT_DIR"
 
       - name: Upload macOS Binaries
         uses: actions/upload-artifact@v4
@@ -396,39 +396,42 @@ jobs:
 
           if [ -n "$IOS_P12_BASE64" ] && [ -n "$IOS_MOBILEPROVISION_BASE64" ]; then
             echo "🔑 Apple signing credentials detected. Setting up temporary keychain..."
-            CERTIFICATE_PATH="$RUNNER_TEMP/build_cert.p12"
-            PP_PATH="$RUNNER_TEMP/build_pp.mobileprovision"
+            export CERTIFICATE_PATH="$RUNNER_TEMP/build_cert.p12"
+            export PP_PATH="$RUNNER_TEMP/build_pp.mobileprovision"
             KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
             KEYCHAIN_PASSWORD="temp_keychain_password_987"
 
-            echo -n "$IOS_P12_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
-            echo -n "$IOS_MOBILEPROVISION_BASE64" | base64 --decode -o "$PP_PATH"
+            # 1. Decode base64 using Python (cross-platform and reliable)
+            python3 -c "import base64, os; open(os.environ['CERTIFICATE_PATH'], 'wb').write(base64.b64decode(os.environ['IOS_P12_BASE64'].strip()))"
+            python3 -c "import base64, os; open(os.environ['PP_PATH'], 'wb').write(base64.b64decode(os.environ['IOS_MOBILEPROVISION_BASE64'].strip()))"
 
-            security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-            security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-            security import "$CERTIFICATE_PATH" -P "$IOS_P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-            security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-            security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed -e s/\"//g)
+            # 2. Setup Keychain
+            security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" || true
+            security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH" || true
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" || true
+            security import "$CERTIFICATE_PATH" -P "$IOS_P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH" || true
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" || true
+            security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"') || true
 
+            # 3. Install Provisioning Profile
             mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-            UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(security cms -D -i "$PP_PATH" 2>/dev/null) 2>/dev/null || true)
+            UUID=$(python3 -c "import re, os; m=re.search(r'<key>UUID</key>\s*<string>([a-fA-F0-9\-]+)</string>', open(os.environ['PP_PATH'],'rb').read().decode('latin1', errors='ignore')); print(m.group(1) if m else '')")
             if [ -n "$UUID" ]; then
-              echo "Installed provisioning profile with UUID: $UUID"
+              echo "Installed provisioning profile UUID: $UUID"
               cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID.mobileprovision"
             fi
             cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/
 
-            echo "📱 Building signed iOS IPA (v$VER #$BUILD)..."
+            # 4. Build iOS Release Application
+            echo "📱 Building iOS application (v$VER #$BUILD)..."
             flutter pub get
-            flutter build ipa --release --build-name="$VER" --build-number="$BUILD" || {
-              echo "⚠️ flutter build ipa exited with an error, trying flutter build ios..."
-              flutter build ios --release --build-name="$VER" --build-number="$BUILD"
+            flutter build ios --release --build-name="$VER" --build-number="$BUILD" || {
+              echo "⚠️ Signed build failed, trying with --no-codesign..."
+              flutter build ios --release --no-codesign --build-name="$VER" --build-number="$BUILD"
             }
 
-            if [ -d "build/ios/ipa" ] && [ $(ls build/ios/ipa/*.ipa 2>/dev/null | wc -l) -gt 0 ]; then
-              cp build/ios/ipa/*.ipa "dist/ios/miptgram-v${VER}-${CH}-ios.ipa"
-            elif [ -d "build/ios/iphoneos/Runner.app" ]; then
+            if [ -d "build/ios/iphoneos/Runner.app" ]; then
+              echo "Packaging Runner.app into IPA..."
               mkdir -p Payload
               cp -R build/ios/iphoneos/Runner.app Payload/
               zip -r -y "dist/ios/miptgram-v${VER}-${CH}-ios.ipa" Payload

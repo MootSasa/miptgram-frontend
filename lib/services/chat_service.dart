@@ -1420,8 +1420,28 @@ class ChatService {
         body: jsonEncode({'emoji': emoji}),
       );
 
-      final data = jsonDecode(response.body);
-      return {'success': data['success'] ?? false, 'active': data['active'] ?? false};
+      if (AppConfig.enableDebugLogging) {
+        debugPrint(
+            'ToggleReaction: POST ${AppConfig.baseUrl}/api/chats/$chatId/messages/$messageId/reactions emoji=$emoji');
+        debugPrint(
+            'ToggleReaction: Response ${response.statusCode}: ${response.body}');
+      }
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final data = jsonDecode(response.body);
+        return {
+          'success': data['success'] ?? false,
+          'active': data['active'] ?? false,
+          'action': data['action'] ?? (data['active'] == true ? 'added' : 'removed'),
+          'reactions': data['reactions'],
+        };
+      } else {
+        debugPrint('ToggleReaction failed: ${response.statusCode} ${response.body}');
+        return {
+          'success': false,
+          'message': 'Server error: ${response.statusCode}',
+        };
+      }
     } catch (e) {
       debugPrint('Toggle reaction error: $e');
       return {'success': false, 'message': 'Network error: ${e.toString()}'};

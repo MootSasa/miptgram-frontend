@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// AppConfig provides centralized 4-tier dynamic configuration for the application:
@@ -86,8 +87,20 @@ class AppConfig {
         _discoverWebUrls();
       }
 
+      // Automatically load dynamic package info from platform (pubspec.yaml)
+      try {
+        final info = await PackageInfo.fromPlatform();
+        if (info.version.isNotEmpty) {
+          _currentVersion = info.version;
+        }
+        final b = int.tryParse(info.buildNumber);
+        if (b != null && b > 0) {
+          _currentBuildNumber = b;
+        }
+      } catch (_) {}
+
       _initialized = true;
-      debugPrint('[AppConfig] Initialized - API: $baseUrl, WS: $wsUrl, Storage: $storageUrl, Web: $webBaseUrl');
+      debugPrint('[AppConfig] Initialized - API: $baseUrl, WS: $wsUrl, Storage: $storageUrl, Web: $webBaseUrl, Version: $_currentVersion (#$_currentBuildNumber)');
     } catch (e) {
       debugPrint('[AppConfig] Initialization error: $e');
     }
@@ -358,12 +371,26 @@ class AppConfig {
   /// Application name
   static const String appName = 'Miptgram';
 
-  /// Application version
-  static const String appVersion = '1.0.0';
+  /// Compile-time / default application version
+  static const String appVersion = String.fromEnvironment('APP_VERSION', defaultValue: '1.0.0');
 
-  /// Application build number
-  static const int appBuildNumber = 1;
+  /// Compile-time / default application build number
+  static const int appBuildNumber = int.fromEnvironment('APP_BUILD_NUMBER', defaultValue: 1);
 
-  /// Build date
-  static const String buildDate = '08.08.2026';
+  /// Compile-time / default build date
+  static const String _defaultBuildDate = '08.08.2026';
+  static const String _envBuildDate = String.fromEnvironment('BUILD_DATE');
+
+  /// Build date (from --dart-define=BUILD_DATE or default)
+  static String get buildDate => _envBuildDate.isNotEmpty ? _envBuildDate : _defaultBuildDate;
+
+  // Runtime values loaded dynamically from PackageInfo (pubspec.yaml / platform)
+  static String _currentVersion = appVersion;
+  static int _currentBuildNumber = appBuildNumber;
+
+  /// Dynamic application version (from PackageInfo if available, otherwise appVersion)
+  static String get currentVersion => _currentVersion;
+
+  /// Dynamic application build number (from PackageInfo if available, otherwise appBuildNumber)
+  static int get currentBuildNumber => _currentBuildNumber;
 }

@@ -125,8 +125,9 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   Widget _buildVersionInfoSection(ThemeData theme, AppLocalizations l10n) {
     final systemAbi = _getSystemAbi();
-    const buildDate = AppConfig.buildDate;
-    const appVersion = AppConfig.appVersion;
+    final buildDate = AppConfig.buildDate;
+    final appVersion = AppConfig.currentVersion;
+    final appBuild = AppConfig.currentBuildNumber;
 
     return Center(
       child: Padding(
@@ -141,7 +142,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'Miptgram v$appVersion ($systemAbi)',
+                    'Miptgram v$appVersion (#$appBuild) ($systemAbi)',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
                     ),

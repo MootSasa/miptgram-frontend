@@ -1,0 +1,344 @@
+name: Release & Multiplatform Auto-Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - beta
+      - alpha
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Канал распространения (Release Channel)'
+        required: true
+        default: 'stable'
+        type: choice
+        options:
+          - stable
+          - beta
+          - alpha
+      version_bump:
+        description: 'Правило инкремента версии (Semver Bump)'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+          - custom
+      custom_version:
+        description: 'Пользовательская версия (если bump = custom, например 1.2.0)'
+        required: false
+        default: ''
+        type: string
+      force_update:
+        description: 'Принудительное обновление для старых клиентов'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  prepare-release:
+    name: 🏷️ Calculate Semver & Changelog
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.calc.outputs.version }}
+      clean_version: ${{ steps.calc.outputs.clean_version }}
+      build_number: ${{ steps.calc.outputs.build_number }}
+      channel: ${{ steps.calc.outputs.channel }}
+      tag_name: ${{ steps.calc.outputs.tag_name }}
+      is_prerelease: ${{ steps.calc.outputs.is_prerelease }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Calculate Version and Release Notes
+        id: calc
+        run: |
+          ARGS=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ARGS="--channel ${{ inputs.channel }} --bump ${{ inputs.version_bump }}"
+            if [ -n "${{ inputs.custom_version }}" ]; then
+              ARGS="$ARGS --custom-version ${{ inputs.custom_version }}"
+            fi
+          fi
+          
+          python3 scripts/calculate_release.py $ARGS --github-output --output-file release_notes.md
+
+      - name: Upload Release Notes
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: release_notes.md
+          retention-days: 7
+
+  build-android:
+    name: 🤖 Build Android APKs
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          cache: true
+
+      - name: Adjust Gradle memory for CI runner
+        run: |
+          if [ -f android/gradle.properties ]; then
+            sed -i 's/-Xmx8G/-Xmx3500m/g' android/gradle.properties
+            sed -i 's/-XX:MaxMetaspaceSize=4G/-XX:MaxMetaspaceSize=1024m/g' android/gradle.properties
+          fi
+
+      - name: Accept Android SDK licenses
+        run: yes | flutter doctor --android-licenses || true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Universal & Split APKs
+        run: |
+          VER="${{ needs.prepare-release.outputs.version }}"
+          BUILD="${{ needs.prepare-release.outputs.build_number }}"
+          CH="${{ needs.prepare-release.outputs.channel }}"
+          
+          echo "Building Universal APK (v$VER #$BUILD)..."
+          flutter build apk --release --build-name="$VER" --build-number="$BUILD"
+          
+          echo "Building Split APKs (v$VER #$BUILD)..."
+          flutter build apk --release --split-per-abi --build-name="$VER" --build-number="$BUILD"
+          
+          mkdir -p dist/android
+          OUTPUT_DIR="build/app/outputs/flutter-apk"
+          
+          if [ -f "$OUTPUT_DIR/app-release.apk" ]; then
+            cp "$OUTPUT_DIR/app-release.apk" "dist/android/miptgram-v${VER}-${CH}-universal.apk"
+          fi
+          
+          for apk in "$OUTPUT_DIR"/*arm64-v8a*.apk; do
+            [ -f "$apk" ] && cp "$apk" "dist/android/miptgram-v${VER}-${CH}-arm64-v8a.apk"
+          done
+          
+          for apk in "$OUTPUT_DIR"/*armeabi-v7a*.apk; do
+            [ -f "$apk" ] && cp "$apk" "dist/android/miptgram-v${VER}-${CH}-armeabi-v7a.apk"
+          done
+          
+          for apk in "$OUTPUT_DIR"/*x86_64*.apk; do
+            [ -f "$apk" ] && cp "$apk" "dist/android/miptgram-v${VER}-${CH}-x86_64.apk"
+          done
+          
+          echo "Prepared Android binaries:"
+          ls -la dist/android/
+
+      - name: Upload Android Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-binaries
+          path: dist/android/*.apk
+          retention-days: 7
+
+  build-windows:
+    name: 🪟 Build Windows x64
+    needs: prepare-release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows Executable
+        shell: pwsh
+        run: |
+          $ver = "${{ needs.prepare-release.outputs.version }}"
+          $build = "${{ needs.prepare-release.outputs.build_number }}"
+          Write-Host "Building Windows (v$ver #$build)..."
+          flutter build windows --release --build-name="$ver" --build-number="$build"
+
+      - name: Package Windows Bundle into ZIP
+        shell: pwsh
+        run: |
+          $ver = "${{ needs.prepare-release.outputs.version }}"
+          $ch = "${{ needs.prepare-release.outputs.channel }}"
+          $releaseDir = "build/windows/x64/runner/Release"
+          New-Item -ItemType Directory -Force -Path "dist/windows"
+          $zipOutput = "dist/windows/miptgram-v${ver}-${ch}-windows-x64.zip"
+          
+          Write-Host "Compressing $releaseDir into $zipOutput..."
+          Compress-Archive -Path "$releaseDir\*" -DestinationPath $zipOutput -Force
+          Write-Host "Created $zipOutput"
+
+      - name: Upload Windows Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: dist/windows/*.zip
+          retention-days: 7
+
+  build-linux:
+    name: 🐧 Build Linux x64
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libgtk-3-dev \
+            liblzma-dev \
+            libstdc++-12-dev \
+            libasound2-dev \
+            libpulse-dev
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          cache: true
+
+      - name: Enable Linux desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Linux Application
+        run: |
+          VER="${{ needs.prepare-release.outputs.version }}"
+          BUILD="${{ needs.prepare-release.outputs.build_number }}"
+          echo "Building Linux x86_64 (v$VER #$BUILD)..."
+          flutter build linux --release --build-name="$VER" --build-number="$BUILD"
+
+      - name: Package Linux Bundle into tar.gz
+        run: |
+          VER="${{ needs.prepare-release.outputs.version }}"
+          CH="${{ needs.prepare-release.outputs.channel }}"
+          BUNDLE_DIR="build/linux/x64/release/bundle"
+          mkdir -p dist/linux
+          ARCHIVE_NAME="dist/linux/miptgram-v${VER}-${CH}-linux-x64.tar.gz"
+          
+          tar -czf "$ARCHIVE_NAME" -C "$BUNDLE_DIR" .
+          echo "Created $ARCHIVE_NAME"
+
+      - name: Upload Linux Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: dist/linux/*.tar.gz
+          retention-days: 7
+
+  publish-and-deploy:
+    name: 🚀 Deploy to Storage & Create GitHub Release
+    needs:
+      - prepare-release
+      - build-android
+      - build-windows
+      - build-linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download Release Notes
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: ./
+
+      - name: Download Android Binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: android-binaries
+          path: dist/
+
+      - name: Download Windows Binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-binaries
+          path: dist/
+
+      - name: Download Linux Binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-binaries
+          path: dist/
+
+      - name: List Artifacts to Deploy
+        run: |
+          echo "Distribution artifacts prepared:"
+          find dist/ -type f -exec ls -lh {} +
+
+      - name: Deploy to Miptgram API & MinIO Storage
+        env:
+          MIPTGRAM_API_URL: ${{ secrets.MIPTGRAM_API_URL }}
+          MIPTGRAM_ADMIN_SECRET: ${{ secrets.MIPTGRAM_ADMIN_SECRET }}
+        run: |
+          FORCE_FLAG=""
+          if [ "${{ inputs.force_update }}" = "true" ]; then
+            FORCE_FLAG="--force-update"
+          fi
+          
+          python3 scripts/deploy_release.py \
+            --artifacts-dir dist/ \
+            --version "${{ needs.prepare-release.outputs.version }}" \
+            --build-number "${{ needs.prepare-release.outputs.build_number }}" \
+            --channel "${{ needs.prepare-release.outputs.channel }}" \
+            --release-notes-file release_notes.md \
+            $FORCE_FLAG
+
+      - name: Create GitHub Release & Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag_name }}
+          name: Miptgram ${{ needs.prepare-release.outputs.tag_name }} (${{ needs.prepare-release.outputs.channel }})
+          body_path: release_notes.md
+          prerelease: ${{ needs.prepare-release.outputs.is_prerelease == 'true' }}
+          draft: false
+          files: dist/**/*
+          token: ${{ secrets.GITHUB_TOKEN }}

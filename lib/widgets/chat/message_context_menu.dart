@@ -1,6 +1,4 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../utils/emoji_utils.dart';
 import '../../utils/haptic_utils.dart';
 import '../../l10n/app_localizations.dart';
@@ -64,11 +62,9 @@ class _MessageContextMenuState extends State<MessageContextMenu> with SingleTick
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     // Calculate menu position - appear on the LEFT as requested
     const double menuHeight = 280.0;
-    const double menuWidth = 260.0; // emojis (44) + gap (8) + actions (200) + safe margin
     
     double top = widget.messageOffset.dy + widget.messageSize.height + 8;
     bool showAbove = false;
@@ -90,7 +86,7 @@ class _MessageContextMenuState extends State<MessageContextMenu> with SingleTick
             onTap: _handleDismiss,
             behavior: HitTestBehavior.opaque,
             child: Container(
-              color: Colors.black.withOpacity(0.15),
+              color: Colors.black.withValues(alpha: 0.15),
             ),
           ),
           // The Menu
@@ -124,7 +120,7 @@ class _MessageContextMenuState extends State<MessageContextMenu> with SingleTick
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(22),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10, offset: const Offset(0, 4)),
         ],
       ),
       child: Column(
@@ -153,19 +149,19 @@ class _MessageContextMenuState extends State<MessageContextMenu> with SingleTick
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10, offset: const Offset(0, 4)),
         ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildActionItem(Icons.reply, 'Ответить', widget.onReply, theme, enabled: !isSending),
-          _buildActionItem(Icons.copy, 'Копировать', widget.onCopy, theme, enabled: !isSending),
-          _buildActionItem(Icons.push_pin, 'Закрепить', widget.onPin, theme, enabled: !isSending),
+          _buildActionItem(Icons.reply, context.l10n.translate('chat_action_reply'), widget.onReply, theme, enabled: !isSending),
+          _buildActionItem(Icons.copy, context.l10n.translate('chat_action_copy'), widget.onCopy, theme, enabled: !isSending),
+          _buildActionItem(Icons.push_pin, context.l10n.translate('chat_action_pin'), widget.onPin, theme, enabled: !isSending),
           if (widget.isMe) 
             _buildActionItem(Icons.edit, context.l10n.translate('chat_edit_message'), widget.onEdit, theme, enabled: !isSending),
           const Divider(height: 1),
-          _buildActionItem(Icons.delete, 'Удалить', widget.onDelete, theme, isDestructive: true),
+          _buildActionItem(Icons.delete, context.l10n.translate('chat_action_delete'), widget.onDelete, theme, isDestructive: true),
         ],
       ),
     );

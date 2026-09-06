@@ -171,7 +171,27 @@ class _ChannelScreenState extends State<ChannelScreen> {
       if (chatId == widget.channelId) {
         _onMessageEdited(event);
       }
+    } else if (event.type == WebSocketEventType.messageDeleted) {
+      final chatId = event.data['chat_id']?.toString();
+      if (chatId == widget.channelId) {
+        _onMessageDeleted(event);
+      }
     }
+  }
+
+  void _onMessageDeleted(WebSocketEvent event) {
+    final messageId = event.data['message_id']?.toString();
+    if (messageId == null) return;
+
+    if (mounted) {
+      setState(() {
+        _messages.removeWhere((m) => m.id == messageId);
+      });
+    }
+
+    try {
+      AppDatabase().deleteMessage(messageId);
+    } catch (_) {}
   }
 
   void _onMessageEdited(WebSocketEvent event) {

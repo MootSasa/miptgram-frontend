@@ -180,6 +180,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _wsService.subscribe(
         WebSocketEventType.unreadCountUpdated, _onUnreadCountUpdated);
     _wsService.subscribe(WebSocketEventType.userStatus, _onUserStatus);
+    _wsService.subscribe(WebSocketEventType.messageDeleted, _onMessageDeleted);
 
     // Now connect — the 'connected' event will be caught by our listeners
     await _wsService.connect();
@@ -378,6 +379,45 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           }
         }
       });
+    }
+  }
+
+  void _onMessageDeleted(WebSocketEvent event) {
+    debugPrint('Message deleted received in MainScreen: ${event.data}');
+    final chatId = event.data['chat_id']?.toString();
+    final messageId =
+        (event.data['message_id'] ?? event.data['messageId'])?.toString();
+    if (chatId != null) {
+      if (messageId != null) {
+        try {
+          AppDatabase().deleteMessage(messageId);
+        } catch (_) {}
+      }
+      if (mounted) {
+        _refreshChatLastMessage(chatId);
+      }
+    }
+  }
+
+  Future<void> _refreshChatLastMessage(String chatId) async {
+    try {
+      final db = AppDatabase();
+      final lastMsg = await db.getLastMessageForChat(chatId);
+      if (!mounted) return;
+      final chatIndex = _chats.indexWhere((c) => c.id == chatId);
+      if (chatIndex != -1) {
+        setState(() {
+          final chat = _chats[chatIndex];
+          _chats[chatIndex] = chat.copyWith(
+            lastMessage: lastMsg?.content ?? '',
+            lastMessageTime: lastMsg?.createdAt ?? '',
+            updatedAt: lastMsg?.createdAt ?? chat.updatedAt,
+          );
+        });
+        _localStorage.saveChats(_chats);
+      }
+    } catch (e) {
+      debugPrint('Error refreshing last message for chat $chatId: $e');
     }
   }
 
@@ -649,6 +689,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _wsService.unsubscribe(WebSocketEventType.messageRead, _onMessageRead);
     _wsService.unsubscribe(WebSocketEventType.unreadCountUpdated, _onUnreadCountUpdated);
     _wsService.unsubscribe(WebSocketEventType.userStatus, _onUserStatus);
+    _wsService.unsubscribe(WebSocketEventType.messageDeleted, _onMessageDeleted);
     // Remove UnreadCountProvider listener
     try {
       context.read<UnreadCountProvider>().removeListener(_onUnreadCountProviderChanged);

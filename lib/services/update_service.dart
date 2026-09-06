@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:open_file/open_file.dart';
@@ -18,6 +19,7 @@ class AppUpdateInfo {
   final int apkSizeBytes;
   final String sha256;
   final String releaseNotes;
+  final String architecture;
 
   const AppUpdateInfo({
     required this.hasUpdate,
@@ -29,6 +31,7 @@ class AppUpdateInfo {
     required this.apkSizeBytes,
     required this.sha256,
     required this.releaseNotes,
+    this.architecture = 'universal',
   });
 
   factory AppUpdateInfo.fromJson(Map<String, dynamic> json) {
@@ -42,6 +45,7 @@ class AppUpdateInfo {
       apkSizeBytes: (json['apk_size_bytes'] as num?)?.toInt() ?? 0,
       sha256: json['sha256'] as String? ?? '',
       releaseNotes: json['release_notes'] as String? ?? '',
+      architecture: json['architecture'] as String? ?? 'universal',
     );
   }
 
@@ -56,6 +60,7 @@ class AppUpdateInfo {
       apkSizeBytes: 0,
       sha256: '',
       releaseNotes: '',
+      architecture: 'universal',
     );
   }
 
@@ -134,10 +139,71 @@ class AppUpdateService {
     return defaultTargetPlatform.name.toLowerCase();
   }
 
+  /// Определение аппаратной архитектуры процессора устройства
+  Future<String> getArchitecture() async {
+    if (kIsWeb) return 'universal';
+
+    try {
+      if (Platform.isAndroid) {
+        final deviceInfo = DeviceInfoPlugin();
+        final androidInfo = await deviceInfo.androidInfo;
+        final abis = androidInfo.supportedAbis;
+        if (abis.isNotEmpty) {
+          final primary = abis.first.toLowerCase();
+          if (primary.contains('arm64') || primary.contains('aarch64') || primary.contains('v8a')) {
+            return 'arm64-v8a';
+          } else if (primary.contains('armeabi-v7a') || primary.contains('armv7')) {
+            return 'armeabi-v7a';
+          } else if (primary.contains('x86_64') || primary.contains('amd64')) {
+            return 'x86_64';
+          } else if (primary.contains('x86')) {
+            return 'x86';
+          }
+          return primary;
+        }
+      } else if (Platform.isWindows) {
+        final archEnv = Platform.environment['PROCESSOR_ARCHITECTURE']?.toLowerCase() ?? '';
+        final archW6432 = Platform.environment['PROCESSOR_ARCHITEW6432']?.toLowerCase() ?? '';
+        if (archEnv.contains('arm64') || archW6432.contains('arm64')) {
+          return 'arm64';
+        }
+        if (archEnv.contains('amd64') || archEnv.contains('x64') || archW6432.contains('amd64')) {
+          return 'x64';
+        }
+        if (archEnv.contains('x86')) {
+          return 'x86';
+        }
+      } else if (Platform.isMacOS) {
+        final v = Platform.version.toLowerCase();
+        if (v.contains('arm64') || v.contains('aarch64')) return 'arm64';
+        if (v.contains('x64') || v.contains('x86_64')) return 'x86_64';
+      } else if (Platform.isLinux) {
+        final v = Platform.version.toLowerCase();
+        if (v.contains('arm64') || v.contains('aarch64')) return 'arm64';
+        if (v.contains('x64') || v.contains('x86_64') || v.contains('amd64')) return 'x86_64';
+        if (v.contains('arm')) return 'armv7l';
+      } else if (Platform.isIOS) {
+        return 'arm64';
+      }
+    } catch (e) {
+      debugPrint('[AppUpdateService] Failed to detect architecture: $e');
+    }
+
+    // Fallback based on Platform.version
+    try {
+      final v = Platform.version.toLowerCase();
+      if (v.contains('arm64') || v.contains('aarch64')) return 'arm64';
+      if (v.contains('x64') || v.contains('x86_64') || v.contains('amd64')) return 'x86_64';
+    } catch (_) {}
+
+    return 'universal';
+  }
+
   /// Запросить информацию о наличии обновления на сервере
   Future<AppUpdateInfo> checkForUpdate({bool silent = false}) async {
     try {
       final platform = getPlatform();
+      final arch = await getArchitecture();
       final currentBuild = await getCurrentBuildNumber();
       final currentVer = await getCurrentVersion();
 
@@ -148,6 +214,7 @@ class AppUpdateService {
         url,
         queryParameters: {
           'platform': platform,
+          'arch': arch,
           'build_number': currentBuild,
           'version': currentVer,
         },

@@ -319,5 +319,14 @@
   "chat_menu_mute": "ミュート",
   "chat_menu_unmute": "ミュート解除",
   "chat_menu_clear_history": "履歴を消去",
-  "chat_menu_report": "報告する"
+  "chat_menu_report": "報告する",
+  "chat_delete_message_title": "メッセージを削除",
+  "chat_delete_message_confirm": "このメッセージを削除してもよろしいですか？",
+  "chat_delete_for_everyone": "全員分を削除",
+  "chat_delete_for_me": "自分のみ削除",
+  "chat_action_reply": "返信",
+  "chat_action_copy": "コピー",
+  "chat_action_pin": "ピン留め",
+  "chat_edit_message": "メッセージを編集",
+  "chat_action_delete": "削除"
 }

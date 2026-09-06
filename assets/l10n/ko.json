@@ -319,5 +319,14 @@
   "chat_menu_mute": "음소거",
   "chat_menu_unmute": "음소거 해제",
   "chat_menu_clear_history": "대화내용 비우기",
-  "chat_menu_report": "신고"
+  "chat_menu_report": "신고",
+  "chat_delete_message_title": "메시지 삭제",
+  "chat_delete_message_confirm": "이 메시지를 삭제하시겠습니까?",
+  "chat_delete_for_everyone": "모든 사용자에게서 삭제",
+  "chat_delete_for_me": "나에게서만 삭제",
+  "chat_action_reply": "답장",
+  "chat_action_copy": "복사",
+  "chat_action_pin": "고정",
+  "chat_edit_message": "메시지 편집",
+  "chat_action_delete": "삭제"
 }

@@ -319,5 +319,14 @@
   "chat_menu_mute": "Silenciar",
   "chat_menu_unmute": "Reactivar sonido",
   "chat_menu_clear_history": "Vaciar chat",
-  "chat_menu_report": "Reportar"
+  "chat_menu_report": "Reportar",
+  "chat_delete_message_title": "Eliminar mensaje",
+  "chat_delete_message_confirm": "¿Estás seguro de que deseas eliminar este mensaje?",
+  "chat_delete_for_everyone": "Eliminar para todos",
+  "chat_delete_for_me": "Eliminar para mí",
+  "chat_action_reply": "Responder",
+  "chat_action_copy": "Copiar",
+  "chat_action_pin": "Fijar",
+  "chat_edit_message": "Editar mensaje",
+  "chat_action_delete": "Eliminar"
 }

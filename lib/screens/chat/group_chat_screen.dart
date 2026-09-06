@@ -202,8 +202,30 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       if (chatId == widget.chatId) {
         _onMessageEdited(event);
       }
+    } else if (event.type == WebSocketEventType.messageDeleted) {
+      final chatId = event.data['chat_id']?.toString();
+      if (chatId == widget.chatId) {
+        _onMessageDeleted(event);
+      }
     } else if (event.type == WebSocketEventType.userStatus) {
       _onUserStatusUpdate(event);
+    }
+  }
+
+  void _onMessageDeleted(WebSocketEvent event) {
+    final messageId = event.data['message_id']?.toString();
+    if (messageId == null) return;
+
+    if (mounted) {
+      setState(() {
+        _messages.removeWhere((m) => m.id == messageId);
+      });
+    }
+
+    try {
+      AppDatabase().deleteMessage(messageId);
+    } catch (e) {
+      debugPrint('GroupChatScreen: error deleting message from DB: $e');
     }
   }
 
@@ -1309,13 +1331,58 @@ class _GroupChatScreenState extends State<GroupChatScreen>
           _editingMessageId = message.id;
         });
       },
-      onDelete: (msg) {
-        // Delete message
-      },
+      onDelete: (msg) => _confirmDeleteMessage(msg),
       onReaction: (msgId, emoji) {
         // Toggle reaction
       },
     );
+  }
+
+  void _confirmDeleteMessage(Message message) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(ctx.l10n.translate('chat_delete_message_title')),
+        content: Text(ctx.l10n.translate('chat_delete_message_confirm')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(ctx.l10n.translate('cancel')),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _deleteMessage(message);
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: Text(ctx.l10n.translate('chat_action_delete')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteMessage(Message message) async {
+    setState(() {
+      _messages.removeWhere((m) => m.id == message.id);
+    });
+
+    try {
+      await AppDatabase().deleteMessage(message.id);
+    } catch (e) {
+      debugPrint('GroupChatScreen: error deleting from DB: $e');
+    }
+
+    final result = await ChatService.deleteMessage(
+      chatId: widget.chatId,
+      messageId: message.id,
+    );
+
+    if (result['success'] != true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result['message'] ?? 'Failed to delete message')),
+      );
+    }
   }
 
   /// Called when a message becomes visible — marks as read via API

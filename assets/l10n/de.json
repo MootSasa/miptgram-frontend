@@ -319,5 +319,14 @@
   "chat_menu_mute": "Stummschalten",
   "chat_menu_unmute": "Stummschaltung aufheben",
   "chat_menu_clear_history": "Verlauf leeren",
-  "chat_menu_report": "Melden"
+  "chat_menu_report": "Melden",
+  "chat_delete_message_title": "Nachricht löschen",
+  "chat_delete_message_confirm": "Möchten Sie diese Nachricht wirklich löschen?",
+  "chat_delete_for_everyone": "Für alle löschen",
+  "chat_delete_for_me": "Für mich löschen",
+  "chat_action_reply": "Antworten",
+  "chat_action_copy": "Kopieren",
+  "chat_action_pin": "Anheften",
+  "chat_edit_message": "Nachricht bearbeiten",
+  "chat_action_delete": "Löschen"
 }

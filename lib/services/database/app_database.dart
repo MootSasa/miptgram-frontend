@@ -379,9 +379,20 @@ class AppDatabase extends _$AppDatabase {
     ));
   }
 
-  /// Удалить сообщение по serverId
-  Future<void> deleteMessage(String serverId) async {
-    await (delete(messages)..where((t) => t.serverId.equals(serverId))).go();
+  /// Удалить сообщение по serverId или localId
+  Future<void> deleteMessage(String messageId) async {
+    await (delete(messages)
+          ..where((t) => t.serverId.equals(messageId) | t.localId.equals(messageId)))
+        .go();
+  }
+
+  /// Получить последнее сообщение чата
+  Future<DbMessage?> getLastMessageForChat(String chatId) async {
+    return (select(messages)
+          ..where((t) => t.chatId.equals(chatId))
+          ..orderBy([(t) => OrderingTerm.desc(t.createdAt)])
+          ..limit(1))
+        .getSingleOrNull();
   }
 
   /// Удалить все сообщения чата

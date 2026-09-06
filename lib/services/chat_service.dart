@@ -900,6 +900,44 @@ class ChatService {
     }
   }
 
+  /// Deletes a message from a chat for everyone.
+  static Future<Map<String, dynamic>> deleteMessage({
+    required String chatId,
+    required String messageId,
+  }) async {
+    try {
+      final token = await AuthService.getToken();
+      if (token == null) {
+        return {'success': false, 'message': 'Not authenticated'};
+      }
+
+      final response = await http.delete(
+        Uri.parse('${AppConfig.baseUrl}/api/chats/$chatId/messages/$messageId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {
+          'success': true,
+          'message': data['message'] ?? 'Message deleted successfully',
+          'message_id': data['message_id']?.toString() ?? messageId,
+        };
+      } else {
+        return {
+          'success': false,
+          'message': data['message'] ?? 'Failed to delete message',
+        };
+      }
+    } catch (e) {
+      debugPrint('Delete message error: $e');
+      return {'success': false, 'message': 'Network error: ${e.toString()}'};
+    }
+  }
+
   /// Clears the chat history for a specific chat.
   ///
   /// [chatId] - The ID of the chat to clear

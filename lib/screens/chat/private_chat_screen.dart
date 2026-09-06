@@ -11,8 +11,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:http/http.dart' as http;
-import '../../config/app_config.dart';
 import '../../services/chat_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/websocket_service.dart';
@@ -229,6 +227,28 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       if (chatId == widget.chatId) {
         _onMessageEdited(event);
       }
+    } else if (event.type == WebSocketEventType.messageDeleted) {
+      final chatId = event.data['chat_id']?.toString();
+      if (chatId == widget.chatId) {
+        _onMessageDeleted(event);
+      }
+    }
+  }
+
+  void _onMessageDeleted(WebSocketEvent event) {
+    final messageId = event.data['message_id']?.toString();
+    if (messageId == null) return;
+
+    if (mounted) {
+      setState(() {
+        _messages.removeWhere((m) => m.id == messageId);
+      });
+    }
+
+    try {
+      AppDatabase().deleteMessage(messageId);
+    } catch (e) {
+      debugPrint('PrivateChatScreen: error deleting message from DB: $e');
     }
   }
 
@@ -2564,33 +2584,58 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           _inputFocusNode.requestFocus();
         });
       },
-      onDelete: (msg) => _deleteMessage(msg),
+      onDelete: (msg) => _confirmDeleteMessage(msg),
       onReaction: (msgId, emoji) => _toggleReaction(msgId, emoji),
     );
   }
 
+  void _confirmDeleteMessage(Message message) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(ctx.l10n.translate('chat_delete_message_title')),
+        content: Text(ctx.l10n.translate('chat_delete_message_confirm')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(ctx.l10n.translate('cancel')),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _deleteMessage(message);
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: Text(ctx.l10n.translate('chat_action_delete')),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _deleteMessage(Message message) async {
+    // Optimistically remove from UI
+    setState(() {
+      _messages.removeWhere((m) => m.id == message.id);
+    });
+
+    // Remove from local database
     try {
-      final token = await AuthService.getToken();
-      final response = await http.delete(
-        Uri.parse('${AppConfig.baseUrl}/api/chats/${widget.chatId}/messages/${message.id}'),
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-      );
-      if (response.statusCode == 200) {
-        setState(() {
-          _messages.removeWhere((m) => m.id == message.id);
-        });
-      }
+      await AppDatabase().deleteMessage(message.id);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка удаления: $e')),
-        );
-      }
+      debugPrint('PrivateChatScreen: error deleting from DB: $e');
+    }
+
+    // Call server API
+    final result = await ChatService.deleteMessage(
+      chatId: widget.chatId,
+      messageId: message.id,
+    );
+
+    if (result['success'] != true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result['message'] ?? 'Failed to delete message')),
+      );
     }
   }
 

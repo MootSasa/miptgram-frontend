@@ -74,6 +74,7 @@ class WebSocketEvent {
       case 'message_edited':
         return WebSocketEventType.messageEdited;
       case 'message_deleted':
+      case 'delete_message':
         return WebSocketEventType.messageDeleted;
       default:
         return WebSocketEventType.connected;

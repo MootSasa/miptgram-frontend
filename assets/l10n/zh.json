@@ -319,5 +319,14 @@
   "chat_menu_mute": "静音",
   "chat_menu_unmute": "取消静音",
   "chat_menu_clear_history": "清空聊天记录",
-  "chat_menu_report": "举报"
+  "chat_menu_report": "举报",
+  "chat_delete_message_title": "删除消息",
+  "chat_delete_message_confirm": "确定要删除这条消息吗？",
+  "chat_delete_for_everyone": "为所有人删除",
+  "chat_delete_for_me": "仅为我删除",
+  "chat_action_reply": "回复",
+  "chat_action_copy": "复制",
+  "chat_action_pin": "置顶",
+  "chat_edit_message": "编辑消息",
+  "chat_action_delete": "删除"
 }

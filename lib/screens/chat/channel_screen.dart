@@ -220,14 +220,30 @@ class _ChannelScreenState extends State<ChannelScreen> {
     final messageData = event.data['message'] as Map<String, dynamic>?;
     if (messageData == null) return;
 
-    // Don't add if message is from current user (already added when sending)
-    final senderId = messageData['sender_id']?.toString();
-    if (senderId == _currentUserId) return;
-
     final message = Message.fromJson(messageData);
 
-    // Дедупликация: не добавлять если сообщение уже есть в списке
-    if (_messages.any((m) => m.id == message.id)) return;
+    // Дедупликация / обновление: проверяем есть ли уже сообщение по serverId или localId
+    final existingIndex = _messages.indexWhere((m) =>
+        m.id == message.id ||
+        (message.localId != null &&
+            message.localId!.isNotEmpty &&
+            m.localId == message.localId));
+
+    if (existingIndex != -1) {
+      // Сообщение уже в списке (отправлено с этого устройства). Обновляем id и статус если нужно
+      if (_messages[existingIndex].id != message.id ||
+          _messages[existingIndex].sendStatus != 1) {
+        if (mounted) {
+          setState(() {
+            _messages[existingIndex] = _messages[existingIndex].copyWith(
+              id: message.id,
+              sendStatus: 1,
+            );
+          });
+        }
+      }
+      return;
+    }
 
     // Сохранить в Drift для оффлайн-доступа
     final db = AppDatabase();

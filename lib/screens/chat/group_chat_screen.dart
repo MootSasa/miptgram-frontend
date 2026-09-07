@@ -227,6 +227,10 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     final userId = event.data['user_id']?.toString();
     final emoji = event.data['emoji']?.toString();
     final action = event.data['action']?.toString(); // "added" or "removed"
+    final bool? active =
+        event.data['active'] is bool ? event.data['active'] as bool : null;
+    final bool isAdded = action == 'added' || active == true;
+    final bool isRemoved = action == 'removed' || active == false;
 
     final Map<String, int> reactionsMap = {};
     if (event.data['reactions'] is List) {
@@ -246,9 +250,9 @@ class _GroupChatScreenState extends State<GroupChatScreen>
 
         if (userId != null && userId == _currentUserId && emoji != null) {
           final mySet = _myReactions.putIfAbsent(messageId, () => <String>{});
-          if (action == 'added') {
+          if (isAdded) {
             mySet.add(emoji);
-          } else if (action == 'removed') {
+          } else if (isRemoved) {
             mySet.remove(emoji);
           }
           if (mySet.isEmpty) {
@@ -335,14 +339,30 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     final messageData = event.data['message'] as Map<String, dynamic>?;
     if (messageData == null) return;
 
-    // Don't add if message is from current user (already added when sending)
-    final senderId = messageData['sender_id']?.toString();
-    if (senderId == _currentUserId) return;
-
     final message = Message.fromJson(messageData);
 
-    // Дедупликация: не добавлять если сообщение уже есть в списке
-    if (_messages.any((m) => m.id == message.id)) return;
+    // Дедупликация / обновление: проверяем есть ли уже сообщение по serverId или localId
+    final existingIndex = _messages.indexWhere((m) =>
+        m.id == message.id ||
+        (message.localId != null &&
+            message.localId!.isNotEmpty &&
+            m.localId == message.localId));
+
+    if (existingIndex != -1) {
+      // Сообщение уже в списке (отправлено с этого устройства). Обновляем id и статус если нужно
+      if (_messages[existingIndex].id != message.id ||
+          _messages[existingIndex].sendStatus != 1) {
+        if (mounted) {
+          setState(() {
+            _messages[existingIndex] = _messages[existingIndex].copyWith(
+              id: message.id,
+              sendStatus: 1,
+            );
+          });
+        }
+      }
+      return;
+    }
 
     // Сохранить в Drift для оффлайн-доступа
     final db = AppDatabase();
@@ -571,6 +591,8 @@ class _GroupChatScreenState extends State<GroupChatScreen>
                 .toList();
 
             _messages.clear();
+            _messageReactions.clear();
+            _myReactions.clear();
             _messages.addAll(serverMessages);
 
             // Добавить pending/failed сообщения обратно (их нет на сервере)
@@ -1445,13 +1467,17 @@ class _GroupChatScreenState extends State<GroupChatScreen>
 
   Future<void> _sendReactionToggle(String messageId, String emoji) async {
     try {
-      await ChatService.toggleReaction(
+      final res = await ChatService.toggleReaction(
         chatId: widget.chatId,
         messageId: messageId,
         emoji: emoji,
       );
-    } catch (_) {
-      // Silently fail — optimistic update already applied
+      if (res['success'] != true) {
+        debugPrint(
+            'GroupChatScreen: toggleReaction returned success=false for msg=$messageId: ${res['message']}');
+      }
+    } catch (e) {
+      debugPrint('GroupChatScreen: toggleReaction exception: $e');
     }
   }
 

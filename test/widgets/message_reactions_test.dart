@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:miptgram/widgets/chat/reactions_panel.dart';
+import 'package:miptgram/services/chat_service.dart';
 
 Widget createTestApp(Widget child) {
   return MaterialApp(
@@ -188,6 +189,63 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('🚀'), findsNothing);
       expect(find.text('❤️'), findsOneWidget);
+    });
+
+    test('Message.fromJson parses localId and reaction lists correctly', () {
+      final json = {
+        'id': '123',
+        'chat_id': '1',
+        'sender_id': '42',
+        'content': 'Hello from device 1',
+        'local_id': 'uuid-1234',
+        'reactions': [
+          {'emoji': '👍', 'count': 3, 'is_mine': true},
+          {'emoji': '❤️', 'count': 1, 'is_mine': false},
+        ],
+      };
+
+      // Import ChatService Message
+      final message = Message.fromJson(json);
+      expect(message.id, '123');
+      expect(message.localId, 'uuid-1234');
+      expect(message.reactions['👍'], 3);
+      expect(message.reactions['❤️'], 1);
+      expect(message.myReactions, contains('👍'));
+      expect(message.myReactions, isNot(contains('❤️')));
+    });
+
+    test('Message reaction event active & action flags resolution', () {
+      // Test when action is provided
+      final eventDataAction = {
+        'message_id': '123',
+        'user_id': '42',
+        'emoji': '🔥',
+        'action': 'added',
+      };
+      final action1 = eventDataAction['action']?.toString();
+      final bool? active1 = eventDataAction['active'] is bool ? eventDataAction['active'] as bool : null;
+      expect(action1 == 'added' || active1 == true, isTrue);
+
+      // Test when active boolean is provided (legacy or backend format)
+      final eventDataActive = {
+        'message_id': '123',
+        'user_id': '42',
+        'emoji': '🔥',
+        'active': true,
+      };
+      final action2 = eventDataActive['action']?.toString();
+      final bool? active2 = eventDataActive['active'] is bool ? eventDataActive['active'] as bool : null;
+      expect(action2 == 'added' || active2 == true, isTrue);
+
+      final eventDataRemoved = {
+        'message_id': '123',
+        'user_id': '42',
+        'emoji': '🔥',
+        'active': false,
+      };
+      final action3 = eventDataRemoved['action']?.toString();
+      final bool? active3 = eventDataRemoved['active'] is bool ? eventDataRemoved['active'] as bool : null;
+      expect(action3 == 'removed' || active3 == false, isTrue);
     });
   });
 }

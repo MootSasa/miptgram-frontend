@@ -238,6 +238,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       if (chatId == widget.chatId) {
         _onMessageReactionUpdated(event);
       }
+    } else if (event.type == WebSocketEventType.userAvatarUpdated) {
+      final userId = event.data['user_id']?.toString();
+      final avatarUrl = event.data['avatar_url']?.toString();
+      if ((userId == widget.otherUserId || userId == _otherUserId) && mounted) {
+        PaintingBinding.instance.imageCache.clear();
+        PaintingBinding.instance.imageCache.clearLiveImages();
+        setState(() {
+          _chatAvatar = avatarUrl;
+        });
+      }
     }
   }
 
@@ -1640,7 +1650,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           },
           appBar: FloatingGlassAppBar(
             name: displayName,
-            avatarUrl: widget.otherUserAvatar ?? _chatAvatar,
+            avatarUrl: _chatAvatar ?? widget.otherUserAvatar,
             isOnline: _isOtherUserOnline,
             lastSeen: _otherUserLastSeen,
             statusText: _isTyping ? context.l10n.translate('chat_typing') : null,
@@ -2131,6 +2141,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       onSend: _sendMessage,
       onAttach: _showAttachmentPicker,
       onEmoji: _onEmojiToggle,
+      currentUserId: _currentUserId,
       isSending: _isSending,
     );
   }

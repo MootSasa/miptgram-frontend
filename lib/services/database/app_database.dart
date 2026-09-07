@@ -265,6 +265,20 @@ class AppDatabase extends _$AppDatabase {
         .write(companion);
   }
 
+  /// Обновить аватар чата по chatId
+  Future<void> updateChatAvatar(String chatId, String? avatarUrl) async {
+    await ensureInitialized();
+    await (update(chats)..where((t) => t.chatId.equals(chatId)))
+        .write(ChatsCompanion(avatarUrl: Value(avatarUrl)));
+  }
+
+  /// Обновить аватар пользователя в чатах и сообщениях
+  Future<void> updateUserAvatarInChats(String userId, String? avatarUrl) async {
+    await ensureInitialized();
+    await (update(messages)..where((t) => t.senderId.equals(userId)))
+        .write(MessagesCompanion(senderAvatarUrl: Value(avatarUrl)));
+  }
+
   /// Убедиться, что чат "Избранное" существует локально
   Future<void> ensureSavedChatExists(String userId) async {
     await ensureInitialized();

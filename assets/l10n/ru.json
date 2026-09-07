@@ -674,5 +674,7 @@
   "chat_menu_profile": "Профиль",
   "chat_menu_voice_call": "Голосовой звонок",
   "chat_menu_video_call": "Видеозвонок",
-  "chat_menu_search_messages": "Поиск сообщений"
+  "chat_menu_search_messages": "Поиск сообщений",
+  "chat_reply_you": "Вы",
+  "chat_reply_to": "{name}"
 }

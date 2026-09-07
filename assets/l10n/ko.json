@@ -328,5 +328,7 @@
   "chat_action_copy": "복사",
   "chat_action_pin": "고정",
   "chat_edit_message": "메시지 편집",
-  "chat_action_delete": "삭제"
+  "chat_action_delete": "삭제",
+  "chat_reply_you": "나",
+  "chat_reply_to": "{name}"
 }

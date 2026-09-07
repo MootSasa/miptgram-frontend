@@ -58,6 +58,8 @@ class LocalStorageService {
       'quote_length': m.quoteLength,
       // Cached reply preview
       'reply_info': m.replyInfo?.toJson(),
+      'sender_name_color_id': m.senderNameColorId,
+      'sender_reply_strip_style': m.senderReplyStripStyle,
     };
   }
 

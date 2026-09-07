@@ -1,6 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../config/app_config.dart';
 import '../models/name_color_preset.dart';
+import 'auth_service.dart';
 
 /// Модель палитры фона профиля
 class ProfileColorPreset {
@@ -243,7 +247,7 @@ class ProfileColorPresets {
     }
     return allPresets.firstWhere(
       (preset) => preset.id == id,
-      orElse: () => roseGrad,
+      orElse: () => blue,
     );
   }
 }
@@ -254,14 +258,14 @@ class ProfileThemeProvider extends ChangeNotifier {
   static const String _prefNameColorKey = 'user_name_color_preset_id';
   static const String _prefStripStyleKey = 'user_reply_strip_style';
 
-  ProfileColorPreset? _currentPreset;
+  ProfileColorPreset? _currentPreset = ProfileColorPresets.blue;
   NameColorPreset _currentNameColorPreset = NameColorPresets.red;
   ReplyStripStyle _currentStripStyle = ReplyStripStyle.solid;
 
   ProfileColorPreset? get currentPreset => _currentPreset;
   bool get hasCustomColor => _currentPreset != null;
   String? get selectedPresetId => _currentPreset?.id;
-  Color get primaryColor => _currentPreset?.backgroundColor ?? const Color(0xFF0088CC);
+  Color get primaryColor => _currentPreset?.backgroundColor ?? const Color(0xFF2B82C9);
   Color get statusColor => _currentPreset?.statusColor ?? const Color(0xFF9FD6FF);
 
   NameColorPreset get currentNameColorPreset => _currentNameColorPreset;
@@ -273,6 +277,8 @@ class ProfileThemeProvider extends ChangeNotifier {
     final savedId = prefs.getString(_prefPresetKey);
     if (savedId != null && savedId.isNotEmpty) {
       _currentPreset = ProfileColorPresets.getById(savedId);
+    } else {
+      _currentPreset = ProfileColorPresets.blue;
     }
 
     final savedNameColorId = prefs.getString(_prefNameColorKey);
@@ -289,6 +295,82 @@ class ProfileThemeProvider extends ChangeNotifier {
     }
 
     notifyListeners();
+
+    // Async server fetch for cross-device synchronization
+    _fetchFromServer();
+  }
+
+  Future<void> _fetchFromServer() async {
+    try {
+      final token = await AuthService.getToken();
+      if (token == null) return;
+      final response = await http.get(
+        Uri.parse('${AppConfig.baseUrl}/api/user/appearance'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true && data['appearance'] is Map) {
+          final app = data['appearance'] as Map<String, dynamic>;
+          final pcId = app['profile_color_preset_id']?.toString();
+          final ncId = app['name_color_preset_id']?.toString();
+          final rs = app['reply_strip_style']?.toString();
+
+          final prefs = await SharedPreferences.getInstance();
+          if (pcId != null && pcId.isNotEmpty) {
+            _currentPreset = ProfileColorPresets.getById(pcId);
+            await prefs.setString(_prefPresetKey, pcId);
+          }
+          if (ncId != null && ncId.isNotEmpty) {
+            _currentNameColorPreset = NameColorPresets.getById(ncId);
+            await prefs.setString(_prefNameColorKey, ncId);
+          }
+          if (rs != null && rs.isNotEmpty) {
+            _currentStripStyle = ReplyStripStyle.values.firstWhere(
+              (s) => s.name == rs,
+              orElse: () => ReplyStripStyle.solid,
+            );
+            await prefs.setString(_prefStripStyleKey, rs);
+          }
+          notifyListeners();
+        }
+      }
+    } catch (e) {
+      debugPrint('[ProfileThemeProvider] Error fetching appearance: $e');
+    }
+  }
+
+  Future<void> _syncWithBackend({
+    String? profileColorPresetId,
+    String? nameColorPresetId,
+    String? replyStripStyle,
+    String? bubbleStyle,
+  }) async {
+    try {
+      final token = await AuthService.getToken();
+      if (token == null) return;
+
+      final body = <String, dynamic>{};
+      if (profileColorPresetId != null) body['profile_color_preset_id'] = profileColorPresetId;
+      if (nameColorPresetId != null) body['name_color_preset_id'] = nameColorPresetId;
+      if (replyStripStyle != null) body['reply_strip_style'] = replyStripStyle;
+      if (bubbleStyle != null) body['bubble_style'] = bubbleStyle;
+
+      final response = await http.put(
+        Uri.parse('${AppConfig.baseUrl}/api/user/appearance'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(body),
+      );
+      debugPrint('[ProfileThemeProvider] Sync appearance status: ${response.statusCode}');
+    } catch (e) {
+      debugPrint('[ProfileThemeProvider] Failed to sync appearance: $e');
+    }
   }
 
   Future<void> setPreset(ProfileColorPreset? preset) async {
@@ -297,8 +379,10 @@ class ProfileThemeProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     if (preset != null) {
       await prefs.setString(_prefPresetKey, preset.id);
+      _syncWithBackend(profileColorPresetId: preset.id);
     } else {
       await prefs.remove(_prefPresetKey);
+      _syncWithBackend(profileColorPresetId: 'blue');
     }
     notifyListeners();
   }
@@ -309,11 +393,12 @@ class ProfileThemeProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefNameColorKey, preset.id);
     await prefs.setString(_prefStripStyleKey, style.name);
+    _syncWithBackend(nameColorPresetId: preset.id, replyStripStyle: style.name);
     notifyListeners();
   }
 
   Future<void> resetToDefault() async {
-    await setPreset(null);
+    await setPreset(ProfileColorPresets.blue);
     await setNameColorAndStyle(NameColorPresets.red, ReplyStripStyle.solid);
   }
 }

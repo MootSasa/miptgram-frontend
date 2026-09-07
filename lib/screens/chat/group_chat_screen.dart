@@ -1418,6 +1418,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
           : null,
       onChanged: _onInputTextChanged,
       onSend: _sendMessage,
+      currentUserId: _currentUserId,
       isSending: _isSending,
     );
   }

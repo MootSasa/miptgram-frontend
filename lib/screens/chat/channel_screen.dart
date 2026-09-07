@@ -1186,6 +1186,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
       onCancelReply: _cancelReply,
       onTapReply: _replyToMessage != null ? () => _scrollToMessage(_replyToMessage!.id) : null,
       onSend: _sendMessage,
+      currentUserId: _currentUserId,
       isSending: _isSending,
     );
   }

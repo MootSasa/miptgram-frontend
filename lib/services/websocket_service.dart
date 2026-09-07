@@ -24,6 +24,8 @@ enum WebSocketEventType {
   messageEdited,
   messageDeleted,
   messageReactionUpdated,
+  userAvatarUpdated,
+  userAppearanceUpdated,
 }
 
 /// WebSocket event data
@@ -79,6 +81,10 @@ class WebSocketEvent {
         return WebSocketEventType.messageDeleted;
       case 'message_reaction_updated':
         return WebSocketEventType.messageReactionUpdated;
+      case 'user_avatar_updated':
+        return WebSocketEventType.userAvatarUpdated;
+      case 'user_appearance_updated':
+        return WebSocketEventType.userAppearanceUpdated;
       default:
         return WebSocketEventType.connected;
     }

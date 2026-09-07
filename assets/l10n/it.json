@@ -328,5 +328,7 @@
   "chat_action_copy": "Copia",
   "chat_action_pin": "Fissa",
   "chat_edit_message": "Modifica messaggio",
-  "chat_action_delete": "Elimina"
+  "chat_action_delete": "Elimina",
+  "chat_reply_you": "Tu",
+  "chat_reply_to": "{name}"
 }

@@ -267,7 +267,7 @@ class TextMessageWidget extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return MarkdownBody(
-      data: text,
+      data: text.trimRight(),
       selectable: false,
       shrinkWrap: true,
       softLineBreak: true, // Позволяет делать перенос строки одним нажатием Enter

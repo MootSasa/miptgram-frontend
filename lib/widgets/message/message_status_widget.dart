@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 
 /// Виджет отображения статуса доставки/прочтения сообщения.
-/// ✓ — доставлено на сервер
-/// ✓✓ — прочитано получателем
+/// ✓ — доставлено на сервер (iconoir.Check)
+/// ✓✓ — прочитано получателем (iconoir.DoubleCheck)
 /// Серые — не прочитано, цветные (акцентные) — прочитано
 class MessageStatusWidget extends StatelessWidget {
   final bool isRead;
@@ -28,20 +29,20 @@ class MessageStatusWidget extends StatelessWidget {
         : Colors.grey);
 
     if (isRead) {
-      // ✓✓ — прочитано (две галочки, цветные)
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.done, size: 16, color: color),
-          Transform.translate(
-            offset: const Offset(-6, 0),
-            child: Icon(Icons.done, size: 16, color: color),
-          ),
-        ],
+      // ✓✓ — прочитано (две галочки из пака iconoir)
+      return iconoir.DoubleCheck(
+        width: 15,
+        height: 15,
+        color: color,
       );
     } else {
-      // ✓ — доставлено (одна галочка, серая)
-      return Icon(Icons.done, size: 16, color: color);
+      // ✓ — доставлено (одна галочка из пака iconoir)
+      return iconoir.Check(
+        width: 15,
+        height: 15,
+        color: color,
+      );
     }
   }
 }
+

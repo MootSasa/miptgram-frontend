@@ -10,6 +10,9 @@ import 'package:miptgram/utils/date_time_utils.dart';
 import 'package:miptgram/widgets/chat/message_reply_info.dart';
 import 'package:miptgram/widgets/chat/reply_preview_bar.dart';
 import 'package:miptgram/widgets/profile/reply_strip_painter.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
+import 'package:miptgram/widgets/message/message_bubble.dart';
+import 'package:miptgram/widgets/message/message_status_widget.dart';
 
 class _TestAppLocalizations extends AppLocalizations {
   final Map<String, String> translations;
@@ -284,4 +287,107 @@ void main() {
       expect(restored.gradientColors?[1].toARGB32(), color2.toARGB32());
     });
   });
+
+  group('MessageStatusWidget and Checkmarks Tests', () {
+    testWidgets('MessageStatusWidget renders iconoir.DoubleCheck when isRead: true and isOutgoing: true',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        buildTestApp(
+          const MessageStatusWidget(
+            isRead: true,
+            isOutgoing: true,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(iconoir.DoubleCheck), findsOneWidget);
+      expect(find.byType(iconoir.Check), findsNothing);
+    });
+
+    testWidgets('MessageStatusWidget renders iconoir.Check when isRead: false and isOutgoing: true',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        buildTestApp(
+          const MessageStatusWidget(
+            isRead: false,
+            isOutgoing: true,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(iconoir.Check), findsOneWidget);
+      expect(find.byType(iconoir.DoubleCheck), findsNothing);
+    });
+
+    testWidgets('MessageStatusWidget renders nothing when isOutgoing: false',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        buildTestApp(
+          const MessageStatusWidget(
+            isRead: true,
+            isOutgoing: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(iconoir.DoubleCheck), findsNothing);
+      expect(find.byType(iconoir.Check), findsNothing);
+    });
+  });
+
+  group('MessageBubbleLayout Dynamic Metadata Fit Tests', () {
+    testWidgets('MessageBubbleLayout places metadata in same row when single line fits',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        buildTestApp(
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 300),
+            child: const MessageBubbleLayout(
+              content: Text('Короткий текст'),
+              metadata: Text('12:34'),
+              text: 'Короткий текст',
+              textStyle: TextStyle(fontSize: 16),
+              metadataWidth: 32.0,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Case A uses Row(mainAxisSize: MainAxisSize.min, children: [Flexible, gap, metadata])
+      final bubbleLayout = find.byType(MessageBubbleLayout);
+      expect(find.descendant(of: bubbleLayout, matching: find.byType(Row)), findsOneWidget);
+      expect(find.descendant(of: bubbleLayout, matching: find.byType(Stack)), findsNothing);
+    });
+
+    testWidgets('MessageBubbleLayout uses Stack without extra row when multi-line has space on last line',
+        (WidgetTester tester) async {
+      // Long first line, short second line
+      const multiLineText = 'Длинная первая строка текста которая точно перенесется\nКратко';
+      await tester.pumpWidget(
+        buildTestApp(
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 300),
+            child: const MessageBubbleLayout(
+              content: Text(multiLineText),
+              metadata: Text('12:34'),
+              text: multiLineText,
+              textStyle: TextStyle(fontSize: 16),
+              metadataWidth: 32.0,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Case B uses Stack with Positioned(bottom: 0, right: 0)
+      final bubbleLayout = find.byType(MessageBubbleLayout);
+      expect(find.descendant(of: bubbleLayout, matching: find.byType(Stack)), findsOneWidget);
+      expect(find.descendant(of: bubbleLayout, matching: find.byType(Positioned)), findsOneWidget);
+    });
+  });
 }
+

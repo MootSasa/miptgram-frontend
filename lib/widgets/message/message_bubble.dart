@@ -29,6 +29,8 @@ class MessageBubbleLayout extends StatelessWidget {
   final Widget? replyWidget;
   final double replyWidth;
   final Widget? senderNameWidget;
+  final double senderNameWidth;
+  final double? metadataWidth;
 
   const MessageBubbleLayout({
     Key? key,
@@ -41,6 +43,8 @@ class MessageBubbleLayout extends StatelessWidget {
     this.replyWidget,
     this.replyWidth = 0.0,
     this.senderNameWidget,
+    this.senderNameWidth = 0.0,
+    this.metadataWidth,
   }) : super(key: key);
 
   @override
@@ -62,8 +66,8 @@ class MessageBubbleLayout extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final double maxContentWidth = constraints.maxWidth;
-        const double metadataWidth = 66.0;
-        const double gap = 6.0;
+        final double effectiveMetadataWidth = metadataWidth ?? 48.0;
+        const double gap = 4.0;
 
         // Check if text does NOT contain block code (```) or TeX ($) which distort TextPainter
         final bool canEstimateLineMetrics = !hasBlockElement &&
@@ -74,8 +78,10 @@ class MessageBubbleLayout extends StatelessWidget {
 
         if (canEstimateLineMetrics) {
           // Strip simple markdown formatting characters for accurate line measurement
-          final cleanText = text!
+          String cleanText = text!
+              .replaceAll(RegExp(r'\[(.*?)\]\(.*?\)'), r'$1')
               .replaceAll(RegExp(r'\*|_|`|~|#'), '')
+              .replaceAll('\r\n', '\n')
               .trim();
 
           final TextPainter tp = TextPainter(
@@ -89,22 +95,32 @@ class MessageBubbleLayout extends StatelessWidget {
           final double lastLineWidth =
               lineMetrics.isNotEmpty ? lineMetrics.last.width : widestLineWidth;
 
+          final double headerWidth = math.max(
+            replyWidget != null ? replyWidth : 0.0,
+            senderNameWidget != null ? senderNameWidth : 0.0,
+          );
+
           // Case A: Single-line text that fits inline with metadata
-          if (lineCount <= 1 && (widestLineWidth + metadataWidth + gap <= maxContentWidth)) {
-            final double targetWidth = math.max(replyWidth, widestLineWidth + metadataWidth + gap);
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (senderNameWidget != null) ...[
-                  senderNameWidget!,
-                  const SizedBox(height: 2.0),
-                ],
-                if (replyWidget != null) ...[
-                  SizedBox(width: targetWidth, child: replyWidget),
-                  const SizedBox(height: 4.0),
-                ],
-                if (replyWidget != null)
+          if (lineCount <= 1 && (widestLineWidth + effectiveMetadataWidth + gap <= maxContentWidth)) {
+            final double neededWidth = widestLineWidth + effectiveMetadataWidth + gap;
+            final double targetWidth = math.min(
+              maxContentWidth,
+              math.max(headerWidth, neededWidth.ceilToDouble() + 1.0),
+            );
+
+            if (replyWidget != null || senderNameWidget != null) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (senderNameWidget != null) ...[
+                    senderNameWidget!,
+                    const SizedBox(height: 2.0),
+                  ],
+                  if (replyWidget != null) ...[
+                    SizedBox(width: targetWidth, child: replyWidget),
+                    const SizedBox(height: 4.0),
+                  ],
                   SizedBox(
                     width: targetWidth,
                     child: Row(
@@ -112,30 +128,36 @@ class MessageBubbleLayout extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Flexible(child: content),
+                        const SizedBox(width: gap),
                         const Spacer(),
                         metadata,
                       ],
                     ),
-                  )
-                else
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Flexible(child: content),
-                      const SizedBox(width: gap),
-                      metadata,
-                    ],
                   ),
+                ],
+              );
+            }
+
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Flexible(child: content),
+                const SizedBox(width: gap),
+                metadata,
               ],
             );
           }
 
           // Case B: Multi-line text where the last line has sufficient space for metadata
-          if (lineCount > 1 && (lastLineWidth + metadataWidth + gap <= maxContentWidth)) {
-            final double targetWidth = math.max(
-              replyWidth,
-              math.max(widestLineWidth, lastLineWidth + metadataWidth + gap),
+          if (lineCount > 1 && (lastLineWidth + effectiveMetadataWidth + gap <= maxContentWidth)) {
+            final double neededWidth = math.max(
+              widestLineWidth + 1.0,
+              lastLineWidth + effectiveMetadataWidth + gap,
+            );
+            final double targetWidth = math.min(
+              maxContentWidth,
+              math.max(headerWidth, neededWidth.ceilToDouble() + 1.0),
             );
 
             return Column(
@@ -168,7 +190,10 @@ class MessageBubbleLayout extends StatelessWidget {
           }
 
           // Case C: Multi-line text with full last line -> place metadata in separate row below
-          final double targetWidth = math.max(replyWidth, widestLineWidth);
+          final double targetWidth = math.min(
+            maxContentWidth,
+            math.max(headerWidth, widestLineWidth.ceilToDouble() + 1.0),
+          );
           return Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -348,10 +373,7 @@ class MessageBubble extends StatelessWidget {
               : Theme.of(context).colorScheme.onSecondaryContainer),
     );
 
-    final bool hasHeaderBlock = message.hasReply ||
-        (chatType == 'saved' && (message.forwardFromName?.isNotEmpty ?? false || message.senderName.isNotEmpty));
-
-    final bool endsWithBlock = hasHeaderBlock ||
+    final bool endsWithBlock =
         message.content.trim().endsWith('```') ||
         message.content.trim().endsWith('\$\$') ||
         hasMedia;
@@ -406,7 +428,7 @@ class MessageBubble extends StatelessWidget {
             ),
           )
         : Padding(
-            padding: const EdgeInsets.only(left: 6.0, top: 2.0),
+            padding: const EdgeInsets.only(top: 1.0),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -454,8 +476,7 @@ class MessageBubble extends StatelessWidget {
           );
 
     final double maxBubbleWidth = MediaQuery.of(context).size.width * 0.76 - 24.0; // 24 = horizontal padding
-    const double metadataWidthEstimate = 68.0;
-    const double gap = 8.0;
+    final double metadataWidthEstimate = _calculateMetadataWidth(context);
 
     // Prepare Reply Widget if present
     Widget? replyWidget;
@@ -498,35 +519,52 @@ class MessageBubble extends StatelessWidget {
       replyWidthEstimate = 120.0;
     }
 
-    // Estimate Main Text Width & Lines
-    final TextPainter mainTextTp = TextPainter(
-      text: TextSpan(text: message.content.replaceAll(RegExp(r'\*|_|`|~|#'), '').trim(), style: textStyle),
-      textDirection: TextDirection.ltr,
-    )..layout(maxWidth: maxBubbleWidth);
+    Widget? senderNameWidget;
+    double senderNameWidthEstimate = 0.0;
+    if (!isMe && senderName != null && senderName!.isNotEmpty) {
+      final style = TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.bold,
+        color: Theme.of(context).colorScheme.primary,
+      );
+      final TextPainter senderNameTp = TextPainter(
+        text: TextSpan(text: senderName!, style: style),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+      )..layout(maxWidth: maxBubbleWidth);
+      senderNameWidthEstimate = senderNameTp.width;
 
-    final double mainTextWidthEstimate = mainTextTp.width;
-    final lineMetrics = mainTextTp.computeLineMetrics();
-    final int lineCount = lineMetrics.length;
-    final double lastLineWidth = lineMetrics.isNotEmpty ? lineMetrics.last.width : mainTextTp.width;
-
-    bool fitsInline = false;
-    double requiredInlineWidth = mainTextWidthEstimate;
-
-    if (!message.content.contains('```') && !message.content.contains('\$')) {
-      if (lineCount <= 1 && (mainTextWidthEstimate + metadataWidthEstimate + gap <= maxBubbleWidth)) {
-        fitsInline = true;
-        requiredInlineWidth = mainTextWidthEstimate + metadataWidthEstimate + gap;
-      } else if (lineCount > 1 && (maxBubbleWidth - lastLineWidth >= metadataWidthEstimate + gap)) {
-        fitsInline = true;
-        requiredInlineWidth = mainTextWidthEstimate;
-      }
+      senderNameWidget = Padding(
+        padding: const EdgeInsets.only(bottom: 4.0),
+        child: Text(
+          senderName!,
+          style: style,
+        ),
+      );
     }
 
-    // Adaptive bubble content width = max(replyWidth, textWidth / requiredInlineWidth)
-    double targetContentWidth = math.max(replyWidthEstimate, fitsInline ? requiredInlineWidth : mainTextWidthEstimate);
-    targetContentWidth = math.min(targetContentWidth, maxBubbleWidth);
+    Widget textBodyWidget;
+    if (isBigEmoji) {
+      textBodyWidget = Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6.0),
+        child: GestureDetector(
+          onTap: () => HapticUtils.tap(),
+          child: EmojiUtils.appleEmoji(
+            message.content,
+            size: 64.0,
+            fallbackStyle: textStyle,
+          ),
+        ),
+      );
+    } else {
+      textBodyWidget = TextMessageWidget(
+        text: message.content,
+        style: textStyle,
+        isMe: isMe,
+      );
+    }
 
-    Widget contentWidget;
+    Widget? mediaContentWidget;
     if (hasMedia) {
       final double mediaWidth = math.min(maxBubbleWidth, 340.0);
       final Widget mediaWidget = _buildMediaWidget(context, mediaWidth, resolvedFileUrl);
@@ -582,7 +620,7 @@ class MessageBubble extends StatelessWidget {
       }
 
       if (replyWidget != null || (!isMe && senderName != null && senderName!.isNotEmpty)) {
-        contentWidget = Column(
+        mediaContentWidget = Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
@@ -606,124 +644,8 @@ class MessageBubble extends StatelessWidget {
           ],
         );
       } else {
-        contentWidget = innerContent;
+        mediaContentWidget = innerContent;
       }
-    } else if (replyWidget != null) {
-      Widget textBodyWidget;
-      if (isBigEmoji) {
-        textBodyWidget = Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6.0),
-          child: GestureDetector(
-            onTap: () => HapticUtils.tap(),
-            child: EmojiUtils.appleEmoji(
-              message.content,
-              size: 64.0,
-              fallbackStyle: textStyle,
-            ),
-          ),
-        );
-      } else {
-        textBodyWidget = TextMessageWidget(
-          text: message.content,
-          style: textStyle,
-          isMe: isMe,
-        );
-      }
-
-      Widget bottomRowWidget;
-      if (fitsInline) {
-        if (lineCount <= 1) {
-          bottomRowWidget = SizedBox(
-            width: targetContentWidth,
-            child: Row(
-              mainAxisSize: MainAxisSize.max,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                textBodyWidget,
-                const Spacer(),
-                metadataWidget,
-              ],
-            ),
-          );
-        } else {
-          bottomRowWidget = SizedBox(
-            width: targetContentWidth,
-            child: Stack(
-              children: [
-                textBodyWidget,
-                Positioned(
-                  bottom: 0,
-                  right: 0,
-                  child: metadataWidget,
-                ),
-              ],
-            ),
-          );
-        }
-      } else {
-        bottomRowWidget = Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            SizedBox(
-              width: targetContentWidth,
-              child: textBodyWidget,
-            ),
-            const SizedBox(height: 3.0),
-            metadataWidget,
-          ],
-        );
-      }
-
-      contentWidget = Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: targetContentWidth,
-            child: replyWidget,
-          ),
-          const SizedBox(height: 4.0),
-          bottomRowWidget,
-        ],
-      );
-    } else {
-      contentWidget = Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-        children: [
-          if (!isMe && senderName != null && senderName!.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 4.0),
-              child: Text(
-                senderName!,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ),
-            ),
-          if (isBigEmoji)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6.0),
-              child: GestureDetector(
-                onTap: () => HapticUtils.tap(),
-                child: EmojiUtils.appleEmoji(
-                  message.content,
-                  size: 64.0,
-                  fallbackStyle: textStyle,
-                ),
-              ),
-            )
-          else
-            TextMessageWidget(
-              text: message.content,
-              style: textStyle,
-              isMe: isMe,
-            ),
-        ],
-      );
     }
 
     final EdgeInsets bubblePadding = isBigEmoji
@@ -742,16 +664,20 @@ class MessageBubble extends StatelessWidget {
         color: backgroundColor,
         borderRadius: BorderRadius.circular(kMessageBorderRadius),
       ),
-      child: (replyWidget != null || hasMedia)
-          ? contentWidget
+      child: hasMedia
+          ? mediaContentWidget!
           : MessageBubbleLayout(
-              content: contentWidget,
+              content: textBodyWidget,
               metadata: metadataWidget,
               text: message.content,
               textStyle: textStyle,
               hasBlockElement: endsWithBlock,
               isBigEmoji: isBigEmoji,
               replyWidget: replyWidget,
+              replyWidth: replyWidthEstimate,
+              senderNameWidget: senderNameWidget,
+              senderNameWidth: senderNameWidthEstimate,
+              metadataWidth: metadataWidthEstimate,
             ),
     );
 
@@ -982,4 +908,43 @@ class MessageBubble extends StatelessWidget {
       ],
     );
   }
+
+  double _calculateMetadataWidth(BuildContext context) {
+    double width = 0.0;
+    if (message.isEdited) {
+      final editedText = context.l10n.translate('chat_edited');
+      final tp = TextPainter(
+        text: TextSpan(
+          text: editedText,
+          style: const TextStyle(fontSize: 10, fontStyle: FontStyle.italic),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      width += tp.width + 4.0;
+    }
+
+    final timeStr = formatTime(message.createdAt);
+    final timeTp = TextPainter(
+      text: TextSpan(
+        text: timeStr,
+        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w400),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    width += timeTp.width;
+
+    if (isMe) {
+      width += 4.0;
+      if (message.sendStatus == 0) {
+        width += 10.0;
+      } else if (message.sendStatus == 2) {
+        width += 14.0;
+      } else {
+        width += 15.0; // iconoir Check or DoubleCheck width
+      }
+    }
+
+    return width;
+  }
 }
+

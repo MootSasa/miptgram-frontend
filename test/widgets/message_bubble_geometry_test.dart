@@ -381,12 +381,93 @@ void main() {
           ),
         ),
       );
-      await tester.pump();
-
       // Case B uses Stack with Positioned(bottom: 0, right: 0)
       final bubbleLayout = find.byType(MessageBubbleLayout);
       expect(find.descendant(of: bubbleLayout, matching: find.byType(Stack)), findsOneWidget);
       expect(find.descendant(of: bubbleLayout, matching: find.byType(Positioned)), findsOneWidget);
+    });
+
+    testWidgets('MessageBubbleLayout places metadata in separate row without stretching to maxContentWidth when last line is full',
+        (WidgetTester tester) async {
+      const multiLineFull = 'Длинная строка 1\nДлинная строка 2';
+      await tester.pumpWidget(
+        buildTestApp(
+          Align(
+            alignment: Alignment.topLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 400),
+              child: const MessageBubbleLayout(
+                content: Text(multiLineFull),
+                metadata: Text('12:34'),
+                text: multiLineFull,
+                textStyle: TextStyle(fontSize: 16),
+                metadataWidth: 60.0,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Case C uses Column with content and metadata in separate rows
+      final bubbleLayout = find.byType(MessageBubbleLayout);
+      expect(find.descendant(of: bubbleLayout, matching: find.byType(Stack)), findsNothing);
+      final size = tester.getSize(bubbleLayout);
+      // Ensure the bubble did NOT stretch to maxContentWidth (400)
+      expect(size.width, lessThan(350));
+    });
+
+    testWidgets('MessageBubbleLayout handles single line message with reply without layout overflow',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        buildTestApp(
+          Align(
+            alignment: Alignment.topLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 350),
+              child: const MessageBubbleLayout(
+                content: Text('Привет!'),
+                metadata: Text('12:34'),
+                text: 'Привет!',
+                textStyle: TextStyle(fontSize: 16),
+                metadataWidth: 45.0,
+                replyWidget: SizedBox(width: 180, height: 36, child: Text('Reply Header')),
+                replyWidth: 180.0,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final bubbleLayout = find.byType(MessageBubbleLayout);
+      final size = tester.getSize(bubbleLayout);
+      // Size must be exactly reply width 180.0
+      expect(size.width, 180.0);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('MessageBubbleLayout estimates line metrics for text with currency symbols',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        buildTestApp(
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 300),
+            child: const MessageBubbleLayout(
+              content: Text('\$100'),
+              metadata: Text('12:34'),
+              text: '\$100',
+              textStyle: TextStyle(fontSize: 16),
+              metadataWidth: 32.0,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Single line $100 fits inline with metadata, so it uses Row or inline fit, NOT fallback Column
+      final bubbleLayout = find.byType(MessageBubbleLayout);
+      expect(find.descendant(of: bubbleLayout, matching: find.byType(Row)), findsOneWidget);
     });
   });
 }

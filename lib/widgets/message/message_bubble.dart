@@ -69,12 +69,12 @@ class MessageBubbleLayout extends StatelessWidget {
         final double effectiveMetadataWidth = metadataWidth ?? 48.0;
         const double gap = 4.0;
 
-        // Check if text does NOT contain block code (```) or TeX ($) which distort TextPainter
+        // Check if text does NOT contain block code (```) or block TeX ($$) which distort TextPainter
         final bool canEstimateLineMetrics = !hasBlockElement &&
             text != null &&
             text!.trim().isNotEmpty &&
             !text!.contains('```') &&
-            !text!.contains('\$');
+            !text!.startsWith(r'$$');
 
         if (canEstimateLineMetrics) {
           // Strip simple markdown formatting characters for accurate line measurement
@@ -84,14 +84,24 @@ class MessageBubbleLayout extends StatelessWidget {
               .replaceAll('\r\n', '\n')
               .trim();
 
+          final TextStyle effectiveTextStyle = textStyle.height == null
+              ? textStyle.copyWith(height: 1.4)
+              : textStyle;
+
           final TextPainter tp = TextPainter(
-            text: TextSpan(text: cleanText, style: textStyle),
+            text: TextSpan(text: cleanText, style: effectiveTextStyle),
             textDirection: TextDirection.ltr,
           )..layout(maxWidth: maxContentWidth);
 
           final lineMetrics = tp.computeLineMetrics();
           final int lineCount = lineMetrics.length;
-          final double widestLineWidth = tp.width;
+
+          double widestLineWidth = 0.0;
+          for (final line in lineMetrics) {
+            if (line.width > widestLineWidth) {
+              widestLineWidth = line.width;
+            }
+          }
           final double lastLineWidth =
               lineMetrics.isNotEmpty ? lineMetrics.last.width : widestLineWidth;
 
@@ -100,15 +110,78 @@ class MessageBubbleLayout extends StatelessWidget {
             senderNameWidget != null ? senderNameWidth : 0.0,
           );
 
-          // Case A: Single-line text that fits inline with metadata
-          if (lineCount <= 1 && (widestLineWidth + effectiveMetadataWidth + gap <= maxContentWidth)) {
-            final double neededWidth = widestLineWidth + effectiveMetadataWidth + gap;
-            final double targetWidth = math.min(
-              maxContentWidth,
-              math.max(headerWidth, neededWidth.ceilToDouble() + 1.0),
-            );
+          final double baseWidth = math.max(headerWidth, widestLineWidth.ceilToDouble());
 
-            if (replyWidget != null || senderNameWidget != null) {
+          // Case A: Single-line text that fits inline with metadata
+          if (lineCount <= 1) {
+            final double neededWidth = widestLineWidth + effectiveMetadataWidth + gap;
+            if (neededWidth <= maxContentWidth) {
+              final double targetWidth = math.min(
+                maxContentWidth,
+                math.max(headerWidth, neededWidth.ceilToDouble()),
+              );
+
+              if (replyWidget != null || senderNameWidget != null) {
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (senderNameWidget != null) ...[
+                      senderNameWidget!,
+                      const SizedBox(height: 2.0),
+                    ],
+                    if (replyWidget != null) ...[
+                      SizedBox(width: targetWidth, child: replyWidget),
+                      const SizedBox(height: 4.0),
+                    ],
+                    SizedBox(
+                      width: targetWidth,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Padding(
+                            padding: EdgeInsets.only(
+                              right: effectiveMetadataWidth + gap,
+                            ),
+                            child: content,
+                          ),
+                          Positioned(
+                            bottom: 0,
+                            right: 0,
+                            child: metadata,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              }
+
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Flexible(child: content),
+                  const SizedBox(width: gap),
+                  metadata,
+                ],
+              );
+            }
+          }
+
+          // Case B: Multi-line text where the last line has sufficient space for metadata
+          if (lineCount > 1) {
+            final double remainingOnLastLine = baseWidth - lastLineWidth;
+            final bool fitsInBaseWidth = remainingOnLastLine >= gap + effectiveMetadataWidth;
+            final bool fitsWithSmallExpansion = !fitsInBaseWidth &&
+                (lastLineWidth + gap + effectiveMetadataWidth <= maxContentWidth) &&
+                ((lastLineWidth + gap + effectiveMetadataWidth - baseWidth) <= 45.0);
+
+            if (fitsInBaseWidth || fitsWithSmallExpansion) {
+              final double targetWidth = fitsInBaseWidth
+                  ? baseWidth
+                  : (lastLineWidth + gap + effectiveMetadataWidth).ceilToDouble();
+
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -123,77 +196,29 @@ class MessageBubbleLayout extends StatelessWidget {
                   ],
                   SizedBox(
                     width: targetWidth,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.max,
-                      crossAxisAlignment: CrossAxisAlignment.end,
+                    child: Stack(
+                      clipBehavior: Clip.none,
                       children: [
-                        Flexible(child: content),
-                        const SizedBox(width: gap),
-                        const Spacer(),
-                        metadata,
+                        content,
+                        Positioned(
+                          bottom: 0,
+                          right: 0,
+                          child: metadata,
+                        ),
                       ],
                     ),
                   ),
                 ],
               );
             }
-
-            return Row(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Flexible(child: content),
-                const SizedBox(width: gap),
-                metadata,
-              ],
-            );
           }
 
-          // Case B: Multi-line text where the last line has sufficient space for metadata
-          if (lineCount > 1 && (lastLineWidth + effectiveMetadataWidth + gap <= maxContentWidth)) {
-            final double neededWidth = math.max(
-              widestLineWidth + 1.0,
-              lastLineWidth + effectiveMetadataWidth + gap,
-            );
-            final double targetWidth = math.min(
-              maxContentWidth,
-              math.max(headerWidth, neededWidth.ceilToDouble() + 1.0),
-            );
-
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (senderNameWidget != null) ...[
-                  senderNameWidget!,
-                  const SizedBox(height: 2.0),
-                ],
-                if (replyWidget != null) ...[
-                  SizedBox(width: targetWidth, child: replyWidget),
-                  const SizedBox(height: 4.0),
-                ],
-                SizedBox(
-                  width: targetWidth,
-                  child: Stack(
-                    children: [
-                      content,
-                      Positioned(
-                        bottom: 0,
-                        right: 0,
-                        child: metadata,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          }
-
-          // Case C: Multi-line text with full last line -> place metadata in separate row below
+          // Case C: Multi-line text (or full single-line) where metadata needs an extra row below
           final double targetWidth = math.min(
             maxContentWidth,
-            math.max(headerWidth, widestLineWidth.ceilToDouble() + 1.0),
+            math.max(headerWidth, widestLineWidth.ceilToDouble()),
           );
+
           return Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -366,6 +391,7 @@ class MessageBubble extends StatelessWidget {
 
     final TextStyle textStyle = TextStyle(
       fontSize: 16.0,
+      height: 1.4,
       color: isBigEmoji
           ? (Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black)
           : (isMe
@@ -944,7 +970,7 @@ class MessageBubble extends StatelessWidget {
       }
     }
 
-    return width;
+    return width.ceilToDouble();
   }
 }
 

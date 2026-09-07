@@ -132,6 +132,10 @@ class MessageReplyInfo extends StatelessWidget {
         (s) => s.name == replyInfo!.replyStripStyle,
         orElse: () => ReplyStripStyle.solid,
       );
+    } else if (replyInfo != null) {
+      // Replying to another user whose preset is not explicitly set: use default author preset, NOT viewer's preset
+      preset = NameColorPresets.getById('name_red');
+      stripStyle = ReplyStripStyle.solid;
     } else {
       preset = profileTheme.currentNameColorPreset;
       stripStyle = profileTheme.currentStripStyle;

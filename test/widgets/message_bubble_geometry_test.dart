@@ -157,6 +157,70 @@ void main() {
       expect(stripWidget.style, ReplyStripStyle.dualColor);
     });
 
+    testWidgets('MessageReplyInfo falls back to name_red and solid strip for other user when preset is null',
+        (WidgetTester tester) async {
+      const reply = ReplyInfo(
+        messageId: '103',
+        senderId: 'user_other',
+        senderName: 'Михаил',
+        content: 'Сообщение с неуказанным стилем',
+        messageType: 'text',
+        nameColorPresetId: null,
+        replyStripStyle: null,
+      );
+
+      await tester.pumpWidget(
+        buildTestApp(
+          const MessageReplyInfo(
+            replyInfo: reply,
+            currentUserId: 'user_me',
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Михаил'), findsOneWidget);
+      final textWidget = tester.widget<Text>(find.text('Михаил'));
+      // Fallback author name color must be name_red (0xFFE53935), NOT viewer preset
+      expect(textWidget.style?.color, const Color(0xFFE53935));
+
+      final stripWidget = tester.widget<ReplyStripWidget>(find.byType(ReplyStripWidget));
+      expect(stripWidget.preset.id, 'name_red');
+      expect(stripWidget.style, ReplyStripStyle.solid);
+    });
+
+    testWidgets('ReplyPreviewBar falls back to name_red and solid strip for other user when preset is null',
+        (WidgetTester tester) async {
+      final msg = Message(
+        id: '201',
+        chatId: 'chat_1',
+        senderId: 'user_other',
+        content: 'Сообщение в баре ответа с неуказанным стилем',
+        messageType: 'text',
+        isEdited: false,
+        createdAt: DateTime.now().toUtc().toIso8601String(),
+        senderName: 'Ольга',
+        senderNameColorId: null,
+        senderReplyStripStyle: null,
+      );
+
+      await tester.pumpWidget(
+        buildTestApp(
+          ReplyPreviewBar(
+            replyToMessage: msg,
+            currentUserId: 'user_me',
+            onClose: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Ольга'), findsOneWidget);
+      final stripWidget = tester.widget<ReplyStripWidget>(find.byType(ReplyStripWidget));
+      expect(stripWidget.preset.id, 'name_red');
+      expect(stripWidget.style, ReplyStripStyle.solid);
+    });
+
     testWidgets('ReplyPreviewBar applies author name and custom strip style',
         (WidgetTester tester) async {
       final msg = Message(

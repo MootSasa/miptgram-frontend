@@ -132,6 +132,28 @@ class ReplyInfo {
         if (nameColorPresetId != null) 'name_color_preset_id': nameColorPresetId,
         if (replyStripStyle != null) 'reply_strip_style': replyStripStyle,
       };
+
+  ReplyInfo copyWith({
+    String? messageId,
+    String? senderId,
+    String? senderName,
+    String? content,
+    String? messageType,
+    String? chatId,
+    String? nameColorPresetId,
+    String? replyStripStyle,
+  }) {
+    return ReplyInfo(
+      messageId: messageId ?? this.messageId,
+      senderId: senderId ?? this.senderId,
+      senderName: senderName ?? this.senderName,
+      content: content ?? this.content,
+      messageType: messageType ?? this.messageType,
+      chatId: chatId ?? this.chatId,
+      nameColorPresetId: nameColorPresetId ?? this.nameColorPresetId,
+      replyStripStyle: replyStripStyle ?? this.replyStripStyle,
+    );
+  }
 }
 
 /// MessageEntity represents a formatted range in text (Bold, Italic, Spoiler, Code, Link, etc.).

@@ -8,6 +8,7 @@ import '../../services/websocket_service.dart';
 import '../../services/unread_count_provider.dart';
 import '../../services/database/app_database.dart';
 import '../../services/sync_service.dart';
+import '../../services/profile_theme_provider.dart';
 import 'package:drift/drift.dart' show Value;
 import '../../utils/image_utils.dart';
 import '../../utils/emoji_utils.dart';
@@ -230,17 +231,15 @@ class _ChannelScreenState extends State<ChannelScreen> {
             m.localId == message.localId));
 
     if (existingIndex != -1) {
-      // Сообщение уже в списке (отправлено с этого устройства). Обновляем id и статус если нужно
-      if (_messages[existingIndex].id != message.id ||
-          _messages[existingIndex].sendStatus != 1) {
-        if (mounted) {
-          setState(() {
-            _messages[existingIndex] = _messages[existingIndex].copyWith(
-              id: message.id,
-              sendStatus: 1,
-            );
-          });
-        }
+      // Сообщение уже в списке (отправлено с этого устройства). Обновляем id, статус и обогащенный replyInfo от сервера
+      if (mounted) {
+        setState(() {
+          _messages[existingIndex] = message.copyWith(
+            localId: _messages[existingIndex].localId ?? message.localId,
+            sendStatus: 1,
+            replyInfo: message.replyInfo ?? _messages[existingIndex].replyInfo,
+          );
+        });
       }
       return;
     }
@@ -584,7 +583,26 @@ class _ChannelScreenState extends State<ChannelScreen> {
 
     if (pendingMsg != null) {
       pendingLocalId = pendingMsg.localId;
-      final message = Message.fromDbMessage(pendingMsg);
+      final profileTheme = context.read<ProfileThemeProvider>();
+      var message = Message.fromDbMessage(pendingMsg);
+      if (replyTo != null) {
+        final isReplyToMe = replyTo.senderId == _currentUserId;
+        message = message.copyWith(
+          replyInfo: ReplyInfo(
+            messageId: replyTo.id,
+            senderId: replyTo.senderId,
+            senderName: replyTo.senderName,
+            content: replyTo.content,
+            messageType: replyTo.messageType,
+            nameColorPresetId: isReplyToMe
+                ? profileTheme.currentNameColorPreset.id
+                : (replyTo.senderNameColorId ?? 'name_red'),
+            replyStripStyle: isReplyToMe
+                ? profileTheme.currentStripStyle.name
+                : (replyTo.senderReplyStripStyle ?? 'solid'),
+          ),
+        );
+      }
       if (mounted) {
         setState(() {
           _messages.insert(0, message);
@@ -616,10 +634,18 @@ class _ChannelScreenState extends State<ChannelScreen> {
                 final idx =
                     _messages.indexWhere((m) => m.localId == pendingLocalId);
                 if (idx != -1) {
-                  _messages[idx] = _messages[idx].copyWith(
-                    id: serverId,
-                    sendStatus: 1, // sent
-                  );
+                  if (sentMessage is Message) {
+                    _messages[idx] = sentMessage.copyWith(
+                      localId: pendingLocalId,
+                      sendStatus: 1, // sent
+                      replyInfo: sentMessage.replyInfo ?? _messages[idx].replyInfo,
+                    );
+                  } else {
+                    _messages[idx] = _messages[idx].copyWith(
+                      id: serverId,
+                      sendStatus: 1, // sent
+                    );
+                  }
                 }
               });
             }

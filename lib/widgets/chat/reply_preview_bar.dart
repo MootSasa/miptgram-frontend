@@ -166,8 +166,9 @@ class ReplyPreviewBar extends StatelessWidget {
         orElse: () => ReplyStripStyle.solid,
       );
     } else {
-      authorPreset = profileTheme.currentNameColorPreset;
-      authorStripStyle = profileTheme.currentStripStyle;
+      // Replying to another user whose preset is not explicitly set: use default author preset, NOT viewer's preset
+      authorPreset = NameColorPresets.getById('name_red');
+      authorStripStyle = ReplyStripStyle.solid;
     }
 
     final accentColor = authorPreset.primaryColor;

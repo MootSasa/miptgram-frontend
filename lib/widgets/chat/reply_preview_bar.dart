@@ -2,6 +2,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import 'package:provider/provider.dart';
+import '../../l10n/app_localizations.dart';
+import '../../models/name_color_preset.dart';
 import '../../services/chat_service.dart';
 import '../../services/profile_theme_provider.dart';
 import '../../utils/emoji_utils.dart';
@@ -17,6 +19,7 @@ class ReplyPreviewBar extends StatelessWidget {
   final VoidCallback? onTap;
   final bool enabled;
   final bool isLite;
+  final String? currentUserId;
 
   const ReplyPreviewBar({
     Key? key,
@@ -27,18 +30,27 @@ class ReplyPreviewBar extends StatelessWidget {
     this.onTap,
     this.enabled = false,
     this.isLite = false,
+    this.currentUserId,
   }) : super(key: key);
 
-  /// Truncate text for preview
+  /// Truncate text for preview with ...
   String _truncate(String text, {int maxLen = 60}) {
-    if (text.length <= maxLen) return text;
-    return '${text.substring(0, maxLen)}…';
+    final clean = text
+        .replaceAll(RegExp(r'```[a-zA-Z0-9+#]*'), '')
+        .replaceAll('```', '')
+        .replaceAll(RegExp(r'`'), '')
+        .replaceAll(RegExp(r'[*_~]'), '')
+        .replaceAll(RegExp(r'\n+'), ' ')
+        .trim();
+    if (clean.length <= maxLen) return clean;
+    return '${clean.substring(0, maxLen)}...';
   }
 
   /// Get icon for message type
   IconData _messageTypeIcon(String messageType) {
     switch (messageType) {
       case 'image':
+      case 'photo':
         return Icons.photo;
       case 'video':
         return Icons.videocam;
@@ -135,12 +147,59 @@ class ReplyPreviewBar extends StatelessWidget {
   Widget _buildContent(BuildContext context) {
     final theme = Theme.of(context);
     final profileTheme = context.watch<ProfileThemeProvider>();
-    final accentColor = profileTheme.activeNameColor;
+
+    final isSenderMe = currentUserId != null && replyToMessage.senderId == currentUserId;
+    final displayName = isSenderMe
+        ? context.l10n.translate('chat_reply_you')
+        : (replyToMessage.senderName.isNotEmpty ? replyToMessage.senderName : 'Сообщение');
+
+    // Telegram-style: Color and style of original message in reply preview match what that user selected in their settings
+    final NameColorPreset authorPreset;
+    final ReplyStripStyle authorStripStyle;
+    if (isSenderMe) {
+      authorPreset = profileTheme.currentNameColorPreset;
+      authorStripStyle = profileTheme.currentStripStyle;
+    } else if (replyToMessage.senderNameColorId != null && replyToMessage.senderNameColorId!.isNotEmpty) {
+      authorPreset = NameColorPresets.getById(replyToMessage.senderNameColorId!);
+      authorStripStyle = ReplyStripStyle.values.firstWhere(
+        (s) => s.name == replyToMessage.senderReplyStripStyle,
+        orElse: () => ReplyStripStyle.solid,
+      );
+    } else {
+      // Replying to another user whose preset is not explicitly set: use default author preset, NOT viewer's preset
+      authorPreset = NameColorPresets.getById('name_red');
+      authorStripStyle = ReplyStripStyle.solid;
+    }
+
+    final accentColor = authorPreset.primaryColor;
 
     // Determine preview text
     String previewText;
     if (isQuote && quoteText != null && quoteText!.isNotEmpty) {
       previewText = _truncate(quoteText!);
+    } else if (replyToMessage.messageType != 'text') {
+      final caption = replyToMessage.content.trim();
+      final hasCaption = caption.isNotEmpty && caption != replyToMessage.messageType;
+      switch (replyToMessage.messageType) {
+        case 'image':
+        case 'photo':
+          previewText = hasCaption ? 'Фото: ${_truncate(caption)}' : 'Фото';
+          break;
+        case 'video':
+          previewText = hasCaption ? 'Видео: ${_truncate(caption)}' : 'Видео';
+          break;
+        case 'audio':
+          previewText = hasCaption ? 'Голосовое сообщение: ${_truncate(caption)}' : 'Голосовое сообщение';
+          break;
+        case 'file':
+          previewText = hasCaption ? 'Файл: ${_truncate(caption)}' : 'Файл';
+          break;
+        case 'sticker':
+          previewText = 'Стикер';
+          break;
+        default:
+          previewText = _truncate(replyToMessage.content);
+      }
     } else {
       previewText = _truncate(replyToMessage.content);
     }
@@ -160,8 +219,8 @@ class ReplyPreviewBar extends StatelessWidget {
                 children: [
                   // Vertical accent bar with custom strip style
                   ReplyStripWidget(
-                    preset: profileTheme.currentNameColorPreset,
-                    style: profileTheme.currentStripStyle,
+                    preset: authorPreset,
+                    style: authorStripStyle,
                     width: 3.5,
                     height: 32,
                     borderRadius: 2,
@@ -193,7 +252,7 @@ class ReplyPreviewBar extends StatelessWidget {
                             const SizedBox(width: 8),
                             Flexible(
                               child: Text(
-                                replyToMessage.senderName,
+                                displayName,
                                 style: TextStyle(
                                   color: theme.colorScheme.onSurface,
                                   fontSize: 12,
@@ -221,15 +280,7 @@ class ReplyPreviewBar extends StatelessWidget {
                             Flexible(
                               child: RichText(
                                 text: EmojiUtils.buildEmojiTextSpan(
-                                  replyToMessage.messageType == 'text' || isQuote
-                                      ? previewText
-                                      : replyToMessage.messageType == 'image'
-                                          ? 'Фото'
-                                          : replyToMessage.messageType == 'video'
-                                              ? 'Видео'
-                                              : replyToMessage.messageType == 'audio'
-                                                  ? 'Голосовое сообщение'
-                                                  : 'Файл',
+                                  previewText,
                                   style: TextStyle(
                                     fontSize: 13,
                                     color: theme.colorScheme.onSurface.withValues(alpha: 0.6),

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../l10n/app_localizations.dart';
+import '../../models/name_color_preset.dart';
 import '../../services/chat_service.dart';
 import '../../services/profile_theme_provider.dart';
 import '../../utils/emoji_utils.dart';
@@ -27,6 +29,9 @@ class MessageReplyInfo extends StatelessWidget {
   /// Whether this is the current user's message (affects color)
   final bool isMe;
 
+  /// Current authenticated user ID (to detect self-replies)
+  final String? currentUserId;
+
   /// Optional override for the title (instead of senderName from replyInfo)
   final String? titleOverride;
 
@@ -40,6 +45,7 @@ class MessageReplyInfo extends StatelessWidget {
     this.quoteText,
     this.onTap,
     this.isMe = false,
+    this.currentUserId,
     this.titleOverride,
     this.contentOverride,
   }) : super(key: key);
@@ -59,10 +65,10 @@ class MessageReplyInfo extends StatelessWidget {
     );
   }
 
-  String _truncate(String text, {int maxLen = 50}) {
+  String _truncate(String text, {int maxLen = 60}) {
     final cleaned = _cleanMarkdown(text);
     if (cleaned.length <= maxLen) return cleaned;
-    return '${cleaned.substring(0, maxLen)}…';
+    return '${cleaned.substring(0, maxLen)}...';
   }
 
   String _cleanMarkdown(String text) {
@@ -78,6 +84,7 @@ class MessageReplyInfo extends StatelessWidget {
   IconData _messageTypeIcon(String messageType) {
     switch (messageType) {
       case 'image':
+      case 'photo':
         return Icons.photo;
       case 'video':
         return Icons.videocam;
@@ -105,10 +112,34 @@ class MessageReplyInfo extends StatelessWidget {
     // Check if original message was deleted.
     final isDeleted = replyInfo == null ? false : replyInfo!.messageId.isEmpty;
 
-    // Retrieve name color preset & strip style from ProfileThemeProvider
+    // Retrieve profile theme for fallback
     final profileTheme = context.watch<ProfileThemeProvider>();
-    final preset = profileTheme.currentNameColorPreset;
-    final stripStyle = profileTheme.currentStripStyle;
+
+    final bool isReplyingToMe =
+        (replyInfo != null && currentUserId != null && replyInfo!.senderId == currentUserId) ||
+        (replyInfo == null && isMe);
+
+    // Telegram-style: Color and style of original message in reply preview match what that user selected in their settings
+    final NameColorPreset preset;
+    final ReplyStripStyle stripStyle;
+
+    if (isReplyingToMe) {
+      preset = profileTheme.currentNameColorPreset;
+      stripStyle = profileTheme.currentStripStyle;
+    } else if (replyInfo?.nameColorPresetId != null && replyInfo!.nameColorPresetId!.isNotEmpty) {
+      preset = NameColorPresets.getById(replyInfo!.nameColorPresetId!);
+      stripStyle = ReplyStripStyle.values.firstWhere(
+        (s) => s.name == replyInfo!.replyStripStyle,
+        orElse: () => ReplyStripStyle.solid,
+      );
+    } else if (replyInfo != null) {
+      // Replying to another user whose preset is not explicitly set: use default author preset, NOT viewer's preset
+      preset = NameColorPresets.getById('name_red');
+      stripStyle = ReplyStripStyle.solid;
+    } else {
+      preset = profileTheme.currentNameColorPreset;
+      stripStyle = profileTheme.currentStripStyle;
+    }
 
     // Accent and vibrant opaque background color derived purely from preset via HSL
     final accentColor = preset.primaryColor;
@@ -124,21 +155,24 @@ class MessageReplyInfo extends StatelessWidget {
     } else if (isQuote && quoteText != null && quoteText!.isNotEmpty) {
       previewText = _truncate(quoteText!);
     } else if (replyInfo != null && replyInfo!.messageType != 'text') {
-      // Show media type indicator instead of content
+      // Show media type indicator with optional caption
+      final caption = replyInfo!.content.trim();
+      final hasCaption = caption.isNotEmpty && caption != replyInfo!.messageType;
       switch (replyInfo!.messageType) {
         case 'image':
-          previewText = '📷 Фото';
+        case 'photo':
+          previewText = hasCaption ? '📷 ${_truncate(caption)}' : '📷 Фото';
           break;
         case 'video':
-          previewText = '🎥 Видео';
+          previewText = hasCaption ? '🎥 ${_truncate(caption)}' : '🎥 Видео';
           break;
         case 'audio':
         case 'voice':
-          previewText = '🎤 Голосовое сообщение';
+          previewText = hasCaption ? '🎤 ${_truncate(caption)}' : '🎤 Голосовое сообщение';
           break;
         case 'file':
         case 'document':
-          previewText = '📎 Файл';
+          previewText = hasCaption ? '📎 ${_truncate(caption)}' : '📎 Файл';
           break;
         case 'sticker':
           previewText = '🎭 Стикер';
@@ -152,11 +186,19 @@ class MessageReplyInfo extends StatelessWidget {
       previewText = '';
     }
 
-    String title = titleOverride ?? replyInfo?.senderName ?? '';
-    if (title.isEmpty && replyInfo != null) {
-      // If it's a reply but sender name is missing, it's likely the current user's message
-      // being replied to in a local-first or sync scenario.
-      title = isMe ? 'Вы' : 'Сообщение';
+    final youTitle = context.l10n.translate('chat_reply_you');
+    String title = titleOverride ?? '';
+    if (title.isEmpty) {
+      if (isReplyingToMe) {
+        title = youTitle;
+      } else if (replyInfo != null && replyInfo!.senderName.isNotEmpty) {
+        title = replyInfo!.senderName;
+      } else {
+        title = 'Сообщение';
+      }
+    }
+    if (title == 'Вы' || title == 'You') {
+      title = youTitle;
     }
 
     return GestureDetector(

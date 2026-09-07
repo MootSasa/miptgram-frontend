@@ -33,6 +33,7 @@ class ChatInputBar extends StatelessWidget {
   final VoidCallback? onAttach;
   final VoidCallback? onEmoji;
   final VoidCallback? onVoice;
+  final String? currentUserId;
   final Widget? trailing;
 
   const ChatInputBar({
@@ -59,6 +60,7 @@ class ChatInputBar extends StatelessWidget {
     this.onAttach,
     this.onEmoji,
     this.onVoice,
+    this.currentUserId,
     this.trailing,
   }) : super(key: key);
 
@@ -128,6 +130,7 @@ class ChatInputBar extends StatelessWidget {
             onTap: onTapReply,
             enabled: glassEnabled,
             isLite: isLite,
+            currentUserId: currentUserId,
           ),
 
         // 3. Attached files preview list

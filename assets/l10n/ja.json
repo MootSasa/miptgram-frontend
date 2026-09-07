@@ -328,5 +328,7 @@
   "chat_action_copy": "コピー",
   "chat_action_pin": "ピン留め",
   "chat_edit_message": "メッセージを編集",
-  "chat_action_delete": "削除"
+  "chat_action_delete": "削除",
+  "chat_reply_you": "あなた",
+  "chat_reply_to": "{name}"
 }

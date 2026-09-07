@@ -37,7 +37,7 @@ class _ProfileColorScreenState extends State<ProfileColorScreen> {
   void initState() {
     super.initState();
     final themeProvider = context.read<ProfileThemeProvider>();
-    _tempPreset = themeProvider.currentPreset ?? ProfileColorPresets.roseGrad;
+    _tempPreset = themeProvider.currentPreset ?? ProfileColorPresets.blue;
     _tempNameColorPreset = themeProvider.currentNameColorPreset;
     _tempStripStyle = themeProvider.currentStripStyle;
   }
@@ -77,7 +77,7 @@ class _ProfileColorScreenState extends State<ProfileColorScreen> {
     final themeProvider = context.read<ProfileThemeProvider>();
     await themeProvider.resetToDefault();
     setState(() {
-      _tempPreset = ProfileColorPresets.roseGrad;
+      _tempPreset = ProfileColorPresets.blue;
       _tempNameColorPreset = NameColorPresets.red;
       _tempStripStyle = ReplyStripStyle.solid;
     });

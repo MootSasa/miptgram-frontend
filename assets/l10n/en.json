@@ -674,5 +674,7 @@
   "chat_menu_profile": "Profile",
   "chat_menu_voice_call": "Voice call",
   "chat_menu_video_call": "Video call",
-  "chat_menu_search_messages": "Search messages"
+  "chat_menu_search_messages": "Search messages",
+  "chat_reply_you": "You",
+  "chat_reply_to": "{name}"
 }

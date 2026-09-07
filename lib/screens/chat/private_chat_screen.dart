@@ -19,6 +19,7 @@ import '../../services/file_service.dart';
 import '../../services/liquid_glass_provider.dart';
 import '../../services/unread_count_provider.dart';
 import '../../services/sync_service.dart';
+import '../../services/profile_theme_provider.dart';
 import '../../utils/emoji_utils.dart';
 import '../../services/database/app_database.dart';
 import '../../l10n/app_localizations.dart';
@@ -238,7 +239,65 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       if (chatId == widget.chatId) {
         _onMessageReactionUpdated(event);
       }
+    } else if (event.type == WebSocketEventType.userAvatarUpdated) {
+      final userId = event.data['user_id']?.toString();
+      final avatarUrl = event.data['avatar_url']?.toString();
+      if ((userId == widget.otherUserId || userId == _otherUserId) && mounted) {
+        PaintingBinding.instance.imageCache.clear();
+        PaintingBinding.instance.imageCache.clearLiveImages();
+        setState(() {
+          _chatAvatar = avatarUrl;
+        });
+      }
+    } else if (event.type == WebSocketEventType.userAppearanceUpdated) {
+      _onUserAppearanceUpdated(event);
     }
+  }
+
+  void _onUserAppearanceUpdated(WebSocketEvent event) {
+    final userId = event.data['user_id']?.toString();
+    final nameColorPresetId = event.data['name_color_preset_id']?.toString();
+    final replyStripStyle = event.data['reply_strip_style']?.toString();
+    if (userId == null || !mounted) return;
+
+    setState(() {
+      for (int i = 0; i < _messages.length; i++) {
+        final m = _messages[i];
+        bool changed = false;
+        String? newSenderColor = m.senderNameColorId;
+        String? newSenderStrip = m.senderReplyStripStyle;
+        ReplyInfo? newReplyInfo = m.replyInfo;
+
+        if (m.senderId == userId) {
+          if (nameColorPresetId != null) newSenderColor = nameColorPresetId;
+          if (replyStripStyle != null) newSenderStrip = replyStripStyle;
+          changed = true;
+        }
+
+        if (m.replyInfo != null && m.replyInfo!.senderId == userId) {
+          newReplyInfo = m.replyInfo!.copyWith(
+            nameColorPresetId: nameColorPresetId ?? m.replyInfo!.nameColorPresetId,
+            replyStripStyle: replyStripStyle ?? m.replyInfo!.replyStripStyle,
+          );
+          changed = true;
+        }
+
+        if (changed) {
+          _messages[i] = m.copyWith(
+            senderNameColorId: newSenderColor,
+            senderReplyStripStyle: newSenderStrip,
+            replyInfo: newReplyInfo,
+          );
+        }
+      }
+
+      if (_replyToMessage != null && _replyToMessage!.senderId == userId) {
+        _replyToMessage = _replyToMessage!.copyWith(
+          senderNameColorId: nameColorPresetId ?? _replyToMessage!.senderNameColorId,
+          senderReplyStripStyle: replyStripStyle ?? _replyToMessage!.senderReplyStripStyle,
+        );
+      }
+    });
   }
 
   void _onMessageReactionUpdated(WebSocketEvent event) {
@@ -369,17 +428,15 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             m.localId == message.localId));
 
     if (existingIndex != -1) {
-      // Сообщение уже в списке (отправлено с этого устройства). Обновляем id и статус если нужно
-      if (_messages[existingIndex].id != message.id ||
-          _messages[existingIndex].sendStatus != 1) {
-        if (mounted) {
-          setState(() {
-            _messages[existingIndex] = _messages[existingIndex].copyWith(
-              id: message.id,
-              sendStatus: 1,
-            );
-          });
-        }
+      // Сообщение уже в списке (отправлено с этого устройства). Обновляем id, статус и обогащенный replyInfo от сервера
+      if (mounted) {
+        setState(() {
+          _messages[existingIndex] = message.copyWith(
+            localId: _messages[existingIndex].localId ?? message.localId,
+            sendStatus: 1,
+            replyInfo: message.replyInfo ?? _messages[existingIndex].replyInfo,
+          );
+        });
       }
       return;
     }
@@ -1410,7 +1467,26 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       // 2. Мгновенно добавить в UI со статусом "sending"
       if (pendingMsg != null) {
         pendingLocalId = pendingMsg.localId; // non-null capture для замыканий
-        final message = Message.fromDbMessage(pendingMsg);
+        final profileTheme = context.read<ProfileThemeProvider>();
+        var message = Message.fromDbMessage(pendingMsg);
+        if (replyTo != null) {
+          final isReplyToMe = replyTo.senderId == _currentUserId;
+          message = message.copyWith(
+            replyInfo: ReplyInfo(
+              messageId: replyTo.id,
+              senderId: replyTo.senderId,
+              senderName: replyTo.senderName,
+              content: replyTo.content,
+              messageType: replyTo.messageType,
+              nameColorPresetId: isReplyToMe
+                  ? profileTheme.currentNameColorPreset.id
+                  : (replyTo.senderNameColorId ?? 'name_red'),
+              replyStripStyle: isReplyToMe
+                  ? profileTheme.currentStripStyle.name
+                  : (replyTo.senderReplyStripStyle ?? 'solid'),
+            ),
+          );
+        }
         if (mounted) {
           setState(() {
             _messages.insert(0, message);
@@ -1436,7 +1512,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           );
 
           if (result['success'] == true) {
-            // 4. Подтвердить — заменить localId на serverId
+            // 4. Подтвердить — заменить localId на serverId и обновить сообщение из ответа сервера
             final sentMessage = result['message'];
             final serverId = sentMessage is Message ? sentMessage.id : null;
             if (serverId != null && serverId.isNotEmpty) {
@@ -1447,10 +1523,18 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                   final idx =
                       _messages.indexWhere((m) => m.localId == pendingLocalId);
                   if (idx != -1) {
-                    _messages[idx] = _messages[idx].copyWith(
-                      id: serverId,
-                      sendStatus: 1, // sent
-                    );
+                    if (sentMessage is Message) {
+                      _messages[idx] = sentMessage.copyWith(
+                        localId: pendingLocalId,
+                        sendStatus: 1, // sent
+                        replyInfo: sentMessage.replyInfo ?? _messages[idx].replyInfo,
+                      );
+                    } else {
+                      _messages[idx] = _messages[idx].copyWith(
+                        id: serverId,
+                        sendStatus: 1, // sent
+                      );
+                    }
                   }
                 });
               }
@@ -1640,7 +1724,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           },
           appBar: FloatingGlassAppBar(
             name: displayName,
-            avatarUrl: widget.otherUserAvatar ?? _chatAvatar,
+            avatarUrl: _chatAvatar ?? widget.otherUserAvatar,
             isOnline: _isOtherUserOnline,
             lastSeen: _otherUserLastSeen,
             statusText: _isTyping ? context.l10n.translate('chat_typing') : null,
@@ -2131,6 +2215,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       onSend: _sendMessage,
       onAttach: _showAttachmentPicker,
       onEmoji: _onEmojiToggle,
+      currentUserId: _currentUserId,
       isSending: _isSending,
     );
   }

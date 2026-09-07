@@ -93,6 +93,8 @@ class ReplyInfo {
   final String content; // truncated preview text
   final String messageType; // 'text', 'image', etc.
   final String? chatId; // The chat ID where the original message resides
+  final String? nameColorPresetId;
+  final String? replyStripStyle;
 
   const ReplyInfo({
     required this.messageId,
@@ -101,6 +103,8 @@ class ReplyInfo {
     required this.content,
     required this.messageType,
     this.chatId,
+    this.nameColorPresetId,
+    this.replyStripStyle,
   });
 
   factory ReplyInfo.fromJson(Map<String, dynamic> json) {
@@ -111,6 +115,10 @@ class ReplyInfo {
       content: json['content']?.toString() ?? '',
       messageType: json['message_type']?.toString() ?? 'text',
       chatId: json['chat_id']?.toString(),
+      nameColorPresetId: json['name_color_preset_id']?.toString() ??
+          json['reply_to_sender_name_color_id']?.toString(),
+      replyStripStyle: json['reply_strip_style']?.toString() ??
+          json['reply_to_sender_strip_style']?.toString(),
     );
   }
 
@@ -121,7 +129,31 @@ class ReplyInfo {
         'content': content,
         'message_type': messageType,
         if (chatId != null) 'chat_id': chatId,
+        if (nameColorPresetId != null) 'name_color_preset_id': nameColorPresetId,
+        if (replyStripStyle != null) 'reply_strip_style': replyStripStyle,
       };
+
+  ReplyInfo copyWith({
+    String? messageId,
+    String? senderId,
+    String? senderName,
+    String? content,
+    String? messageType,
+    String? chatId,
+    String? nameColorPresetId,
+    String? replyStripStyle,
+  }) {
+    return ReplyInfo(
+      messageId: messageId ?? this.messageId,
+      senderId: senderId ?? this.senderId,
+      senderName: senderName ?? this.senderName,
+      content: content ?? this.content,
+      messageType: messageType ?? this.messageType,
+      chatId: chatId ?? this.chatId,
+      nameColorPresetId: nameColorPresetId ?? this.nameColorPresetId,
+      replyStripStyle: replyStripStyle ?? this.replyStripStyle,
+    );
+  }
 }
 
 /// MessageEntity represents a formatted range in text (Bold, Italic, Spoiler, Code, Link, etc.).
@@ -184,6 +216,9 @@ class Message {
   final String? localId; // UUID для pending-сообщений
   final int sendStatus; // 0=sending, 1=sent, 2=failed (MessageSendStatus)
 
+  final String? senderNameColorId;
+  final String? senderReplyStripStyle;
+
   // Forwarding fields
   final bool isForward;
   final String? forwardFromId;
@@ -219,6 +254,8 @@ class Message {
     this.replyInfo,
     this.localId,
     this.sendStatus = 1, // по умолчанию sent
+    this.senderNameColorId,
+    this.senderReplyStripStyle,
     this.isForward = false,
     this.forwardFromId,
     this.forwardFromName,
@@ -245,6 +282,10 @@ class Message {
         senderName: json['reply_to_sender_name']?.toString() ?? '',
         content: json['reply_to_content']?.toString() ?? '',
         messageType: json['reply_to_message_type']?.toString() ?? 'text',
+        nameColorPresetId: json['reply_to_sender_name_color_id']?.toString() ??
+            json['reply_to_name_color_preset_id']?.toString(),
+        replyStripStyle: json['reply_to_sender_strip_style']?.toString() ??
+            json['reply_to_strip_style']?.toString(),
       );
     }
 
@@ -304,6 +345,8 @@ class Message {
       replyInfo: replyInfo,
       localId: json['local_id']?.toString(),
       sendStatus: json['send_status'] ?? 1,
+      senderNameColorId: json['sender_name_color_id']?.toString(),
+      senderReplyStripStyle: json['sender_reply_strip_style']?.toString(),
       isForward: json['is_forward'] ?? false,
       forwardFromId: json['forward_from_id']?.toString(),
       forwardFromName: json['forward_from_name']?.toString(),
@@ -421,6 +464,8 @@ class Message {
     ReplyInfo? replyInfo,
     String? localId,
     int? sendStatus,
+    String? senderNameColorId,
+    String? senderReplyStripStyle,
     bool? isForward,
     String? forwardFromId,
     String? forwardFromName,
@@ -451,6 +496,8 @@ class Message {
       replyInfo: replyInfo ?? this.replyInfo,
       localId: localId ?? this.localId,
       sendStatus: sendStatus ?? this.sendStatus,
+      senderNameColorId: senderNameColorId ?? this.senderNameColorId,
+      senderReplyStripStyle: senderReplyStripStyle ?? this.senderReplyStripStyle,
       isForward: isForward ?? this.isForward,
       forwardFromId: forwardFromId ?? this.forwardFromId,
       forwardFromName: forwardFromName ?? this.forwardFromName,

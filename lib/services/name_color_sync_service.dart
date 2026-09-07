@@ -1,7 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../config/app_config.dart';
 import '../models/name_color_preset.dart';
 import 'account_manager.dart';
+import 'auth_service.dart';
 
 /// Сервис фоновой синхронизации цвета имени и стиля полоски ответа.
 ///
@@ -46,8 +50,20 @@ class NameColorSyncService extends ChangeNotifier {
   Future<void> _syncWithBackend(String presetId, String stripStyle) async {
     try {
       debugPrint('[NameColorSyncService] Syncing name color to backend: $presetId, $stripStyle');
-      // При наличии REST API / WebSocket бэкенда выполняется запрос обновления профиля.
-      // Локальный эффект уже применён немедленно.
+      final token = await AuthService.getToken();
+      if (token == null) return;
+      final response = await http.put(
+        Uri.parse('${AppConfig.baseUrl}/api/user/appearance'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'name_color_preset_id': presetId,
+          'reply_strip_style': stripStyle,
+        }),
+      );
+      debugPrint('[NameColorSyncService] sync status: ${response.statusCode}');
     } catch (e) {
       debugPrint('[NameColorSyncService] Failed to sync with backend, will retry later: $e');
     }

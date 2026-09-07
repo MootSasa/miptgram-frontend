@@ -19,6 +19,8 @@ import '../../services/auth_service.dart';
 import '../../services/chat_service.dart';
 import '../../services/websocket_service.dart';
 import '../../services/local_storage_service.dart';
+import '../../services/account_manager.dart';
+import '../../services/profile_theme_provider.dart';
 import '../../services/liquid_glass_provider.dart';
 import '../../services/unread_count_provider.dart';
 import '../../screens/auth/login_screen.dart';
@@ -72,6 +74,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   // Loading states
   bool _isLoading = false;
+
+  // Account manager
+  final AccountManager _accountManager = AccountManager();
 
   // WebSocket
   final WebSocketService _wsService = WebSocketService();
@@ -181,6 +186,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         WebSocketEventType.unreadCountUpdated, _onUnreadCountUpdated);
     _wsService.subscribe(WebSocketEventType.userStatus, _onUserStatus);
     _wsService.subscribe(WebSocketEventType.messageDeleted, _onMessageDeleted);
+    _wsService.subscribe(WebSocketEventType.userAvatarUpdated, _onUserAvatarUpdated);
+    _wsService.subscribe(WebSocketEventType.userAppearanceUpdated, _onUserAppearanceUpdated);
 
     // Now connect — the 'connected' event will be caught by our listeners
     await _wsService.connect();
@@ -379,6 +386,55 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           }
         }
       });
+    }
+  }
+
+  /// Handle real-time avatar updates for current user or contacts
+  void _onUserAvatarUpdated(WebSocketEvent event) {
+    final userId = event.data['user_id']?.toString();
+    final avatarUrl = event.data['avatar_url']?.toString();
+    if (userId == null) return;
+
+    debugPrint('[MainScreen] user_avatar_updated for user $userId: $avatarUrl');
+
+    // Evict cached images from memory for immediate visual update
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+
+    final currentAccount = _accountManager.currentAccount;
+    final isMe = currentAccount != null && currentAccount.userId == userId;
+
+    if (isMe) {
+      _accountManager.updateAccountProfile(
+        userId,
+        avatarUrl: avatarUrl,
+      );
+    }
+
+    if (mounted) {
+      setState(() {
+        for (int i = 0; i < _chats.length; i++) {
+          if (_chats[i].chatType == 'private' && _chats[i].otherUserId == userId) {
+            _chats[i] = _chats[i].copyWith(avatarUrl: avatarUrl);
+          } else if (isMe && _chats[i].chatType == 'saved') {
+            _chats[i] = _chats[i].copyWith(avatarUrl: avatarUrl);
+          }
+        }
+      });
+      _localStorage.saveChats(_chats);
+    }
+
+    try {
+      AppDatabase().updateUserAvatarInChats(userId, avatarUrl);
+    } catch (_) {}
+  }
+
+  /// Handle real-time appearance settings changes (sync across devices)
+  void _onUserAppearanceUpdated(WebSocketEvent event) {
+    final userId = event.data['user_id']?.toString();
+    final currentAccount = _accountManager.currentAccount;
+    if (currentAccount != null && currentAccount.userId == userId && mounted) {
+      context.read<ProfileThemeProvider>().init();
     }
   }
 
@@ -690,6 +746,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _wsService.unsubscribe(WebSocketEventType.unreadCountUpdated, _onUnreadCountUpdated);
     _wsService.unsubscribe(WebSocketEventType.userStatus, _onUserStatus);
     _wsService.unsubscribe(WebSocketEventType.messageDeleted, _onMessageDeleted);
+    _wsService.unsubscribe(WebSocketEventType.userAvatarUpdated, _onUserAvatarUpdated);
+    _wsService.unsubscribe(WebSocketEventType.userAppearanceUpdated, _onUserAppearanceUpdated);
     // Remove UnreadCountProvider listener
     try {
       context.read<UnreadCountProvider>().removeListener(_onUnreadCountProviderChanged);

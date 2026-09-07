@@ -229,7 +229,7 @@ class SyncService {
     String replyToMessageType = 'text',
   }) async {
     final localId = _uuid.v4();
-    final now = DateTime.now().toIso8601String();
+    final now = DateTime.now().toUtc().toIso8601String();
 
     await _db.saveMessage(MessagesCompanion(
       serverId: const Value.absent(), // Нет серверного ID пока

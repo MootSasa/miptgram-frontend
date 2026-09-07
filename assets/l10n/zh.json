@@ -328,5 +328,7 @@
   "chat_action_copy": "复制",
   "chat_action_pin": "置顶",
   "chat_edit_message": "编辑消息",
-  "chat_action_delete": "删除"
+  "chat_action_delete": "删除",
+  "chat_reply_you": "你",
+  "chat_reply_to": "{name}"
 }

@@ -357,13 +357,16 @@ void main() {
       );
       await tester.pump();
 
-      // Case A uses Row(mainAxisSize: MainAxisSize.min, children: [Flexible, gap, metadata])
       final bubbleLayout = find.byType(MessageBubbleLayout);
-      expect(find.descendant(of: bubbleLayout, matching: find.byType(Row)), findsOneWidget);
-      expect(find.descendant(of: bubbleLayout, matching: find.byType(Stack)), findsNothing);
+      final size = tester.getSize(bubbleLayout);
+      // Single line fits inline: bubble height <= 28.0 (no extra line)
+      expect(size.height, lessThanOrEqualTo(28.0));
+      final contentTop = tester.getTopLeft(find.text('Короткий текст')).dy;
+      final metaTop = tester.getTopLeft(find.text('12:34')).dy;
+      expect((contentTop - metaTop).abs(), lessThanOrEqualTo(8.0));
     });
 
-    testWidgets('MessageBubbleLayout uses Stack without extra row when multi-line has space on last line',
+    testWidgets('MessageBubbleLayout places metadata without extra row when multi-line has space on last line',
         (WidgetTester tester) async {
       // Long first line, short second line
       const multiLineText = 'Длинная первая строка текста которая точно перенесется\nКратко';
@@ -381,25 +384,28 @@ void main() {
           ),
         ),
       );
-      // Case B uses Stack with Positioned(bottom: 0, right: 0)
+      await tester.pump();
+
       final bubbleLayout = find.byType(MessageBubbleLayout);
-      expect(find.descendant(of: bubbleLayout, matching: find.byType(Stack)), findsOneWidget);
-      expect(find.descendant(of: bubbleLayout, matching: find.byType(Positioned)), findsOneWidget);
+      final contentSize = tester.getSize(find.text(multiLineText));
+      final bubbleSize = tester.getSize(bubbleLayout);
+      // No extra row: bubble height equals content height
+      expect(bubbleSize.height, equals(contentSize.height));
     });
 
     testWidgets('MessageBubbleLayout places metadata in separate row without stretching to maxContentWidth when last line is full',
         (WidgetTester tester) async {
-      const multiLineFull = 'Длинная строка 1\nДлинная строка 2';
+      const text = 'Строка текста средней длины\nСтрока текста средней длины';
       await tester.pumpWidget(
         buildTestApp(
           Align(
             alignment: Alignment.topLeft,
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 400),
+              constraints: const BoxConstraints(maxWidth: 240),
               child: const MessageBubbleLayout(
-                content: Text(multiLineFull),
+                content: Text(text),
                 metadata: Text('12:34'),
-                text: multiLineFull,
+                text: text,
                 textStyle: TextStyle(fontSize: 16),
                 metadataWidth: 60.0,
               ),
@@ -409,12 +415,13 @@ void main() {
       );
       await tester.pump();
 
-      // Case C uses Column with content and metadata in separate rows
       final bubbleLayout = find.byType(MessageBubbleLayout);
-      expect(find.descendant(of: bubbleLayout, matching: find.byType(Stack)), findsNothing);
-      final size = tester.getSize(bubbleLayout);
-      // Ensure the bubble did NOT stretch to maxContentWidth (400)
-      expect(size.width, lessThan(350));
+      final contentSize = tester.getSize(find.text(text));
+      final bubbleSize = tester.getSize(bubbleLayout);
+      // Extra row: bubble height > content height
+      expect(bubbleSize.height, greaterThan(contentSize.height));
+      // Ensure the bubble did NOT stretch to maxContentWidth (240), but matches content width
+      expect(bubbleSize.width, equals(contentSize.width));
     });
 
     testWidgets('MessageBubbleLayout handles single line message with reply without layout overflow',
@@ -447,7 +454,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('MessageBubbleLayout estimates line metrics for text with currency symbols',
+    testWidgets('MessageBubbleLayout places metadata inline for text with currency symbols',
         (WidgetTester tester) async {
       await tester.pumpWidget(
         buildTestApp(
@@ -465,9 +472,98 @@ void main() {
       );
       await tester.pump();
 
-      // Single line $100 fits inline with metadata, so it uses Row or inline fit, NOT fallback Column
+      // Single line $100 fits inline with metadata, so height is single line (<= 28 px)
       final bubbleLayout = find.byType(MessageBubbleLayout);
-      expect(find.descendant(of: bubbleLayout, matching: find.byType(Row)), findsOneWidget);
+      final size = tester.getSize(bubbleLayout);
+      expect(size.height, lessThanOrEqualTo(28.0));
+      final contentTop = tester.getTopLeft(find.text('\$100')).dy;
+      final metaTop = tester.getTopLeft(find.text('12:34')).dy;
+      expect((contentTop - metaTop).abs(), lessThanOrEqualTo(8.0));
+    });
+
+    testWidgets('MessageBubbleLayout expands bubble cleanly on last line without extra row when space is available',
+        (WidgetTester tester) async {
+      // Two equal lines of text: line 1 and line 2 have same width
+      const twoLineText = 'Строка один\nСтрока два';
+      await tester.pumpWidget(
+        buildTestApp(
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 350),
+            child: const MessageBubbleLayout(
+              content: Text(twoLineText),
+              metadata: Text('12:34'),
+              text: twoLineText,
+              textStyle: TextStyle(fontSize: 16),
+              metadataWidth: 40.0,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final bubbleLayout = find.byType(MessageBubbleLayout);
+      final contentSize = tester.getSize(find.text(twoLineText));
+      final bubbleSize = tester.getSize(bubbleLayout);
+      // Since 350 maxWidth has plenty of room, metadata stays on line 2 (bubble height == content height)
+      expect(bubbleSize.height, equals(contentSize.height));
+      // Bubble expands horizontally just enough for metadata
+      expect(bubbleSize.width, greaterThan(contentSize.width));
+      expect(bubbleSize.width, lessThan(350));
+    });
+
+    testWidgets('MessageBubbleLayout never constricts content prematurely',
+        (WidgetTester tester) async {
+      // Line that fits naturally on one line within 350 maxWidth
+      const singleLongLine = 'Сообщение';
+      await tester.pumpWidget(
+        buildTestApp(
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 350),
+            child: const MessageBubbleLayout(
+              content: Text(singleLongLine),
+              metadata: Text('12:34'),
+              text: singleLongLine,
+              textStyle: TextStyle(fontSize: 16),
+              metadataWidth: 35.0,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final contentSize = tester.getSize(find.text(singleLongLine));
+      // Content must remain single line (height <= 24 px)
+      expect(contentSize.height, lessThanOrEqualTo(24.0));
+      final bubbleLayout = find.byType(MessageBubbleLayout);
+      final bubbleSize = tester.getSize(bubbleLayout);
+      expect(bubbleSize.height, lessThanOrEqualTo(28.0));
+    });
+
+    testWidgets('MessageBubbleLayout places metadata on separate row when hasBlockElement is true',
+        (WidgetTester tester) async {
+      const codeText = 'var x = 42;';
+      await tester.pumpWidget(
+        buildTestApp(
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 300),
+            child: const MessageBubbleLayout(
+              content: Text(codeText),
+              metadata: Text('12:34'),
+              text: codeText,
+              textStyle: TextStyle(fontSize: 16),
+              hasBlockElement: true,
+              metadataWidth: 40.0,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final contentSize = tester.getSize(find.text(codeText));
+      final bubbleLayout = find.byType(MessageBubbleLayout);
+      final bubbleSize = tester.getSize(bubbleLayout);
+      // Because hasBlockElement is true, metadata must be placed on a separate row below content
+      expect(bubbleSize.height, greaterThan(contentSize.height));
     });
   });
 }

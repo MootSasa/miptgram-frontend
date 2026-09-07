@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import '../../config/app_config.dart';
 import '../../services/chat_service.dart';
@@ -17,6 +18,505 @@ import '../../l10n/app_localizations.dart';
 
 /// Радиус скругления "облачка" сообщения.
 const double kMessageBorderRadius = 18.0;
+
+/// Role of a child inside [BubbleLayoutWidget].
+enum BubbleChildRole {
+  senderName,
+  reply,
+  content,
+  metadata,
+}
+
+/// Parent data for children of [RenderBubbleLayout].
+class BubbleParentData extends ContainerBoxParentData<RenderBox> {
+  BubbleChildRole? role;
+}
+
+/// Wrapper widget to attach [BubbleChildRole] to children of [BubbleLayoutWidget].
+class BubbleChild extends ParentDataWidget<BubbleParentData> {
+  final BubbleChildRole role;
+
+  const BubbleChild({
+    Key? key,
+    required this.role,
+    required Widget child,
+  }) : super(key: key, child: child);
+
+  @override
+  void applyParentData(RenderObject renderObject) {
+    final parentData = renderObject.parentData as BubbleParentData;
+    if (parentData.role != role) {
+      parentData.role = role;
+      final targetParent = renderObject.parent;
+      if (targetParent is RenderObject) {
+        targetParent.markNeedsLayout();
+      }
+    }
+  }
+
+  @override
+  Type get debugTypicalAncestorWidgetClass => BubbleLayoutWidget;
+}
+
+/// Metrics extracted from inspecting the rendered content tree.
+class _BubbleContentMetrics {
+  final bool hasText;
+  final bool isSingleLine;
+  final double lastCharRight;
+  final double lastCharBottom;
+  final double lastLineHeight;
+
+  const _BubbleContentMetrics({
+    required this.hasText,
+    required this.isSingleLine,
+    required this.lastCharRight,
+    required this.lastCharBottom,
+    required this.lastLineHeight,
+  });
+}
+
+/// Multi-child render object widget that performs dynamic layout for message bubbles.
+class BubbleLayoutWidget extends MultiChildRenderObjectWidget {
+  final double replyWidth;
+  final double senderNameWidth;
+  final double? metadataWidth;
+  final bool hasBlockElement;
+
+  BubbleLayoutWidget({
+    Key? key,
+    Widget? senderNameWidget,
+    Widget? replyWidget,
+    required Widget content,
+    required Widget metadata,
+    this.replyWidth = 0.0,
+    this.senderNameWidth = 0.0,
+    this.metadataWidth,
+    this.hasBlockElement = false,
+  }) : super(
+          key: key,
+          children: [
+            if (senderNameWidget != null)
+              BubbleChild(role: BubbleChildRole.senderName, child: senderNameWidget),
+            if (replyWidget != null)
+              BubbleChild(role: BubbleChildRole.reply, child: replyWidget),
+            BubbleChild(role: BubbleChildRole.content, child: content),
+            BubbleChild(role: BubbleChildRole.metadata, child: metadata),
+          ],
+        );
+
+  @override
+  RenderBubbleLayout createRenderObject(BuildContext context) {
+    return RenderBubbleLayout(
+      replyWidth: replyWidth,
+      senderNameWidth: senderNameWidth,
+      metadataWidth: metadataWidth,
+      hasBlockElement: hasBlockElement,
+    );
+  }
+
+  @override
+  void updateRenderObject(BuildContext context, RenderBubbleLayout renderObject) {
+    renderObject
+      ..replyWidth = replyWidth
+      ..senderNameWidth = senderNameWidth
+      ..metadataWidth = metadataWidth
+      ..hasBlockElement = hasBlockElement;
+  }
+}
+
+/// Custom RenderBox for pixel-perfect message bubble layout.
+///
+/// Gives [content] loose constraints so text wraps naturally across the full available
+/// width without premature wrapping. Then inspects the actual rendered paragraph
+/// boxes to position metadata inline on the last line whenever physical space permits,
+/// or on a separate row below if the last line is full, without bloating bubble width.
+class RenderBubbleLayout extends RenderBox
+    with
+        ContainerRenderObjectMixin<RenderBox, BubbleParentData>,
+        RenderBoxContainerDefaultsMixin<RenderBox, BubbleParentData> {
+  double _replyWidth;
+  double _senderNameWidth;
+  double? _metadataWidth;
+  bool _hasBlockElement;
+
+  RenderBubbleLayout({
+    double replyWidth = 0.0,
+    double senderNameWidth = 0.0,
+    double? metadataWidth,
+    bool hasBlockElement = false,
+    List<RenderBox>? children,
+  })  : _replyWidth = replyWidth,
+        _senderNameWidth = senderNameWidth,
+        _metadataWidth = metadataWidth,
+        _hasBlockElement = hasBlockElement {
+    addAll(children);
+  }
+
+  double get replyWidth => _replyWidth;
+  set replyWidth(double value) {
+    if (_replyWidth != value) {
+      _replyWidth = value;
+      markNeedsLayout();
+    }
+  }
+
+  double get senderNameWidth => _senderNameWidth;
+  set senderNameWidth(double value) {
+    if (_senderNameWidth != value) {
+      _senderNameWidth = value;
+      markNeedsLayout();
+    }
+  }
+
+  double? get metadataWidth => _metadataWidth;
+  set metadataWidth(double? value) {
+    if (_metadataWidth != value) {
+      _metadataWidth = value;
+      markNeedsLayout();
+    }
+  }
+
+  bool get hasBlockElement => _hasBlockElement;
+  set hasBlockElement(bool value) {
+    if (_hasBlockElement != value) {
+      _hasBlockElement = value;
+      markNeedsLayout();
+    }
+  }
+
+  @override
+  void setupParentData(RenderBox child) {
+    if (child.parentData is! BubbleParentData) {
+      child.parentData = BubbleParentData();
+    }
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    defaultPaint(context, offset);
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
+    return defaultHitTestChildren(result, position: position);
+  }
+
+  @override
+  double computeMinIntrinsicWidth(double height) {
+    RenderBox? child = firstChild;
+    double width = 0.0;
+    while (child != null) {
+      final childParentData = child.parentData as BubbleParentData;
+      width = math.max(width, child.getMinIntrinsicWidth(height));
+      child = childParentData.nextSibling;
+    }
+    return width;
+  }
+
+  @override
+  double computeMaxIntrinsicWidth(double height) {
+    RenderBox? child = firstChild;
+    double width = 0.0;
+    while (child != null) {
+      final childParentData = child.parentData as BubbleParentData;
+      width = math.max(width, child.getMaxIntrinsicWidth(height));
+      child = childParentData.nextSibling;
+    }
+    return width;
+  }
+
+  @override
+  double computeMinIntrinsicHeight(double width) {
+    RenderBox? child = firstChild;
+    double height = 0.0;
+    while (child != null) {
+      final childParentData = child.parentData as BubbleParentData;
+      height += child.getMinIntrinsicHeight(width);
+      child = childParentData.nextSibling;
+    }
+    return height;
+  }
+
+  @override
+  double computeMaxIntrinsicHeight(double width) {
+    RenderBox? child = firstChild;
+    double height = 0.0;
+    while (child != null) {
+      final childParentData = child.parentData as BubbleParentData;
+      height += child.getMaxIntrinsicHeight(width);
+      child = childParentData.nextSibling;
+    }
+    return height;
+  }
+
+  _BubbleContentMetrics _inspectContent(RenderBox root) {
+    if (_hasBlockElement) {
+      return const _BubbleContentMetrics(
+        hasText: false,
+        isSingleLine: false,
+        lastCharRight: 0.0,
+        lastCharBottom: 0.0,
+        lastLineHeight: 0.0,
+      );
+    }
+
+    RenderParagraph? firstParagraph;
+    RenderParagraph? lastParagraph;
+    int paragraphCount = 0;
+
+    void visitor(RenderObject child) {
+      if (child is RenderParagraph) {
+        final text = child.text.toPlainText();
+        if (text.trim().isNotEmpty) {
+          firstParagraph ??= child;
+          lastParagraph = child;
+          paragraphCount++;
+        }
+      }
+      child.visitChildren(visitor);
+    }
+
+    visitor(root);
+
+    final targetParagraph = lastParagraph;
+    if (targetParagraph == null) {
+      return const _BubbleContentMetrics(
+        hasText: false,
+        isSingleLine: false,
+        lastCharRight: 0.0,
+        lastCharBottom: 0.0,
+        lastLineHeight: 0.0,
+      );
+    }
+
+    // Calculate offset of targetParagraph within root by walking up BoxParentData
+    Offset offsetInRoot = Offset.zero;
+    RenderObject current = targetParagraph;
+    while (current != root && current.parent != null) {
+      if (current.parentData is BoxParentData) {
+        offsetInRoot += (current.parentData as BoxParentData).offset;
+      }
+      current = current.parent!;
+    }
+
+    final plainText = targetParagraph.text.toPlainText();
+    final trimmed = plainText.trimRight();
+    final int targetIndex = trimmed.isNotEmpty ? trimmed.length - 1 : plainText.length - 1;
+
+    final boxes = targetParagraph.getBoxesForSelection(
+      TextSelection(baseOffset: targetIndex, extentOffset: targetIndex + 1),
+    );
+
+    if (boxes.isEmpty) {
+      return const _BubbleContentMetrics(
+        hasText: false,
+        isSingleLine: false,
+        lastCharRight: 0.0,
+        lastCharBottom: 0.0,
+        lastLineHeight: 0.0,
+      );
+    }
+
+    final lastBox = boxes.last;
+    final double lastCharRight = offsetInRoot.dx + lastBox.right;
+    final double lastCharBottom = offsetInRoot.dy + lastBox.bottom;
+    final double lastLineHeight = lastBox.bottom - lastBox.top;
+
+    bool isSingleLine = false;
+    if (paragraphCount == 1 && offsetInRoot.dy < 2.0) {
+      final firstBoxes = targetParagraph.getBoxesForSelection(
+        const TextSelection(baseOffset: 0, extentOffset: 1),
+      );
+      if (firstBoxes.isNotEmpty) {
+        final firstBox = firstBoxes.first;
+        if ((lastBox.top - firstBox.top).abs() < 2.0) {
+          isSingleLine = true;
+        }
+      } else {
+        isSingleLine = true;
+      }
+    }
+
+    return _BubbleContentMetrics(
+      hasText: true,
+      isSingleLine: isSingleLine,
+      lastCharRight: lastCharRight,
+      lastCharBottom: lastCharBottom,
+      lastLineHeight: lastLineHeight,
+    );
+  }
+
+  @override
+  void performLayout() {
+    RenderBox? senderName;
+    RenderBox? reply;
+    RenderBox? content;
+    RenderBox? metadata;
+
+    RenderBox? child = firstChild;
+    while (child != null) {
+      final childParentData = child.parentData as BubbleParentData;
+      switch (childParentData.role) {
+        case BubbleChildRole.senderName:
+          senderName = child;
+          break;
+        case BubbleChildRole.reply:
+          reply = child;
+          break;
+        case BubbleChildRole.content:
+          content = child;
+          break;
+        case BubbleChildRole.metadata:
+          metadata = child;
+          break;
+        case null:
+          break;
+      }
+      child = childParentData.nextSibling;
+    }
+
+    if (content == null || metadata == null) {
+      size = constraints.constrain(Size.zero);
+      return;
+    }
+
+    const double gap = 4.0;
+    const double senderSpacing = 2.0;
+    const double replySpacing = 4.0;
+    const double rowGap = 2.0;
+
+    // 1. Measure senderName if present
+    double senderNameHeight = 0.0;
+    double measuredSenderWidth = 0.0;
+    if (senderName != null) {
+      senderName.layout(BoxConstraints(maxWidth: constraints.maxWidth), parentUsesSize: true);
+      senderNameHeight = senderName.size.height + senderSpacing;
+      measuredSenderWidth = senderName.size.width;
+    }
+
+    // 2. Measure content with loose constraints (unconstricted natural width up to maxWidth)
+    content.layout(constraints.loosen(), parentUsesSize: true);
+    final double contentWidth = content.size.width;
+    final double contentHeight = content.size.height;
+
+    // 3. Measure metadata unconstrained
+    metadata.layout(const BoxConstraints(), parentUsesSize: true);
+    final double metaWidth = math.max(metadata.size.width, _metadataWidth ?? 0.0);
+    final double metaHeight = metadata.size.height;
+
+    // 4. Header width baseline
+    final double effectiveReplyWidth = replyWidth > 0.0
+        ? replyWidth
+        : (reply != null ? reply.getMinIntrinsicWidth(double.infinity) : 0.0);
+    final double effectiveHeaderWidth = math.max(
+      effectiveReplyWidth,
+      senderName != null ? math.max(senderNameWidth, measuredSenderWidth) : 0.0,
+    );
+
+    // 5. Inspect content geometry
+    final metrics = _inspectContent(content);
+
+    double bubbleWidth;
+    double bubbleHeight;
+    double contentX = 0.0;
+    double contentY = 0.0;
+    double metaX = 0.0;
+    double metaY = 0.0;
+
+    if (metrics.hasText && metrics.isSingleLine) {
+      // Case 1: Single line text
+      final double neededWidth = metrics.lastCharRight + gap + metaWidth;
+      if (neededWidth <= constraints.maxWidth) {
+        // Fits inline with metadata
+        bubbleWidth = math.min(
+          constraints.maxWidth,
+          math.max(effectiveHeaderWidth, math.max(contentWidth, neededWidth)),
+        );
+        final double lineContentHeight = math.max(contentHeight, metaHeight);
+        contentX = 0.0;
+        metaX = bubbleWidth - metaWidth;
+        contentY = lineContentHeight - contentHeight;
+        metaY = lineContentHeight - metaHeight;
+        bubbleHeight = lineContentHeight;
+      } else {
+        // Single line too long to fit metadata inline -> row below
+        bubbleWidth = math.min(
+          constraints.maxWidth,
+          math.max(effectiveHeaderWidth, math.max(contentWidth, metaWidth)),
+        );
+        contentX = 0.0;
+        contentY = 0.0;
+        metaX = bubbleWidth - metaWidth;
+        metaY = contentHeight + rowGap;
+        bubbleHeight = contentHeight + rowGap + metaHeight;
+      }
+    } else if (metrics.hasText) {
+      // Case 2: Multi-line text
+      final double lineHeight = metrics.lastLineHeight > 0 ? metrics.lastLineHeight : 20.0;
+      final bool isAtBottom = (contentHeight - metrics.lastCharBottom) <= (lineHeight * 1.5 + 4.0);
+      final bool canFitOnLastLine = isAtBottom && (metrics.lastCharRight + gap + metaWidth <= constraints.maxWidth);
+
+      if (canFitOnLastLine) {
+        final double neededWidth = metrics.lastCharRight + gap + metaWidth;
+        bubbleWidth = math.min(
+          constraints.maxWidth,
+          math.max(effectiveHeaderWidth, math.max(contentWidth, neededWidth)),
+        );
+        contentX = 0.0;
+        contentY = 0.0;
+        metaX = bubbleWidth - metaWidth;
+        metaY = math.min(contentHeight - metaHeight, math.max(0.0, metrics.lastCharBottom - metaHeight));
+        bubbleHeight = contentHeight;
+      } else {
+        // Case 3: Does not fit on last line -> separate row below
+        bubbleWidth = math.min(
+          constraints.maxWidth,
+          math.max(effectiveHeaderWidth, math.max(contentWidth, metaWidth)),
+        );
+        contentX = 0.0;
+        contentY = 0.0;
+        metaX = bubbleWidth - metaWidth;
+        metaY = contentHeight + rowGap;
+        bubbleHeight = contentHeight + rowGap + metaHeight;
+      }
+    } else {
+      // Fallback: Non-text, block element, TeX, etc. -> separate row below
+      bubbleWidth = math.min(
+        constraints.maxWidth,
+        math.max(effectiveHeaderWidth, math.max(contentWidth, metaWidth)),
+      );
+      contentX = 0.0;
+      contentY = 0.0;
+      metaX = bubbleWidth - metaWidth;
+      metaY = contentHeight + rowGap;
+      bubbleHeight = contentHeight + rowGap + metaHeight;
+    }
+
+    // 6. Layout reply with exact bubble width if present
+    double replyHeight = 0.0;
+    if (reply != null) {
+      reply.layout(BoxConstraints.tightFor(width: bubbleWidth), parentUsesSize: true);
+      replyHeight = reply.size.height + replySpacing;
+    }
+
+    final double headerHeight = senderNameHeight + replyHeight;
+    bubbleHeight += headerHeight;
+    contentY += headerHeight;
+    metaY += headerHeight;
+
+    size = constraints.constrain(Size(bubbleWidth, bubbleHeight));
+
+    // 7. Assign child offsets
+    if (senderName != null) {
+      (senderName.parentData as BubbleParentData).offset = Offset.zero;
+    }
+    if (reply != null) {
+      (reply.parentData as BubbleParentData).offset = Offset(0.0, senderNameHeight);
+    }
+    (content.parentData as BubbleParentData).offset = Offset(contentX, contentY);
+    (metadata.parentData as BubbleParentData).offset = Offset(metaX, metaY);
+  }
+}
 
 /// Custom layout widget for message bubble layout.
 class MessageBubbleLayout extends StatelessWidget {
@@ -63,206 +563,15 @@ class MessageBubbleLayout extends StatelessWidget {
       );
     }
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final double maxContentWidth = constraints.maxWidth;
-        final double effectiveMetadataWidth = metadataWidth ?? 48.0;
-        const double gap = 4.0;
-
-        // Check if text does NOT contain block code (```) or block TeX ($$) which distort TextPainter
-        final bool canEstimateLineMetrics = !hasBlockElement &&
-            text != null &&
-            text!.trim().isNotEmpty &&
-            !text!.contains('```') &&
-            !text!.startsWith(r'$$');
-
-        if (canEstimateLineMetrics) {
-          // Strip simple markdown formatting characters for accurate line measurement
-          String cleanText = text!
-              .replaceAll(RegExp(r'\[(.*?)\]\(.*?\)'), r'$1')
-              .replaceAll(RegExp(r'\*|_|`|~|#'), '')
-              .replaceAll('\r\n', '\n')
-              .trim();
-
-          final TextStyle effectiveTextStyle = textStyle.height == null
-              ? textStyle.copyWith(height: 1.4)
-              : textStyle;
-
-          final TextPainter tp = TextPainter(
-            text: TextSpan(text: cleanText, style: effectiveTextStyle),
-            textDirection: TextDirection.ltr,
-          )..layout(maxWidth: maxContentWidth);
-
-          final lineMetrics = tp.computeLineMetrics();
-          final int lineCount = lineMetrics.length;
-
-          double widestLineWidth = 0.0;
-          for (final line in lineMetrics) {
-            if (line.width > widestLineWidth) {
-              widestLineWidth = line.width;
-            }
-          }
-          final double lastLineWidth =
-              lineMetrics.isNotEmpty ? lineMetrics.last.width : widestLineWidth;
-
-          final double headerWidth = math.max(
-            replyWidget != null ? replyWidth : 0.0,
-            senderNameWidget != null ? senderNameWidth : 0.0,
-          );
-
-          final double baseWidth = math.max(headerWidth, widestLineWidth.ceilToDouble());
-
-          // Case A: Single-line text that fits inline with metadata
-          if (lineCount <= 1) {
-            final double neededWidth = widestLineWidth + effectiveMetadataWidth + gap;
-            if (neededWidth <= maxContentWidth) {
-              final double targetWidth = math.min(
-                maxContentWidth,
-                math.max(headerWidth, neededWidth.ceilToDouble()),
-              );
-
-              if (replyWidget != null || senderNameWidget != null) {
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (senderNameWidget != null) ...[
-                      senderNameWidget!,
-                      const SizedBox(height: 2.0),
-                    ],
-                    if (replyWidget != null) ...[
-                      SizedBox(width: targetWidth, child: replyWidget),
-                      const SizedBox(height: 4.0),
-                    ],
-                    SizedBox(
-                      width: targetWidth,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Padding(
-                            padding: EdgeInsets.only(
-                              right: effectiveMetadataWidth + gap,
-                            ),
-                            child: content,
-                          ),
-                          Positioned(
-                            bottom: 0,
-                            right: 0,
-                            child: metadata,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                );
-              }
-
-              return Row(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Flexible(child: content),
-                  const SizedBox(width: gap),
-                  metadata,
-                ],
-              );
-            }
-          }
-
-          // Case B: Multi-line text where the last line has sufficient space for metadata
-          if (lineCount > 1) {
-            final double remainingOnLastLine = baseWidth - lastLineWidth;
-            final bool fitsInBaseWidth = remainingOnLastLine >= gap + effectiveMetadataWidth;
-            final bool fitsWithSmallExpansion = !fitsInBaseWidth &&
-                (lastLineWidth + gap + effectiveMetadataWidth <= maxContentWidth) &&
-                ((lastLineWidth + gap + effectiveMetadataWidth - baseWidth) <= 45.0);
-
-            if (fitsInBaseWidth || fitsWithSmallExpansion) {
-              final double targetWidth = fitsInBaseWidth
-                  ? baseWidth
-                  : (lastLineWidth + gap + effectiveMetadataWidth).ceilToDouble();
-
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (senderNameWidget != null) ...[
-                    senderNameWidget!,
-                    const SizedBox(height: 2.0),
-                  ],
-                  if (replyWidget != null) ...[
-                    SizedBox(width: targetWidth, child: replyWidget),
-                    const SizedBox(height: 4.0),
-                  ],
-                  SizedBox(
-                    width: targetWidth,
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        content,
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: metadata,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            }
-          }
-
-          // Case C: Multi-line text (or full single-line) where metadata needs an extra row below
-          final double targetWidth = math.min(
-            maxContentWidth,
-            math.max(headerWidth, widestLineWidth.ceilToDouble()),
-          );
-
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              if (senderNameWidget != null) ...[
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: senderNameWidget!,
-                ),
-                const SizedBox(height: 2.0),
-              ],
-              if (replyWidget != null) ...[
-                SizedBox(width: targetWidth, child: replyWidget),
-                const SizedBox(height: 4.0),
-              ],
-              SizedBox(width: targetWidth, child: content),
-              const SizedBox(height: 2.0),
-              metadata,
-            ],
-          );
-        }
-
-        // Fallback for code blocks, LaTeX, polls, etc.
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            if (senderNameWidget != null) ...[
-              Align(
-                alignment: Alignment.centerLeft,
-                child: senderNameWidget!,
-              ),
-              const SizedBox(height: 2.0),
-            ],
-            if (replyWidget != null) ...[
-              replyWidget!,
-              const SizedBox(height: 4.0),
-            ],
-            content,
-            const SizedBox(height: 2.0),
-            metadata,
-          ],
-        );
-      },
+    return BubbleLayoutWidget(
+      senderNameWidget: senderNameWidget,
+      replyWidget: replyWidget,
+      content: content,
+      metadata: metadata,
+      replyWidth: replyWidth,
+      senderNameWidth: senderNameWidth,
+      metadataWidth: metadataWidth,
+      hasBlockElement: hasBlockElement,
     );
   }
 }

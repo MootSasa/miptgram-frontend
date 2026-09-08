@@ -9,6 +9,7 @@ class MessageContextMenu extends StatefulWidget {
   final bool isMe;
   final int? sendStatus;
   final VoidCallback onReply;
+  final VoidCallback? onQuote;
   final VoidCallback onCopy;
   final VoidCallback onPin;
   final VoidCallback onEdit;
@@ -23,6 +24,7 @@ class MessageContextMenu extends StatefulWidget {
     required this.isMe,
     this.sendStatus,
     required this.onReply,
+    this.onQuote,
     required this.onCopy,
     required this.onPin,
     required this.onEdit,
@@ -174,6 +176,8 @@ class _MessageContextMenuState extends State<MessageContextMenu> with SingleTick
         mainAxisSize: MainAxisSize.min,
         children: [
           _buildActionItem(Icons.reply, context.l10n.translate('chat_action_reply'), widget.onReply, theme, enabled: !isSending),
+          if (widget.onQuote != null)
+            _buildActionItem(Icons.format_quote_rounded, context.l10n.translate('format_quote'), widget.onQuote!, theme, enabled: !isSending),
           _buildActionItem(Icons.copy, context.l10n.translate('chat_action_copy'), widget.onCopy, theme, enabled: !isSending),
           _buildActionItem(Icons.push_pin, context.l10n.translate('chat_action_pin'), widget.onPin, theme, enabled: !isSending),
           if (widget.isMe) 

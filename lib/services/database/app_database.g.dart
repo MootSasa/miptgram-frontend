@@ -776,6 +776,22 @@ class $MessagesTable extends Messages
   late final GeneratedColumn<String> reactions = GeneratedColumn<String>(
       'reactions', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _linkPreviewOptionsMeta =
+      const VerificationMeta('linkPreviewOptions');
+  @override
+  late final GeneratedColumn<String> linkPreviewOptions = GeneratedColumn<String>(
+      'link_preview_options', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _invertMediaMeta =
+      const VerificationMeta('invertMedia');
+  @override
+  late final GeneratedColumn<bool> invertMedia = GeneratedColumn<bool>(
+      'invert_media', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("invert_media" IN (0, 1))'),
+      defaultValue: const Constant(false));
   @override
   List<GeneratedColumn> get $columns => [
         localId,
@@ -806,7 +822,9 @@ class $MessagesTable extends Messages
         forwardFromName,
         groupedId,
         entities,
-        reactions
+        reactions,
+        linkPreviewOptions,
+        invertMedia
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -970,6 +988,18 @@ class $MessagesTable extends Messages
       context.handle(_reactionsMeta,
           reactions.isAcceptableOrUnknown(data['reactions']!, _reactionsMeta));
     }
+    if (data.containsKey('link_preview_options')) {
+      context.handle(
+          _linkPreviewOptionsMeta,
+          linkPreviewOptions.isAcceptableOrUnknown(
+              data['link_preview_options']!, _linkPreviewOptionsMeta));
+    }
+    if (data.containsKey('invert_media')) {
+      context.handle(
+          _invertMediaMeta,
+          invertMedia.isAcceptableOrUnknown(
+              data['invert_media']!, _invertMediaMeta));
+    }
     return context;
   }
 
@@ -1037,6 +1067,10 @@ class $MessagesTable extends Messages
           .read(DriftSqlType.string, data['${effectivePrefix}entities']),
       reactions: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}reactions']),
+      linkPreviewOptions: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}link_preview_options']),
+      invertMedia: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}invert_media']) ?? false,
     );
   }
 
@@ -1076,6 +1110,8 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
   final String? groupedId;
   final String? entities;
   final String? reactions;
+  final String? linkPreviewOptions;
+  final bool invertMedia;
   const DbMessage(
       {required this.localId,
       this.serverId,
@@ -1105,7 +1141,9 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       this.forwardFromName,
       this.groupedId,
       this.entities,
-      this.reactions});
+      this.reactions,
+      this.linkPreviewOptions,
+      this.invertMedia = false});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -1168,6 +1206,10 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
     if (!nullToAbsent || reactions != null) {
       map['reactions'] = Variable<String>(reactions);
     }
+    if (!nullToAbsent || linkPreviewOptions != null) {
+      map['link_preview_options'] = Variable<String>(linkPreviewOptions);
+    }
+    map['invert_media'] = Variable<bool>(invertMedia);
     return map;
   }
 
@@ -1232,6 +1274,10 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       reactions: reactions == null && nullToAbsent
           ? const Value.absent()
           : Value(reactions),
+      linkPreviewOptions: linkPreviewOptions == null && nullToAbsent
+          ? const Value.absent()
+          : Value(linkPreviewOptions),
+      invertMedia: Value(invertMedia),
     );
   }
 
@@ -1270,6 +1316,9 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       groupedId: serializer.fromJson<String?>(json['groupedId']),
       entities: serializer.fromJson<String?>(json['entities']),
       reactions: serializer.fromJson<String?>(json['reactions']),
+      linkPreviewOptions:
+          serializer.fromJson<String?>(json['linkPreviewOptions']),
+      invertMedia: serializer.fromJson<bool>(json['invertMedia']) ?? false,
     );
   }
   @override
@@ -1305,6 +1354,9 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       'groupedId': serializer.toJson<String?>(groupedId),
       'entities': serializer.toJson<String?>(entities),
       'reactions': serializer.toJson<String?>(reactions),
+      'linkPreviewOptions':
+          serializer.toJson<String?>(linkPreviewOptions),
+      'invertMedia': serializer.toJson<bool>(invertMedia),
     };
   }
 
@@ -1337,7 +1389,9 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
           Value<String?> forwardFromName = const Value.absent(),
           Value<String?> groupedId = const Value.absent(),
           Value<String?> entities = const Value.absent(),
-          Value<String?> reactions = const Value.absent()}) =>
+          Value<String?> reactions = const Value.absent(),
+          Value<String?> linkPreviewOptions = const Value.absent(),
+          bool? invertMedia}) =>
       DbMessage(
         localId: localId ?? this.localId,
         serverId: serverId.present ? serverId.value : this.serverId,
@@ -1380,6 +1434,10 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
         groupedId: groupedId.present ? groupedId.value : this.groupedId,
         entities: entities.present ? entities.value : this.entities,
         reactions: reactions.present ? reactions.value : this.reactions,
+        linkPreviewOptions: linkPreviewOptions.present
+            ? linkPreviewOptions.value
+            : this.linkPreviewOptions,
+        invertMedia: invertMedia ?? this.invertMedia,
       );
   DbMessage copyWithCompanion(MessagesCompanion data) {
     return DbMessage(
@@ -1433,6 +1491,12 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       groupedId: data.groupedId.present ? data.groupedId.value : this.groupedId,
       entities: data.entities.present ? data.entities.value : this.entities,
       reactions: data.reactions.present ? data.reactions.value : this.reactions,
+      linkPreviewOptions: data.linkPreviewOptions.present
+          ? data.linkPreviewOptions.value
+          : this.linkPreviewOptions,
+      invertMedia: data.invertMedia.present
+          ? data.invertMedia.value
+          : this.invertMedia,
     );
   }
 
@@ -1569,6 +1633,8 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
   final Value<String?> groupedId;
   final Value<String?> entities;
   final Value<String?> reactions;
+  final Value<String?> linkPreviewOptions;
+  final Value<bool> invertMedia;
   final Value<int> rowid;
   const MessagesCompanion({
     this.localId = const Value.absent(),
@@ -1600,6 +1666,8 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
     this.groupedId = const Value.absent(),
     this.entities = const Value.absent(),
     this.reactions = const Value.absent(),
+    this.linkPreviewOptions = const Value.absent(),
+    this.invertMedia = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   MessagesCompanion.insert({
@@ -1632,6 +1700,8 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
     this.groupedId = const Value.absent(),
     this.entities = const Value.absent(),
     this.reactions = const Value.absent(),
+    this.linkPreviewOptions = const Value.absent(),
+    this.invertMedia = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : localId = Value(localId),
         chatId = Value(chatId),
@@ -1668,6 +1738,8 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
     Expression<String>? groupedId,
     Expression<String>? entities,
     Expression<String>? reactions,
+    Expression<String>? linkPreviewOptions,
+    Expression<bool>? invertMedia,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1701,6 +1773,9 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
       if (groupedId != null) 'grouped_id': groupedId,
       if (entities != null) 'entities': entities,
       if (reactions != null) 'reactions': reactions,
+      if (linkPreviewOptions != null)
+        'link_preview_options': linkPreviewOptions,
+      if (invertMedia != null) 'invert_media': invertMedia,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1735,6 +1810,8 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
       Value<String?>? groupedId,
       Value<String?>? entities,
       Value<String?>? reactions,
+      Value<String?>? linkPreviewOptions,
+      Value<bool>? invertMedia,
       Value<int>? rowid}) {
     return MessagesCompanion(
       localId: localId ?? this.localId,
@@ -1766,6 +1843,8 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
       groupedId: groupedId ?? this.groupedId,
       entities: entities ?? this.entities,
       reactions: reactions ?? this.reactions,
+      linkPreviewOptions: linkPreviewOptions ?? this.linkPreviewOptions,
+      invertMedia: invertMedia ?? this.invertMedia,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1860,6 +1939,12 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
     if (reactions.present) {
       map['reactions'] = Variable<String>(reactions.value);
     }
+    if (linkPreviewOptions.present) {
+      map['link_preview_options'] = Variable<String>(linkPreviewOptions.value);
+    }
+    if (invertMedia.present) {
+      map['invert_media'] = Variable<bool>(invertMedia.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1898,6 +1983,8 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
           ..write('groupedId: $groupedId, ')
           ..write('entities: $entities, ')
           ..write('reactions: $reactions, ')
+          ..write('linkPreviewOptions: $linkPreviewOptions, ')
+          ..write('invertMedia: $invertMedia, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2873,6 +2960,8 @@ typedef $$MessagesTableCreateCompanionBuilder = MessagesCompanion Function({
   Value<String?> groupedId,
   Value<String?> entities,
   Value<String?> reactions,
+  Value<String?> linkPreviewOptions,
+  Value<bool> invertMedia,
   Value<int> rowid,
 });
 typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
@@ -2905,6 +2994,8 @@ typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
   Value<String?> groupedId,
   Value<String?> entities,
   Value<String?> reactions,
+  Value<String?> linkPreviewOptions,
+  Value<bool> invertMedia,
   Value<int> rowid,
 });
 
@@ -3010,6 +3101,13 @@ class $$MessagesTableFilterComposer
 
   ColumnFilters<String> get reactions => $composableBuilder(
       column: $table.reactions, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get linkPreviewOptions => $composableBuilder(
+      column: $table.linkPreviewOptions,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get invertMedia => $composableBuilder(
+      column: $table.invertMedia, builder: (column) => ColumnFilters(column));
 }
 
 class $$MessagesTableOrderingComposer
@@ -3115,6 +3213,13 @@ class $$MessagesTableOrderingComposer
 
   ColumnOrderings<String> get reactions => $composableBuilder(
       column: $table.reactions, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get linkPreviewOptions => $composableBuilder(
+      column: $table.linkPreviewOptions,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get invertMedia => $composableBuilder(
+      column: $table.invertMedia, builder: (column) => ColumnOrderings(column));
 }
 
 class $$MessagesTableAnnotationComposer
@@ -3212,6 +3317,12 @@ class $$MessagesTableAnnotationComposer
 
   GeneratedColumn<String> get reactions =>
       $composableBuilder(column: $table.reactions, builder: (column) => column);
+
+  GeneratedColumn<String> get linkPreviewOptions => $composableBuilder(
+      column: $table.linkPreviewOptions, builder: (column) => column);
+
+  GeneratedColumn<bool> get invertMedia =>
+      $composableBuilder(column: $table.invertMedia, builder: (column) => column);
 }
 
 class $$MessagesTableTableManager extends RootTableManager<
@@ -3266,6 +3377,8 @@ class $$MessagesTableTableManager extends RootTableManager<
             Value<String?> groupedId = const Value.absent(),
             Value<String?> entities = const Value.absent(),
             Value<String?> reactions = const Value.absent(),
+            Value<String?> linkPreviewOptions = const Value.absent(),
+            Value<bool> invertMedia = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               MessagesCompanion(
@@ -3298,6 +3411,8 @@ class $$MessagesTableTableManager extends RootTableManager<
             groupedId: groupedId,
             entities: entities,
             reactions: reactions,
+            linkPreviewOptions: linkPreviewOptions,
+            invertMedia: invertMedia,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -3330,6 +3445,8 @@ class $$MessagesTableTableManager extends RootTableManager<
             Value<String?> groupedId = const Value.absent(),
             Value<String?> entities = const Value.absent(),
             Value<String?> reactions = const Value.absent(),
+            Value<String?> linkPreviewOptions = const Value.absent(),
+            Value<bool> invertMedia = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               MessagesCompanion.insert(
@@ -3362,6 +3479,8 @@ class $$MessagesTableTableManager extends RootTableManager<
             groupedId: groupedId,
             entities: entities,
             reactions: reactions,
+            linkPreviewOptions: linkPreviewOptions,
+            invertMedia: invertMedia,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0

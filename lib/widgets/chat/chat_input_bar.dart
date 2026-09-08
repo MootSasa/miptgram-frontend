@@ -5,12 +5,24 @@ import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../services/chat_service.dart';
 import '../../services/liquid_glass_provider.dart';
+import '../../utils/entity_parser.dart';
+import 'formatting_toolbar.dart';
+import 'link_preview_input_bar.dart';
 import 'liquid_glass_input_field.dart';
 import 'reply_preview_bar.dart';
 
+/// Callback when sending message with complete rich-text and preview options
+typedef SendDetailedCallback = void Function(
+  String cleanText,
+  List<MessageEntity> entities,
+  LinkPreviewOptions? linkPreviewOptions,
+  bool invertMedia,
+);
+
 /// Unified chat input bar component managing text entry, attachments preview,
-/// editing banner, reply/quote preview, and uploading progress.
-class ChatInputBar extends StatelessWidget {
+/// formatting toolbar, link preview configuration bar, editing banner,
+/// reply/quote preview, and uploading progress.
+class ChatInputBar extends StatefulWidget {
   final TextEditingController controller;
   final FocusNode? focusNode;
   final String? hintText;
@@ -30,11 +42,16 @@ class ChatInputBar extends StatelessWidget {
   final bool isSending;
   final ValueChanged<String>? onChanged;
   final VoidCallback? onSend;
+  final SendDetailedCallback? onSendDetailed;
   final VoidCallback? onAttach;
   final VoidCallback? onEmoji;
   final VoidCallback? onVoice;
   final String? currentUserId;
   final Widget? trailing;
+  final LinkPreviewOptions? linkPreviewOptions;
+  final ValueChanged<LinkPreviewOptions?>? onLinkPreviewOptionsChanged;
+  final bool invertMedia;
+  final ValueChanged<bool>? onInvertMediaChanged;
 
   const ChatInputBar({
     Key? key,
@@ -57,12 +74,99 @@ class ChatInputBar extends StatelessWidget {
     this.isSending = false,
     this.onChanged,
     this.onSend,
+    this.onSendDetailed,
     this.onAttach,
     this.onEmoji,
     this.onVoice,
     this.currentUserId,
     this.trailing,
+    this.linkPreviewOptions,
+    this.onLinkPreviewOptionsChanged,
+    this.invertMedia = false,
+    this.onInvertMediaChanged,
   }) : super(key: key);
+
+  @override
+  State<ChatInputBar> createState() => _ChatInputBarState();
+}
+
+class _ChatInputBarState extends State<ChatInputBar> {
+  bool _showFormatting = false;
+  bool _internalInvertMedia = false;
+  LinkPreviewOptions? _internalLinkPreviewOptions;
+  bool _linkPreviewDismissed = false;
+  List<String> _detectedUrls = [];
+
+  bool get _effectiveInvertMedia =>
+      widget.invertMedia || _internalInvertMedia;
+
+  LinkPreviewOptions? get _effectiveLinkPreviewOptions =>
+      widget.linkPreviewOptions ?? _internalLinkPreviewOptions;
+
+  @override
+  void initState() {
+    super.initState();
+    _internalInvertMedia = widget.invertMedia;
+    _internalLinkPreviewOptions = widget.linkPreviewOptions;
+    widget.controller.addListener(_handleTextChange);
+    _extractUrls(widget.controller.text);
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatInputBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_handleTextChange);
+      widget.controller.addListener(_handleTextChange);
+      _extractUrls(widget.controller.text);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_handleTextChange);
+    super.dispose();
+  }
+
+  void _handleTextChange() {
+    _extractUrls(widget.controller.text);
+  }
+
+  void _extractUrls(String text) {
+    final urls = EntityParser.extractUrls(text);
+    if (_detectedUrls.length != urls.length ||
+        !_detectedUrls.every(urls.contains)) {
+      setState(() {
+        _detectedUrls = urls;
+        if (urls.isEmpty) {
+          _internalLinkPreviewOptions = null;
+          _linkPreviewDismissed = false;
+        } else if (!_linkPreviewDismissed && _effectiveLinkPreviewOptions == null) {
+          _internalLinkPreviewOptions = LinkPreviewOptions(url: urls.first);
+        }
+      });
+    }
+  }
+
+  void _handleSend() {
+    if (widget.onSendDetailed != null) {
+      final parsed = EntityParser.parseMarkdown(widget.controller.text);
+      widget.onSendDetailed!(
+        parsed.cleanText,
+        parsed.entities,
+        _effectiveLinkPreviewOptions,
+        _effectiveInvertMedia,
+      );
+    } else {
+      widget.onSend?.call();
+    }
+    setState(() {
+      _showFormatting = false;
+      _internalInvertMedia = false;
+      _internalLinkPreviewOptions = null;
+      _linkPreviewDismissed = false;
+    });
+  }
 
   bool _isImageFile(String fileName) {
     final ext = fileName.split('.').last.toLowerCase();
@@ -79,8 +183,42 @@ class ChatInputBar extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 1. Editing message banner
-        if (isEditing)
+        // 0. Formatting Toolbar (when toggled on)
+        if (_showFormatting)
+          FormattingToolbar(
+            controller: widget.controller,
+            hasMedia: widget.attachedFiles.isNotEmpty,
+            invertMedia: _effectiveInvertMedia,
+            onToggleInvertMedia: (val) {
+              setState(() => _internalInvertMedia = val);
+              widget.onInvertMediaChanged?.call(val);
+            },
+            onClose: () => setState(() => _showFormatting = false),
+          ),
+
+        // 1. Link Preview Input Bar (when URLs detected and not disabled)
+        if (_detectedUrls.isNotEmpty &&
+            _effectiveLinkPreviewOptions != null &&
+            !_effectiveLinkPreviewOptions!.isDisabled)
+          LinkPreviewInputBar(
+            options: _effectiveLinkPreviewOptions!,
+            detectedUrls: _detectedUrls,
+            onOptionsChanged: (opts) {
+              setState(() => _internalLinkPreviewOptions = opts);
+              widget.onLinkPreviewOptionsChanged?.call(opts);
+            },
+            onRemove: () {
+              const disabled = LinkPreviewOptions(isDisabled: true);
+              setState(() {
+                _internalLinkPreviewOptions = disabled;
+                _linkPreviewDismissed = true;
+              });
+              widget.onLinkPreviewOptionsChanged?.call(disabled);
+            },
+          ),
+
+        // 2. Editing message banner
+        if (widget.isEditing)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             color: Theme.of(context)
@@ -97,7 +235,7 @@ class ChatInputBar extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    editingTitle ??
+                    widget.editingTitle ??
                         context.l10n.translate('chat_editing_title'),
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.primary,
@@ -106,13 +244,13 @@ class ChatInputBar extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (onCancelEditing != null)
+                if (widget.onCancelEditing != null)
                   IconButton(
                     icon: const iconoir.Xmark(
                       width: 18,
                       height: 18,
                     ),
-                    onPressed: onCancelEditing,
+                    onPressed: widget.onCancelEditing,
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
                   ),
@@ -120,30 +258,30 @@ class ChatInputBar extends StatelessWidget {
             ),
           ),
 
-        // 2. Reply/Quote preview bar
-        if (replyToMessage != null)
+        // 3. Reply/Quote preview bar
+        if (widget.replyToMessage != null)
           ReplyPreviewBar(
-            replyToMessage: replyToMessage!,
-            isQuote: isQuote,
-            quoteText: quoteText,
-            onClose: onCancelReply ?? () {},
-            onTap: onTapReply,
+            replyToMessage: widget.replyToMessage!,
+            isQuote: widget.isQuote,
+            quoteText: widget.quoteText,
+            onClose: widget.onCancelReply ?? () {},
+            onTap: widget.onTapReply,
             enabled: glassEnabled,
             isLite: isLite,
-            currentUserId: currentUserId,
+            currentUserId: widget.currentUserId,
           ),
 
-        // 3. Attached files preview list
-        if (attachedFiles.isNotEmpty)
+        // 4. Attached files preview list
+        if (widget.attachedFiles.isNotEmpty)
           Container(
             height: 80,
             margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
-              itemCount: attachedFiles.length,
+              itemCount: widget.attachedFiles.length,
               itemBuilder: (context, index) {
-                final fileName = index < attachedFileNames.length
-                    ? attachedFileNames[index]
+                final fileName = index < widget.attachedFileNames.length
+                    ? widget.attachedFileNames[index]
                     : '';
                 return Container(
                   width: 80,
@@ -155,7 +293,7 @@ class ChatInputBar extends StatelessWidget {
                           borderRadius: BorderRadius.circular(8),
                           child: _isImageFile(fileName)
                               ? Image.file(
-                                  attachedFiles[index],
+                                  widget.attachedFiles[index],
                                   fit: BoxFit.cover,
                                 )
                               : Container(
@@ -179,12 +317,12 @@ class ChatInputBar extends StatelessWidget {
                                 ),
                         ),
                       ),
-                      if (onRemoveAttachment != null)
+                      if (widget.onRemoveAttachment != null)
                         Positioned(
                           top: 2,
                           right: 2,
                           child: GestureDetector(
-                            onTap: () => onRemoveAttachment!(index),
+                            onTap: () => widget.onRemoveAttachment!(index),
                             child: Container(
                               padding: const EdgeInsets.all(4),
                               decoration: const BoxDecoration(
@@ -206,14 +344,14 @@ class ChatInputBar extends StatelessWidget {
             ),
           ),
 
-        // 4. Upload progress
-        if (isUploading)
+        // 5. Upload progress
+        if (widget.isUploading)
           LinearProgressIndicator(
-            value: uploadProgress > 0 ? uploadProgress : null,
+            value: widget.uploadProgress > 0 ? widget.uploadProgress : null,
             backgroundColor: Colors.grey[300],
           ),
 
-        // 5. Input field row
+        // 6. Input field row
         Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
@@ -221,22 +359,24 @@ class ChatInputBar extends StatelessWidget {
               child: LiquidGlassInputField(
                 enabled: glassEnabled,
                 isLite: isLite,
-                controller: controller,
-                focusNode: focusNode,
-                hintText: hintText ??
-                    (attachedFiles.isNotEmpty
+                controller: widget.controller,
+                focusNode: widget.focusNode,
+                hintText: widget.hintText ??
+                    (widget.attachedFiles.isNotEmpty
                         ? 'Add a caption...'
                         : 'Type a message...'),
-                onChanged: onChanged,
-                onSend: isSending ? null : onSend,
-                onAttach: onAttach,
-                onEmoji: onEmoji,
-                onVoice: onVoice,
-                isSending: isSending,
-                hasAttachments: attachedFiles.isNotEmpty,
+                onChanged: widget.onChanged,
+                onSend: widget.isSending ? null : _handleSend,
+                onAttach: widget.onAttach,
+                onEmoji: widget.onEmoji,
+                onVoice: widget.onVoice,
+                onFormat: () => setState(() => _showFormatting = !_showFormatting),
+                isFormattingOpen: _showFormatting,
+                isSending: widget.isSending,
+                hasAttachments: widget.attachedFiles.isNotEmpty,
               ),
             ),
-            if (trailing != null) trailing!,
+            if (widget.trailing != null) widget.trailing!,
           ],
         ),
       ],

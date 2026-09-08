@@ -28,6 +28,7 @@ import '../../widgets/chat/swipe_to_reply_wrapper.dart';
 import '../../widgets/chat/unread_separator.dart';
 import '../../widgets/message/message_bubble.dart';
 import '../../utils/swipe_back_route.dart';
+import '../../utils/entity_parser.dart';
 import 'private_chat_screen.dart';
 import 'channel_screen.dart';
 import '../../utils/date_time_utils.dart';
@@ -676,18 +677,30 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     );
   }
 
-  Future<void> _sendMessage() async {
-    final String text = _messageController.text.trim();
+  Future<void> _sendMessage({
+    String? cleanText,
+    List<MessageEntity>? entities,
+    LinkPreviewOptions? linkPreviewOptions,
+    bool invertMedia = false,
+  }) async {
+    final String rawText = _messageController.text.trim();
+    final String text = cleanText?.trim() ?? rawText;
     if (text.isEmpty || _isSending) return;
 
     if (_isEditing && _editingMessageId != null) {
       final messageId = _editingMessageId!;
       _cancelEditing();
       try {
+        final parsed = cleanText != null ? null : EntityParser.parseMarkdown(rawText);
+        final String effectiveText = cleanText ?? parsed!.cleanText;
+        final List<MessageEntity>? effectiveEntities =
+            entities ?? (parsed?.entities.isNotEmpty == true ? parsed!.entities : null);
+
         final res = await ChatService.editMessage(
           chatId: widget.chatId,
           messageId: messageId,
-          content: text,
+          content: effectiveText,
+          entities: effectiveEntities,
         );
         if (res['success'] == true) {
           if (mounted) {
@@ -695,13 +708,20 @@ class _GroupChatScreenState extends State<GroupChatScreen>
               final idx = _messages.indexWhere((m) => m.id == messageId);
               if (idx != -1) {
                 _messages[idx] = _messages[idx].copyWith(
-                  content: text,
+                  content: effectiveText,
+                  entities: effectiveEntities,
                   isEdited: true,
                 );
               }
             });
           }
-          await AppDatabase().updateMessageContent(messageId, text);
+          await AppDatabase().updateMessageContent(
+            messageId,
+            effectiveText,
+            effectiveEntities != null && effectiveEntities.isNotEmpty
+                ? jsonEncode(effectiveEntities.map((e) => e.toJson()).toList())
+                : null,
+          );
         } else {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -736,6 +756,11 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       _quoteLength = 0;
     });
 
+    final parsed = cleanText != null ? null : EntityParser.parseMarkdown(text);
+    final String effectiveContent = cleanText ?? parsed!.cleanText;
+    final List<MessageEntity>? effectiveEntities =
+        entities ?? (parsed?.entities.isNotEmpty == true ? parsed!.entities : null);
+
     final syncService = SyncService();
     String? pendingLocalId;
     DbMessage? pendingMsg;
@@ -743,7 +768,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       pendingMsg = await syncService.createPendingMessage(
         chatId: widget.chatId,
         senderId: _currentUserId ?? '',
-        content: text,
+        content: effectiveContent,
         messageType: 'text',
         replyToMessageId: replyTo?.id,
         isQuote: replyIsQuote,
@@ -754,6 +779,9 @@ class _GroupChatScreenState extends State<GroupChatScreen>
         replyToSenderName: replyTo?.senderName,
         replyToContent: replyTo?.content,
         replyToMessageType: replyTo?.messageType ?? 'text',
+        entities: effectiveEntities,
+        linkPreviewOptions: linkPreviewOptions,
+        invertMedia: invertMedia,
       );
     } catch (e) {
       debugPrint('SyncService createPendingMessage error: $e');
@@ -792,7 +820,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       try {
         final result = await ChatService.sendMessage(
           chatId: widget.chatId,
-          content: text,
+          content: effectiveContent,
           messageType: 'text',
           localId: pendingLocalId,
           replyToMessageId: replyTo?.id,
@@ -800,6 +828,9 @@ class _GroupChatScreenState extends State<GroupChatScreen>
           quoteText: replyQuoteText,
           quoteOffset: replyQuoteOffset,
           quoteLength: replyQuoteLength,
+          entities: effectiveEntities,
+          linkPreviewOptions: linkPreviewOptions,
+          invertMedia: invertMedia,
         );
 
         if (result['success'] == true) {
@@ -1046,6 +1077,19 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       _quoteLength = 0;
     });
     // Optional: focus field
+  }
+
+  void _startQuote(Message message, String selectedText, int offset, int length) {
+    setState(() {
+      _replyToMessage = message;
+      _isQuote = true;
+      _quoteText = selectedText;
+      _quoteOffset = offset;
+      _quoteLength = length;
+    });
+    _messageController.selection = TextSelection.collapsed(
+      offset: _messageController.text.length,
+    );
   }
 
   void _cancelReply() {
@@ -1444,6 +1488,14 @@ class _GroupChatScreenState extends State<GroupChatScreen>
           : null,
       onChanged: _onInputTextChanged,
       onSend: _sendMessage,
+      onSendDetailed: (cleanText, entities, linkPreviewOptions, invertMedia) {
+        _sendMessage(
+          cleanText: cleanText,
+          entities: entities,
+          linkPreviewOptions: linkPreviewOptions,
+          invertMedia: invertMedia,
+        );
+      },
       currentUserId: _currentUserId,
       isSending: _isSending,
     );
@@ -1521,11 +1573,14 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       messageKey: key,
       isMe: isMe,
       onReply: () => _startReply(message),
+      onQuote: () => _startQuote(message, message.content, 0, message.content.length),
       onPin: () {},
       onEdit: () {
         setState(() {
           _cancelReply();
-          _messageController.text = message.content;
+          _messageController.text = message.entities.isNotEmpty
+              ? EntityParser.toMarkdown(message.content, message.entities)
+              : message.content;
           _isEditing = true;
           _editingMessageId = message.id;
         });

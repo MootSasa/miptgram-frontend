@@ -3,7 +3,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import '../../l10n/app_localizations.dart';
 import '../../utils/emoji_utils.dart';
+import '../../utils/entity_parser.dart';
 
 // --- НАСТРОЙКИ СТИЛЯ ПОЛЯ ВВОДА ---
 /// Радиус скругления контейнера поля ввода (в классическом и стеклянном режимах).
@@ -42,6 +44,8 @@ class LiquidGlassInputField extends StatefulWidget {
   final VoidCallback? onAttach;
   final VoidCallback? onEmoji;
   final VoidCallback? onVoice;
+  final VoidCallback? onFormat;
+  final bool isFormattingOpen;
   final bool isSending;
   final IconData attachIcon;
   final bool hasAttachments;
@@ -58,6 +62,8 @@ class LiquidGlassInputField extends StatefulWidget {
     this.onAttach,
     this.onEmoji,
     this.onVoice,
+    this.onFormat,
+    this.isFormattingOpen = false,
     this.isSending = false,
     this.attachIcon = Icons.attach_file,
     this.hasAttachments = false,
@@ -190,6 +196,25 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField> {
               : const SizedBox.shrink(),
         ),
         if (widget.onEmoji != null) const SizedBox(width: 4),
+        if (widget.onFormat != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: GestureDetector(
+              onTap: widget.onFormat,
+              child: Container(
+                width: _kActionButtonSize,
+                height: _kActionButtonSize,
+                alignment: Alignment.center,
+                child: Icon(
+                  Icons.text_format_rounded,
+                  size: _kActionIconSize,
+                  color: widget.isFormattingOpen
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                ),
+              ),
+            ),
+          ),
         Expanded(
           child: _buildTextField(context),
         ),
@@ -249,66 +274,74 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField> {
                         .textEditingValue.selection.isCollapsed) {
                       buttonItems.addAll([
                         ContextMenuButtonItem(
-                          label: 'B (Жирный)',
+                          label: context.l10n.translate('format_bold'),
                           onPressed: () {
-                            TextFormattingUtils.applyFormatting(
-                                widget.controller, 'bold');
+                            EntityParser.applyFormatting(
+                                controller: widget.controller,
+                                formatType: 'bold');
                             editableTextState.hideToolbar();
                           },
                         ),
                         ContextMenuButtonItem(
-                          label: 'I (Курсив)',
+                          label: context.l10n.translate('format_italic'),
                           onPressed: () {
-                            TextFormattingUtils.applyFormatting(
-                                widget.controller, 'italic');
+                            EntityParser.applyFormatting(
+                                controller: widget.controller,
+                                formatType: 'italic');
                             editableTextState.hideToolbar();
                           },
                         ),
                         ContextMenuButtonItem(
-                          label: 'Mono (Код)',
+                          label: context.l10n.translate('format_strikethrough'),
                           onPressed: () {
-                            TextFormattingUtils.applyFormatting(
-                                widget.controller, 'code');
+                            EntityParser.applyFormatting(
+                                controller: widget.controller,
+                                formatType: 'strikethrough');
                             editableTextState.hideToolbar();
                           },
                         ),
                         ContextMenuButtonItem(
-                          label: 'Спойлер',
+                          label: context.l10n.translate('format_underline'),
                           onPressed: () {
-                            TextFormattingUtils.applyFormatting(
-                                widget.controller, 'spoiler');
+                            EntityParser.applyFormatting(
+                                controller: widget.controller,
+                                formatType: 'underline');
                             editableTextState.hideToolbar();
                           },
                         ),
                         ContextMenuButtonItem(
-                          label: 'Зачёркнутый',
+                          label: context.l10n.translate('format_spoiler'),
                           onPressed: () {
-                            TextFormattingUtils.applyFormatting(
-                                widget.controller, 'strikethrough');
+                            EntityParser.applyFormatting(
+                                controller: widget.controller,
+                                formatType: 'spoiler');
                             editableTextState.hideToolbar();
                           },
                         ),
                         ContextMenuButtonItem(
-                          label: 'Ссылка',
+                          label: context.l10n.translate('format_code'),
                           onPressed: () {
-                            TextFormattingUtils.applyFormatting(
-                                widget.controller, 'link');
+                            EntityParser.applyFormatting(
+                                controller: widget.controller,
+                                formatType: 'code');
                             editableTextState.hideToolbar();
                           },
                         ),
                         ContextMenuButtonItem(
-                          label: 'Цитата',
+                          label: context.l10n.translate('format_quote'),
                           onPressed: () {
-                            TextFormattingUtils.applyFormatting(
-                                widget.controller, 'quote');
+                            EntityParser.applyFormatting(
+                                controller: widget.controller,
+                                formatType: 'quote');
                             editableTextState.hideToolbar();
                           },
                         ),
                         ContextMenuButtonItem(
-                          label: 'Сброс стиля',
+                          label: context.l10n.translate('format_collapse'),
                           onPressed: () {
-                            TextFormattingUtils.applyFormatting(
-                                widget.controller, 'clear');
+                            EntityParser.applyFormatting(
+                                controller: widget.controller,
+                                formatType: 'collapse');
                             editableTextState.hideToolbar();
                           },
                         ),
@@ -378,82 +411,10 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField> {
 class TextFormattingUtils {
   static void applyFormatting(TextEditingController controller, String type,
       {String? url}) {
-    final selection = controller.selection;
-    if (!selection.isValid || selection.isCollapsed) return;
-
-    final text = controller.text;
-    final start = selection.start;
-    final end = selection.end;
-    final selectedText = text.substring(start, end);
-
-    String prefix = '';
-    String suffix = '';
-
-    switch (type) {
-      case 'bold':
-        prefix = '**';
-        suffix = '**';
-        break;
-      case 'italic':
-        prefix = '*';
-        suffix = '*';
-        break;
-      case 'code':
-        prefix = '`';
-        suffix = '`';
-        break;
-      case 'spoiler':
-        prefix = '||';
-        suffix = '||';
-        break;
-      case 'strikethrough':
-        prefix = '~~';
-        suffix = '~~';
-        break;
-      case 'underline':
-        prefix = '<u>';
-        suffix = '</u>';
-        break;
-      case 'quote':
-        prefix = '> ';
-        suffix = '';
-        break;
-      case 'link':
-        final linkUrl = url ?? 'https://';
-        prefix = '[';
-        suffix = ']($linkUrl)';
-        break;
-      case 'clear':
-        final cleaned = selectedText
-            .replaceAll(RegExp(r'^\*\*|\*\*$'), '')
-            .replaceAll(RegExp(r'^\*|\*$'), '')
-            .replaceAll(RegExp(r'^`|`$'), '')
-            .replaceAll(RegExp(r'^\|\||\|\|$'), '')
-            .replaceAll(RegExp(r'^~~|~~$'), '')
-            .replaceAll(RegExp(r'^<u>|</u>$'), '')
-            .replaceAll(RegExp(r'^> '), '');
-        final newText = text.replaceRange(start, end, cleaned);
-        controller.value = TextEditingValue(
-          text: newText,
-          selection: TextSelection(
-            baseOffset: start,
-            extentOffset: start + cleaned.length,
-          ),
-        );
-        return;
-    }
-
-    final formatted = '$prefix$selectedText$suffix';
-    final newText = text.replaceRange(start, end, formatted);
-    final newSelectionStart = start + prefix.length;
-    final newSelectionEnd = newSelectionStart + selectedText.length;
-
-    controller.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection(
-        baseOffset: newSelectionStart,
-        extentOffset: newSelectionEnd,
-      ),
+    EntityParser.applyFormatting(
+      controller: controller,
+      formatType: type,
+      url: url,
     );
   }
 }

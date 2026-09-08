@@ -39,6 +39,7 @@ import '../../services/glass_toast_service.dart';
 import '../../services/wallpaper_provider.dart';
 import '../../widgets/message/message_bubble.dart';
 import '../../utils/swipe_back_route.dart';
+import '../../utils/entity_parser.dart';
 import 'group_chat_screen.dart';
 import 'channel_screen.dart';
 import '../../utils/date_time_utils.dart';
@@ -757,7 +758,6 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   /// Start a quote reply (partial text)
-  // ignore: unused_element
   void _startQuote(Message message, String selectedText, int offset, int length) {
     setState(() {
       _replyToMessage = message;
@@ -1343,18 +1343,30 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     });
   }
 
-  Future<void> _sendMessage() async {
-    final String text = _textController.text.trim();
+  Future<void> _sendMessage({
+    String? cleanText,
+    List<MessageEntity>? entities,
+    LinkPreviewOptions? linkPreviewOptions,
+    bool invertMedia = false,
+  }) async {
+    final String rawText = _textController.text.trim();
+    final String text = cleanText?.trim() ?? rawText;
     if ((text.isEmpty && _attachedFiles.isEmpty) || _isSending) return;
 
     if (_isEditing && _editingMessageId != null) {
       final messageId = _editingMessageId!;
       _cancelEditing();
       try {
+        final parsed = cleanText != null ? null : EntityParser.parseMarkdown(rawText);
+        final String effectiveText = cleanText ?? parsed!.cleanText;
+        final List<MessageEntity>? effectiveEntities =
+            entities ?? (parsed?.entities.isNotEmpty == true ? parsed!.entities : null);
+
         final res = await ChatService.editMessage(
           chatId: widget.chatId,
           messageId: messageId,
-          content: text,
+          content: effectiveText,
+          entities: effectiveEntities,
         );
         if (res['success'] == true) {
           if (mounted) {
@@ -1362,13 +1374,20 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               final idx = _messages.indexWhere((m) => m.id == messageId);
               if (idx != -1) {
                 _messages[idx] = _messages[idx].copyWith(
-                  content: text,
+                  content: effectiveText,
+                  entities: effectiveEntities,
                   isEdited: true,
                 );
               }
             });
           }
-          await AppDatabase().updateMessageContent(messageId, text);
+          await AppDatabase().updateMessageContent(
+            messageId,
+            effectiveText,
+            effectiveEntities != null && effectiveEntities.isNotEmpty
+                ? jsonEncode(effectiveEntities.map((e) => e.toJson()).toList())
+                : null,
+          );
         } else {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -1426,12 +1445,17 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         _uploadProgress = 0.0;
       });
 
+      final parsed = cleanText != null ? null : EntityParser.parseMarkdown(text);
+      final String effectiveContentText = cleanText ?? parsed!.cleanText;
+      final List<MessageEntity>? effectiveEntities =
+          entities ?? (parsed?.entities.isNotEmpty == true ? parsed!.entities : null);
+
       final String messageType = _attachedFiles.isNotEmpty
           ? _getMessageTypeFromMimeType(uploadResults.first.mimeType)
           : 'text';
       final String content = _attachedFiles.isNotEmpty
-          ? (text.isNotEmpty ? text : uploadResults.first.fileName)
-          : text;
+          ? (effectiveContentText.isNotEmpty ? effectiveContentText : uploadResults.first.fileName)
+          : effectiveContentText;
       final String? fileUrl =
           uploadResults.isNotEmpty ? uploadResults[0].url : null;
       final String? fileName =
@@ -1459,6 +1483,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           replyToSenderName: replyTo?.senderName,
           replyToContent: replyTo?.content,
           replyToMessageType: replyTo?.messageType ?? 'text',
+          entities: effectiveEntities,
+          linkPreviewOptions: linkPreviewOptions,
+          invertMedia: invertMedia,
         );
       } catch (e) {
         debugPrint('SyncService createPendingMessage error: $e');
@@ -1509,6 +1536,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             quoteText: replyQuoteText,
             quoteOffset: replyQuoteOffset,
             quoteLength: replyQuoteLength,
+            entities: effectiveEntities,
+            linkPreviewOptions: linkPreviewOptions,
+            invertMedia: invertMedia,
           );
 
           if (result['success'] == true) {
@@ -2213,6 +2243,14 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       uploadProgress: _uploadProgress,
       onChanged: _onInputTextChanged,
       onSend: _sendMessage,
+      onSendDetailed: (cleanText, entities, linkPreviewOptions, invertMedia) {
+        _sendMessage(
+          cleanText: cleanText,
+          entities: entities,
+          linkPreviewOptions: linkPreviewOptions,
+          invertMedia: invertMedia,
+        );
+      },
       onAttach: _showAttachmentPicker,
       onEmoji: _onEmojiToggle,
       currentUserId: _currentUserId,
@@ -2803,6 +2841,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       messageKey: key,
       isMe: isMe,
       onReply: () => _startReply(message),
+      onQuote: () => _startQuote(message, message.content, 0, message.content.length),
       onPin: () {
         // TODO: Pin message
         GlassToastService()
@@ -2811,7 +2850,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       onEdit: () {
         setState(() {
           _cancelReply();
-          _textController.text = message.content;
+          _textController.text = message.entities.isNotEmpty
+              ? EntityParser.toMarkdown(message.content, message.entities)
+              : message.content;
           _isEditing = true;
           _editingMessageId = message.id;
           _inputFocusNode.requestFocus();

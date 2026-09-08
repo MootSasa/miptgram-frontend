@@ -9,11 +9,13 @@ import '../../utils/haptic_utils.dart';
 import '../chat/message_reply_info.dart';
 import '../chat/reactions_panel.dart';
 import 'message_status_widget.dart';
+import '../../utils/entity_parser.dart';
 import 'text_message_widget.dart';
 import 'fullscreen_photo_viewer.dart';
 import 'inline_video_player.dart';
 import 'document_message_widget.dart';
 import 'video_message_widget.dart';
+import 'link_preview_card.dart';
 import '../../l10n/app_localizations.dart';
 
 /// Радиус скругления "облачка" сообщения.
@@ -878,6 +880,8 @@ class MessageBubble extends StatelessWidget {
       );
     }
 
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+
     Widget textBodyWidget;
     if (isBigEmoji) {
       textBodyWidget = Padding(
@@ -896,7 +900,44 @@ class MessageBubble extends StatelessWidget {
         text: message.content,
         style: textStyle,
         isMe: isMe,
+        entities: message.entities,
       );
+
+      if (!hasMedia) {
+        final previewOpts = message.linkPreviewOptions;
+        final bool previewDisabled = previewOpts?.isDisabled ?? false;
+        String? previewUrl = previewOpts?.url;
+        if (previewUrl == null && !previewDisabled) {
+          final urls = EntityParser.extractUrls(message.content);
+          if (urls.isNotEmpty) previewUrl = urls.first;
+        }
+
+        if (previewUrl != null && !previewDisabled) {
+          final bool showAbove = previewOpts?.showAboveText ?? false;
+          final bool preferLarge = previewOpts?.preferLargeMedia ?? false;
+          final previewCard = LinkPreviewCard(
+            url: previewUrl,
+            preferLargeMedia: preferLarge,
+            isDark: isDark,
+          );
+
+          textBodyWidget = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: showAbove
+                ? [
+                    previewCard,
+                    const SizedBox(height: 6.0),
+                    textBodyWidget,
+                  ]
+                : [
+                    textBodyWidget,
+                    const SizedBox(height: 6.0),
+                    previewCard,
+                  ],
+          );
+        }
+      }
     }
 
     Widget? mediaContentWidget;
@@ -910,18 +951,28 @@ class MessageBubble extends StatelessWidget {
           text: message.content,
           style: textStyle,
           isMe: isMe,
+          entities: message.entities,
         );
 
+        final bool invertMedia = message.invertMedia;
         innerContent = Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            mediaWidget,
-            const SizedBox(height: 6.0),
-            captionWidget,
-            const SizedBox(height: 3.0),
-            metadataWidget,
-          ],
+          children: invertMedia
+              ? [
+                  captionWidget,
+                  const SizedBox(height: 6.0),
+                  mediaWidget,
+                  const SizedBox(height: 3.0),
+                  metadataWidget,
+                ]
+              : [
+                  mediaWidget,
+                  const SizedBox(height: 6.0),
+                  captionWidget,
+                  const SizedBox(height: 3.0),
+                  metadataWidget,
+                ],
         );
       } else if (_isImage || _isVideo) {
         innerContent = Stack(

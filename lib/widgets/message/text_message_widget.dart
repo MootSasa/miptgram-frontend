@@ -5,11 +5,15 @@ import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../services/chat_service.dart';
 import '../../services/glass_toast_service.dart';
 import '../../services/profile_theme_provider.dart';
 import '../../utils/emoji_utils.dart';
+import '../../utils/entity_parser.dart';
 import '../profile/reply_strip_painter.dart';
 import 'code_block_widget.dart';
+import 'collapsible_blockquote_widget.dart';
+import 'spoiler_text_widget.dart';
 
 // --- НАСТРОЙКИ СТИЛЯ ТЕКСТОВОГО СООБЩЕНИЯ ---
 /// Прозрачность фона для инлайнового кода в темной теме.
@@ -84,7 +88,7 @@ class CodeElementBuilder extends MarkdownElementBuilder {
   }
 }
 
-/// Builder for Markdown blockquotes using [ReplyStripWidget].
+/// Builder for Markdown blockquotes using [CollapsibleBlockquoteWidget].
 class BlockquoteElementBuilder extends MarkdownElementBuilder {
   final BuildContext context;
   final bool isDark;
@@ -94,48 +98,22 @@ class BlockquoteElementBuilder extends MarkdownElementBuilder {
 
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
-    final text = element.textContent.trim();
-    if (text.isEmpty) return null;
+    final rawText = element.textContent.trim();
+    if (rawText.isEmpty) return null;
 
-    final profileTheme = context.watch<ProfileThemeProvider>();
-    final preset = profileTheme.currentNameColorPreset;
-    final stripStyle = profileTheme.currentStripStyle;
+    final bool isCollapsible = rawText.startsWith('collapse:') ||
+        rawText.startsWith('**>') ||
+        element.attributes['collapsed'] == 'true';
 
-    final cardBgColor = preset.getOpaqueCardBackgroundColor(isDark);
-    const textColor = Color(0xFF1C2530);
+    final text = isCollapsible
+        ? rawText.replaceFirst(RegExp(r'^(?:collapse:|\*\*>\s?)\s*'), '')
+        : rawText;
 
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: cardBgColor,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: IntrinsicHeight(
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ReplyStripWidget(
-              preset: preset,
-              style: stripStyle,
-              width: 3.5,
-              borderRadius: 2,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                text,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: textColor,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+    return CollapsibleBlockquoteWidget(
+      text: text,
+      isCollapsible: isCollapsible,
+      isDark: isDark,
+      isMe: isMe,
     );
   }
 }
@@ -247,6 +225,58 @@ class EmojiElementBuilder extends MarkdownElementBuilder {
   }
 }
 
+/// Custom syntax for spoilers: ||...||
+class SpoilerInlineSyntax extends md.InlineSyntax {
+  SpoilerInlineSyntax() : super(r'\|\|([\s\S]+?)\|\|');
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final element = md.Element.text('spoiler', match.group(1)!);
+    parser.addNode(element);
+    return true;
+  }
+}
+
+/// Builder for spoilers using [SpoilerTextWidget].
+class SpoilerElementBuilder extends MarkdownElementBuilder {
+  final TextStyle? preferredStyle;
+
+  SpoilerElementBuilder(this.preferredStyle);
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    return SpoilerTextWidget.text(
+      text: element.textContent,
+      style: preferredStyle ?? this.preferredStyle,
+    );
+  }
+}
+
+/// Custom syntax for underline: --...-- or <u>...</u>
+class UnderlineInlineSyntax extends md.InlineSyntax {
+  UnderlineInlineSyntax() : super(r'(?:--|<u>)([\s\S]+?)(?:--|</u>)');
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final element = md.Element.text('underline', match.group(1)!);
+    parser.addNode(element);
+    return true;
+  }
+}
+
+/// Builder for underline text.
+class UnderlineElementBuilder extends MarkdownElementBuilder {
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    return Text(
+      element.textContent,
+      style: preferredStyle?.copyWith(
+        decoration: TextDecoration.underline,
+      ),
+    );
+  }
+}
+
 /// Виджет для отображения текстового сообщения с Markdown-подсветкой.
 ///
 /// Использует [flutter_markdown] для рендеринга и [CodeBlockWidget] для блоков кода.
@@ -254,20 +284,26 @@ class TextMessageWidget extends StatelessWidget {
   final String text;
   final TextStyle? style;
   final bool isMe;
+  final List<MessageEntity>? entities;
 
   const TextMessageWidget({
     Key? key,
     required this.text,
     this.style,
     this.isMe = false,
+    this.entities,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    final markdownData = (entities != null && entities!.isNotEmpty)
+        ? EntityParser.toMarkdown(text, entities!)
+        : text;
+
     return MarkdownBody(
-      data: text.trimRight(),
+      data: markdownData.trimRight(),
       selectable: false,
       shrinkWrap: true,
       softLineBreak: true, // Позволяет делать перенос строки одним нажатием Enter
@@ -278,6 +314,8 @@ class TextMessageWidget extends StatelessWidget {
           MathInlineSyntax(),
           CheckboxInlineSyntax(),
           EmojiInlineSyntax(),
+          SpoilerInlineSyntax(),
+          UnderlineInlineSyntax(),
         ],
       ),
       styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
@@ -311,6 +349,8 @@ class TextMessageWidget extends StatelessWidget {
         'latex': MathElementBuilder(),
         'checkbox': CheckboxElementBuilder(),
         'emoji': EmojiElementBuilder(fontSize: style?.fontSize ?? _kMessageFontSize),
+        'spoiler': SpoilerElementBuilder(style),
+        'underline': UnderlineElementBuilder(),
       },
       onTapLink: (text, href, title) async {
         if (href != null) {

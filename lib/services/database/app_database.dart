@@ -74,6 +74,10 @@ class Messages extends Table {
   // Reactions JSON string
   TextColumn get reactions => text().nullable()();
 
+  // Link preview options & media caption position
+  TextColumn get linkPreviewOptions => text().nullable()(); // JSON string of LinkPreviewOptions
+  BoolColumn get invertMedia => boolean().withDefault(const Constant(false))();
+
   @override
   Set<Column> get primaryKey => {localId};
 }
@@ -118,7 +122,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -186,6 +190,14 @@ class AppDatabase extends _$AppDatabase {
           if (from < 5) {
             await customStatement(
               'ALTER TABLE messages ADD COLUMN reactions TEXT',
+            );
+          }
+          if (from < 6) {
+            await customStatement(
+              'ALTER TABLE messages ADD COLUMN link_preview_options TEXT',
+            );
+            await customStatement(
+              'ALTER TABLE messages ADD COLUMN invert_media INTEGER NOT NULL DEFAULT 0',
             );
           }
         },
@@ -394,10 +406,12 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// Обновить контент сообщения (редактирование)
-  Future<void> updateMessageContent(String serverId, String content) async {
+  Future<void> updateMessageContent(String serverId, String content,
+      [String? entities]) async {
     await (update(messages)..where((t) => t.serverId.equals(serverId)))
         .write(MessagesCompanion(
       content: Value(content),
+      entities: entities != null ? Value(entities) : const Value.absent(),
       isEdited: const Value(true),
     ));
   }

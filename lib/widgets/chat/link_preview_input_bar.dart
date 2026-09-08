@@ -1,7 +1,10 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import '../../l10n/app_localizations.dart';
 import '../../services/chat_service.dart';
+import '../../services/link_metadata_service.dart';
+import '../../utils/entity_parser.dart';
 import '../../utils/haptic_utils.dart';
 
 /// Floating Link Preview Configuration Bar above the chat input field.
@@ -11,7 +14,7 @@ import '../../utils/haptic_utils.dart';
 /// 2. Media size (large banner vs compact thumbnail)
 /// 3. Selecting which URL to preview when multiple exist
 /// 4. Disabling/removing the preview entirely
-class LinkPreviewInputBar extends StatelessWidget {
+class LinkPreviewInputBar extends StatefulWidget {
   final LinkPreviewOptions options;
   final List<String> detectedUrls;
   final ValueChanged<LinkPreviewOptions> onOptionsChanged;
@@ -25,9 +28,53 @@ class LinkPreviewInputBar extends StatelessWidget {
     required this.onRemove,
   }) : super(key: key);
 
+  @override
+  State<LinkPreviewInputBar> createState() => _LinkPreviewInputBarState();
+}
+
+class _LinkPreviewInputBarState extends State<LinkPreviewInputBar> {
+  LinkMetadata? _metadata;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMetadata();
+  }
+
+  @override
+  void didUpdateWidget(covariant LinkPreviewInputBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.options.url != widget.options.url ||
+        oldWidget.detectedUrls != widget.detectedUrls) {
+      _loadMetadata();
+    }
+  }
+
+  String get _activeUrl =>
+      widget.options.url ?? (widget.detectedUrls.isNotEmpty ? widget.detectedUrls.first : '');
+
+  void _loadMetadata() {
+    final url = _activeUrl;
+    if (url.isEmpty) return;
+
+    final cached = LinkMetadataService.instance.getCached(url);
+    if (cached != null) {
+      _metadata = cached;
+    } else {
+      LinkMetadataService.instance.fetchMetadata(url).then((meta) {
+        if (mounted && meta != null && _activeUrl == url) {
+          setState(() {
+            _metadata = meta;
+          });
+        }
+      });
+    }
+  }
+
   String _formatUrlDomain(String url) {
     try {
-      final uri = Uri.parse(url);
+      final clean = EntityParser.cleanUrl(url);
+      final uri = Uri.parse(clean);
       return uri.host.replaceFirst(RegExp(r'^www\.'), '');
     } catch (_) {
       return url;
@@ -40,8 +87,9 @@ class LinkPreviewInputBar extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
     final primaryColor = theme.colorScheme.primary;
 
-    final activeUrl = options.url ?? (detectedUrls.isNotEmpty ? detectedUrls.first : '');
+    final activeUrl = _activeUrl;
     final domain = _formatUrlDomain(activeUrl);
+    final thumbUrl = _metadata?.imageUrl;
 
     final bgColor = isDark
         ? const Color(0xFF1E293B).withValues(alpha: 0.95)
@@ -70,12 +118,35 @@ class LinkPreviewInputBar extends StatelessWidget {
         children: [
           Row(
             children: [
-              iconoir.Link(
-                color: primaryColor,
-                width: 16,
-                height: 16,
-              ),
-              const SizedBox(width: 8),
+              if (thumbUrl != null && thumbUrl.isNotEmpty) ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: CachedNetworkImage(
+                    imageUrl: thumbUrl,
+                    width: 20,
+                    height: 20,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) => iconoir.Link(
+                      color: primaryColor,
+                      width: 16,
+                      height: 16,
+                    ),
+                    errorWidget: (_, __, ___) => iconoir.Link(
+                      color: primaryColor,
+                      width: 16,
+                      height: 16,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ] else ...[
+                iconoir.Link(
+                  color: primaryColor,
+                  width: 16,
+                  height: 16,
+                ),
+                const SizedBox(width: 8),
+              ],
               Expanded(
                 child: Text(
                   'Превью ссылки: $domain',
@@ -88,15 +159,15 @@ class LinkPreviewInputBar extends StatelessWidget {
                   ),
                 ),
               ),
-              if (detectedUrls.length > 1) ...[
+              if (widget.detectedUrls.length > 1) ...[
                 PopupMenuButton<String>(
                   tooltip: 'Выбрать ссылку',
                   icon: Icon(Icons.arrow_drop_down, color: primaryColor, size: 20),
                   onSelected: (url) {
                     HapticUtils.tap();
-                    onOptionsChanged(options.copyWith(url: url));
+                    widget.onOptionsChanged(widget.options.copyWith(url: url));
                   },
-                  itemBuilder: (ctx) => detectedUrls.map((u) {
+                  itemBuilder: (ctx) => widget.detectedUrls.map((u) {
                     return PopupMenuItem<String>(
                       value: u,
                       child: Text(
@@ -121,7 +192,7 @@ class LinkPreviewInputBar extends StatelessWidget {
                 tooltip: context.l10n.translate('link_preview_remove'),
                 onPressed: () {
                   HapticUtils.tap();
-                  onRemove();
+                  widget.onRemove();
                 },
               ),
             ],
@@ -132,16 +203,16 @@ class LinkPreviewInputBar extends StatelessWidget {
               // Position toggle
               _buildOptionChip(
                 context: context,
-                label: options.showAboveText
+                label: widget.options.showAboveText
                     ? context.l10n.translate('link_preview_above')
                     : context.l10n.translate('link_preview_below'),
-                icon: options.showAboveText
+                icon: widget.options.showAboveText
                     ? Icons.vertical_align_top
                     : Icons.vertical_align_bottom,
                 onTap: () {
                   HapticUtils.tap();
-                  onOptionsChanged(
-                    options.copyWith(showAboveText: !options.showAboveText),
+                  widget.onOptionsChanged(
+                    widget.options.copyWith(showAboveText: !widget.options.showAboveText),
                   );
                 },
                 theme: theme,
@@ -150,16 +221,16 @@ class LinkPreviewInputBar extends StatelessWidget {
               // Media size toggle
               _buildOptionChip(
                 context: context,
-                label: options.preferLargeMedia
+                label: widget.options.preferLargeMedia
                     ? context.l10n.translate('link_preview_large')
                     : context.l10n.translate('link_preview_small'),
-                icon: options.preferLargeMedia
+                icon: widget.options.preferLargeMedia
                     ? Icons.photo_size_select_actual
                     : Icons.crop_original,
                 onTap: () {
                   HapticUtils.tap();
-                  onOptionsChanged(
-                    options.copyWith(preferLargeMedia: !options.preferLargeMedia),
+                  widget.onOptionsChanged(
+                    widget.options.copyWith(preferLargeMedia: !widget.options.preferLargeMedia),
                   );
                 },
                 theme: theme,

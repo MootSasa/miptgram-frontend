@@ -710,9 +710,33 @@ class MessageBubble extends StatelessWidget {
               : Theme.of(context).colorScheme.onSecondaryContainer),
     );
 
+    final String trimmedContent = message.content.trim();
+    final List<String> contentLines = trimmedContent.split('\n');
+    final String lastLine = contentLines.isNotEmpty ? contentLines.last.trim() : '';
+    final bool contentEndsWithQuote = lastLine.startsWith('>') || lastLine.startsWith('**>');
+    final bool entityEndsWithQuote = message.entities.any((e) =>
+        (e.type == 'blockquote') && (e.offset + e.length >= trimmedContent.length - 1));
+    final bool entityEndsWithPre = message.entities.any((e) =>
+        (e.type == 'pre') && (e.offset + e.length >= trimmedContent.length - 1));
+
+    final previewOpts = message.linkPreviewOptions;
+    final bool previewDisabled = previewOpts?.isDisabled ?? false;
+    String? previewUrl = previewOpts?.url;
+    if (previewUrl == null && !previewDisabled) {
+      final urls = EntityParser.extractUrls(message.content);
+      if (urls.isNotEmpty) previewUrl = urls.first;
+    }
+    final bool hasEffectivePreview = previewUrl != null && !previewDisabled;
+    final bool showAbove = previewOpts?.showAboveText ?? false;
+    final bool previewAtBottom = hasEffectivePreview && !showAbove && !hasMedia;
+
     final bool endsWithBlock =
-        message.content.trim().endsWith('```') ||
-        message.content.trim().endsWith('\$\$') ||
+        trimmedContent.endsWith('```') ||
+        trimmedContent.endsWith(r'$$') ||
+        contentEndsWithQuote ||
+        entityEndsWithQuote ||
+        entityEndsWithPre ||
+        previewAtBottom ||
         hasMedia;
 
     // Build Metadata Widget

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:miptgram/utils/entity_parser.dart';
 import 'package:miptgram/services/chat_service.dart';
+import 'package:miptgram/widgets/chat/rich_text_editing_controller.dart';
 
 void main() {
   group('EntityParser Markdown Parsing', () {
@@ -124,8 +125,8 @@ void main() {
 
   group('EntityParser toMarkdown', () {
     test('reconstructs markdown from plain text and entities', () {
-      final text = 'Hello world spoiler';
-      final entities = [
+      const text = 'Hello world spoiler';
+      const entities = [
         MessageEntity(type: 'bold', offset: 0, length: 5),
         MessageEntity(type: 'spoiler', offset: 12, length: 7),
       ];
@@ -135,8 +136,8 @@ void main() {
     });
 
     test('reconstructs links and quotes', () {
-      final text = 'Quote text';
-      final entities = [
+      const text = 'Quote text';
+      const entities = [
         MessageEntity(type: 'blockquote', offset: 0, length: 10, collapsed: true),
       ];
 
@@ -151,6 +152,27 @@ void main() {
         'Go to https://flutter.dev and http://dart.dev now',
       );
       expect(urls, ['https://flutter.dev', 'http://dart.dev']);
+    });
+
+    test('strips trailing parenthesis from markdown links and text', () {
+      final urls = EntityParser.extractUrls(
+        'Visit [Google](https://google.com) or (https://example.com)',
+      );
+      expect(urls, contains('https://google.com'));
+      expect(urls, contains('https://example.com'));
+      for (final u in urls) {
+        expect(u.endsWith(')'), isFalse);
+      }
+    });
+
+    test('cleanUrl strips trailing punctuation but preserves balanced parentheses', () {
+      expect(EntityParser.cleanUrl('https://example.com)'), 'https://example.com');
+      expect(EntityParser.cleanUrl('https://example.com.'), 'https://example.com');
+      expect(EntityParser.cleanUrl('https://example.com,'), 'https://example.com');
+      expect(
+        EntityParser.cleanUrl('https://en.wikipedia.org/wiki/Dart_(programming_language)'),
+        'https://en.wikipedia.org/wiki/Dart_(programming_language)',
+      );
     });
   });
 
@@ -170,6 +192,45 @@ void main() {
       EntityParser.applyFormatting(controller: controller, formatType: 'spoiler');
       expect(controller.text, 'Hello||||');
       expect(controller.selection.baseOffset, 7);
+    });
+  });
+
+  group('RichTextEditingController Delimiter-Free Formatting', () {
+    test('formats selection without inserting raw delimiter characters', () {
+      final ctrl = RichTextEditingController(text: 'Hello secret world');
+      ctrl.selection = const TextSelection(baseOffset: 6, extentOffset: 12); // 'secret'
+
+      ctrl.applyFormat('spoiler');
+
+      // Text remains clean! No || inserted!
+      expect(ctrl.text, 'Hello secret world');
+      expect(ctrl.cleanText, 'Hello secret world');
+      expect(ctrl.entities.length, 1);
+      expect(ctrl.entities.first.type, 'spoiler');
+      expect(ctrl.entities.first.offset, 6);
+      expect(ctrl.entities.first.length, 6);
+    });
+
+    test('toggles active format when nothing is selected and changes cursor mode', () {
+      final ctrl = RichTextEditingController(text: 'Hello');
+      ctrl.selection = const TextSelection.collapsed(offset: 5);
+
+      // Tapping spoiler without selection toggles activeFormat, no characters inserted
+      ctrl.applyFormat('spoiler');
+      expect(ctrl.activeFormat, 'spoiler');
+      expect(ctrl.text, 'Hello'); // No |||| added!
+
+      // Typing with active format attaches spoiler entity
+      ctrl.value = const TextEditingValue(
+        text: 'Hello hidden',
+        selection: TextSelection.collapsed(offset: 12),
+      );
+
+      expect(ctrl.cleanText, 'Hello hidden');
+      expect(ctrl.entities.length, 1);
+      expect(ctrl.entities.first.type, 'spoiler');
+      expect(ctrl.entities.first.offset, 5);
+      expect(ctrl.entities.first.length, 7);
     });
   });
 }

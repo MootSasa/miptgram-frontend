@@ -150,16 +150,29 @@ class _ChatInputBarState extends State<ChatInputBar> {
 
   void _handleSend() {
     if (widget.onSendDetailed != null) {
-      final parsed = EntityParser.parseMarkdown(widget.controller.text);
+      final String cleanText;
+      final List<MessageEntity> entities;
+
+      if (widget.controller is RichTextEditingController) {
+        final richCtrl = widget.controller as RichTextEditingController;
+        cleanText = richCtrl.cleanText;
+        entities = richCtrl.entities;
+      } else {
+        final parsed = EntityParser.parseMarkdown(widget.controller.text);
+        cleanText = parsed.cleanText;
+        entities = parsed.entities;
+      }
+
       widget.onSendDetailed!(
-        parsed.cleanText,
-        parsed.entities,
+        cleanText,
+        entities,
         _effectiveLinkPreviewOptions,
         _effectiveInvertMedia,
       );
     } else {
       widget.onSend?.call();
     }
+    widget.controller.clear();
     setState(() {
       _showFormatting = false;
       _internalInvertMedia = false;

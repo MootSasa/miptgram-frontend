@@ -3,6 +3,7 @@ import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import '../../l10n/app_localizations.dart';
 import '../../utils/entity_parser.dart';
 import '../../utils/haptic_utils.dart';
+import 'rich_text_editing_controller.dart';
 
 /// Floating Liquid Glass Formatting Toolbar for message input.
 ///
@@ -30,10 +31,14 @@ class FormattingToolbar extends StatelessWidget {
     if (type == 'link') {
       _showLinkDialog(context);
     } else {
-      EntityParser.applyFormatting(
-        controller: controller,
-        formatType: type,
-      );
+      if (controller is RichTextEditingController) {
+        (controller as RichTextEditingController).applyFormat(type);
+      } else {
+        EntityParser.applyFormatting(
+          controller: controller,
+          formatType: type,
+        );
+      }
     }
   }
 
@@ -64,11 +69,15 @@ class FormattingToolbar extends StatelessWidget {
               final url = textController.text.trim();
               Navigator.pop(ctx);
               if (url.isNotEmpty && url != 'https://') {
-                EntityParser.applyFormatting(
-                  controller: controller,
-                  formatType: 'link',
-                  url: url,
-                );
+                if (controller is RichTextEditingController) {
+                  (controller as RichTextEditingController).applyFormat('link', url: url);
+                } else {
+                  EntityParser.applyFormatting(
+                    controller: controller,
+                    formatType: 'link',
+                    url: url,
+                  );
+                }
               }
             },
             child: const Text('OK'),
@@ -82,6 +91,11 @@ class FormattingToolbar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+
+    final richCtrl = controller is RichTextEditingController
+        ? controller as RichTextEditingController
+        : null;
+    final activeFormat = richCtrl?.activeFormat;
 
     final bgColor = isDark
         ? const Color(0xFF1E293B).withValues(alpha: 0.92)
@@ -98,15 +112,13 @@ class FormattingToolbar extends StatelessWidget {
         borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.12),
-            blurRadius: 12,
-            offset: const Offset(0, 3),
+            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
         border: Border.all(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.1)
-              : Colors.black.withValues(alpha: 0.06),
+          color: isDark ? Colors.white10 : Colors.black12,
           width: 0.8,
         ),
       ),
@@ -118,44 +130,60 @@ class FormattingToolbar extends StatelessWidget {
               physics: const BouncingScrollPhysics(),
               children: [
                 _buildButton(
-                  icon: iconoir.Bold(color: iconColor, width: 18, height: 18),
+                  icon: iconoir.Bold(color: activeFormat == 'bold' ? activeColor : iconColor, width: 18, height: 18),
                   tooltip: context.l10n.translate('format_bold'),
                   onTap: () => _apply(context, 'bold'),
+                  isActive: activeFormat == 'bold',
+                  activeColor: activeColor,
                 ),
                 _buildButton(
-                  icon: iconoir.Italic(color: iconColor, width: 18, height: 18),
+                  icon: iconoir.Italic(color: activeFormat == 'italic' ? activeColor : iconColor, width: 18, height: 18),
                   tooltip: context.l10n.translate('format_italic'),
                   onTap: () => _apply(context, 'italic'),
+                  isActive: activeFormat == 'italic',
+                  activeColor: activeColor,
                 ),
                 _buildButton(
-                  icon: iconoir.Strikethrough(color: iconColor, width: 18, height: 18),
+                  icon: iconoir.Strikethrough(color: activeFormat == 'strikethrough' ? activeColor : iconColor, width: 18, height: 18),
                   tooltip: context.l10n.translate('format_strikethrough'),
                   onTap: () => _apply(context, 'strikethrough'),
+                  isActive: activeFormat == 'strikethrough',
+                  activeColor: activeColor,
                 ),
                 _buildButton(
-                  icon: iconoir.Underline(color: iconColor, width: 18, height: 18),
+                  icon: iconoir.Underline(color: activeFormat == 'underline' ? activeColor : iconColor, width: 18, height: 18),
                   tooltip: context.l10n.translate('format_underline'),
                   onTap: () => _apply(context, 'underline'),
+                  isActive: activeFormat == 'underline',
+                  activeColor: activeColor,
                 ),
                 _buildButton(
-                  icon: iconoir.EyeClosed(color: iconColor, width: 18, height: 18),
+                  icon: iconoir.EyeClosed(color: activeFormat == 'spoiler' ? activeColor : iconColor, width: 18, height: 18),
                   tooltip: context.l10n.translate('format_spoiler'),
                   onTap: () => _apply(context, 'spoiler'),
+                  isActive: activeFormat == 'spoiler',
+                  activeColor: activeColor,
                 ),
                 _buildButton(
-                  icon: iconoir.Code(color: iconColor, width: 18, height: 18),
+                  icon: iconoir.Code(color: activeFormat == 'code' ? activeColor : iconColor, width: 18, height: 18),
                   tooltip: context.l10n.translate('format_code'),
                   onTap: () => _apply(context, 'code'),
+                  isActive: activeFormat == 'code',
+                  activeColor: activeColor,
                 ),
                 _buildButton(
-                  icon: iconoir.Quote(color: iconColor, width: 18, height: 18),
+                  icon: iconoir.Quote(color: activeFormat == 'quote' ? activeColor : iconColor, width: 18, height: 18),
                   tooltip: context.l10n.translate('format_quote'),
                   onTap: () => _apply(context, 'quote'),
+                  isActive: activeFormat == 'quote',
+                  activeColor: activeColor,
                 ),
                 _buildButton(
-                  icon: iconoir.NavArrowDown(color: iconColor, width: 18, height: 18),
+                  icon: iconoir.NavArrowDown(color: activeFormat == 'collapse' ? activeColor : iconColor, width: 18, height: 18),
                   tooltip: context.l10n.translate('format_collapse'),
                   onTap: () => _apply(context, 'collapse'),
+                  isActive: activeFormat == 'collapse',
+                  activeColor: activeColor,
                 ),
                 _buildButton(
                   icon: iconoir.Link(color: iconColor, width: 18, height: 18),

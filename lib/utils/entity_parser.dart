@@ -1,5 +1,4 @@
 import 'package:flutter/widgets.dart';
-import 'package:flutter/services.dart';
 import '../services/chat_service.dart';
 
 /// Result of parsing markdown text into clean text with message entities.
@@ -51,12 +50,55 @@ class EntityParser {
     caseSensitive: false,
   );
 
+  /// Strip trailing punctuation and unbalanced closing parentheses from a URL.
+  static String cleanUrl(String url) {
+    var cleaned = url.trim();
+    while (cleaned.isNotEmpty) {
+      final lastChar = cleaned[cleaned.length - 1];
+      if (lastChar == ')') {
+        final openCount = '('.allMatches(cleaned).length;
+        final closeCount = ')'.allMatches(cleaned).length;
+        if (closeCount > openCount) {
+          cleaned = cleaned.substring(0, cleaned.length - 1);
+          continue;
+        }
+      } else if (lastChar == '.' ||
+          lastChar == ',' ||
+          lastChar == '!' ||
+          lastChar == '?' ||
+          lastChar == ';' ||
+          lastChar == ':' ||
+          lastChar == '>') {
+        cleaned = cleaned.substring(0, cleaned.length - 1);
+        continue;
+      }
+      break;
+    }
+    return cleaned;
+  }
+
   /// Extract all URLs found in the text.
   static List<String> extractUrls(String text) {
-    return _urlRegex
-        .allMatches(text)
-        .map((m) => m.group(0)!)
-        .toList();
+    final urls = <String>[];
+
+    // 1. Explicit markdown links: [label](url)
+    final mdLinkRegex = RegExp(r'\[(?:[^\]]*)\]\((https?:\/\/[^\s\)]+)\)');
+    for (final match in mdLinkRegex.allMatches(text)) {
+      final u = cleanUrl(match.group(1)!);
+      if (u.isNotEmpty && !urls.contains(u)) {
+        urls.add(u);
+      }
+    }
+
+    // 2. Plain URLs
+    for (final match in _urlRegex.allMatches(text)) {
+      final u = cleanUrl(match.group(0)!);
+      if (u.isNotEmpty && !urls.contains(u)) {
+        urls.add(u);
+      }
+    }
+
+    return urls;
   }
 
   /// Parses markdown tokens in [rawText] into clean plain text and a list of [MessageEntity].

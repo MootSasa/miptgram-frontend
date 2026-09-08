@@ -1,11 +1,12 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import '../../l10n/app_localizations.dart';
 import '../../utils/emoji_utils.dart';
 import '../../utils/entity_parser.dart';
+import 'rich_text_editing_controller.dart';
+export 'rich_text_editing_controller.dart';
 
 // --- НАСТРОЙКИ СТИЛЯ ПОЛЯ ВВОДА ---
 /// Радиус скругления контейнера поля ввода (в классическом и стеклянном режимах).
@@ -89,8 +90,6 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField> {
 
   void _handleFontLoaded() {
     if (mounted) {
-      // Trigger a rebuild of the controller's spans
-      widget.controller.notifyListeners();
       setState(() {});
     }
   }
@@ -248,6 +247,55 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField> {
 
   Widget _buildTextField(BuildContext context) {
     final theme = Theme.of(context);
+    final richCtrl = widget.controller is RichTextEditingController
+        ? widget.controller as RichTextEditingController
+        : null;
+    final activeFormat = richCtrl?.activeFormat;
+
+    Color cursorColor = theme.colorScheme.primary;
+    double cursorWidth = 2.0;
+    Radius cursorRadius = const Radius.circular(1.0);
+
+    switch (activeFormat) {
+      case 'spoiler':
+        cursorColor = const Color(0xFFA855F7);
+        cursorWidth = 3.5;
+        cursorRadius = const Radius.circular(2.0);
+        break;
+      case 'bold':
+        cursorColor = theme.colorScheme.primary;
+        cursorWidth = 4.5;
+        cursorRadius = const Radius.circular(2.0);
+        break;
+      case 'italic':
+        cursorColor = theme.colorScheme.primary;
+        cursorWidth = 2.5;
+        break;
+      case 'code':
+        cursorColor = theme.colorScheme.primary.withValues(alpha: 0.6);
+        cursorWidth = 8.5;
+        cursorRadius = Radius.zero;
+        break;
+      case 'strikethrough':
+        cursorColor = const Color(0xFFEF4444);
+        cursorWidth = 3.0;
+        break;
+      case 'underline':
+        cursorColor = const Color(0xFF3B82F6);
+        cursorWidth = 3.0;
+        break;
+      case 'quote':
+      case 'collapse':
+        cursorColor = const Color(0xFF10B981);
+        cursorWidth = 3.5;
+        break;
+      default:
+        cursorColor = theme.colorScheme.primary;
+        cursorWidth = 2.0;
+        cursorRadius = const Radius.circular(1.0);
+        break;
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: ConstrainedBox(
@@ -263,6 +311,10 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField> {
                 return TextField(
                   controller: widget.controller,
                   focusNode: widget.focusNode,
+                  cursorColor: cursorColor,
+                  cursorWidth: cursorWidth,
+                  cursorRadius: cursorRadius,
+                  cursorOpacityAnimates: true,
                   textCapitalization: TextCapitalization.sentences,
                   maxLines: null,
                   keyboardType: TextInputType.multiline,
@@ -276,72 +328,64 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField> {
                         ContextMenuButtonItem(
                           label: context.l10n.translate('format_bold'),
                           onPressed: () {
-                            EntityParser.applyFormatting(
-                                controller: widget.controller,
-                                formatType: 'bold');
+                            TextFormattingUtils.applyFormatting(
+                                widget.controller, 'bold');
                             editableTextState.hideToolbar();
                           },
                         ),
                         ContextMenuButtonItem(
                           label: context.l10n.translate('format_italic'),
                           onPressed: () {
-                            EntityParser.applyFormatting(
-                                controller: widget.controller,
-                                formatType: 'italic');
+                            TextFormattingUtils.applyFormatting(
+                                widget.controller, 'italic');
                             editableTextState.hideToolbar();
                           },
                         ),
                         ContextMenuButtonItem(
                           label: context.l10n.translate('format_strikethrough'),
                           onPressed: () {
-                            EntityParser.applyFormatting(
-                                controller: widget.controller,
-                                formatType: 'strikethrough');
+                            TextFormattingUtils.applyFormatting(
+                                widget.controller, 'strikethrough');
                             editableTextState.hideToolbar();
                           },
                         ),
                         ContextMenuButtonItem(
                           label: context.l10n.translate('format_underline'),
                           onPressed: () {
-                            EntityParser.applyFormatting(
-                                controller: widget.controller,
-                                formatType: 'underline');
+                            TextFormattingUtils.applyFormatting(
+                                widget.controller, 'underline');
                             editableTextState.hideToolbar();
                           },
                         ),
                         ContextMenuButtonItem(
                           label: context.l10n.translate('format_spoiler'),
                           onPressed: () {
-                            EntityParser.applyFormatting(
-                                controller: widget.controller,
-                                formatType: 'spoiler');
+                            TextFormattingUtils.applyFormatting(
+                                widget.controller, 'spoiler');
                             editableTextState.hideToolbar();
                           },
                         ),
                         ContextMenuButtonItem(
                           label: context.l10n.translate('format_code'),
                           onPressed: () {
-                            EntityParser.applyFormatting(
-                                controller: widget.controller,
-                                formatType: 'code');
+                            TextFormattingUtils.applyFormatting(
+                                widget.controller, 'code');
                             editableTextState.hideToolbar();
                           },
                         ),
                         ContextMenuButtonItem(
                           label: context.l10n.translate('format_quote'),
                           onPressed: () {
-                            EntityParser.applyFormatting(
-                                controller: widget.controller,
-                                formatType: 'quote');
+                            TextFormattingUtils.applyFormatting(
+                                widget.controller, 'quote');
                             editableTextState.hideToolbar();
                           },
                         ),
                         ContextMenuButtonItem(
                           label: context.l10n.translate('format_collapse'),
                           onPressed: () {
-                            EntityParser.applyFormatting(
-                                controller: widget.controller,
-                                formatType: 'collapse');
+                            TextFormattingUtils.applyFormatting(
+                                widget.controller, 'collapse');
                             editableTextState.hideToolbar();
                           },
                         ),
@@ -411,170 +455,16 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField> {
 class TextFormattingUtils {
   static void applyFormatting(TextEditingController controller, String type,
       {String? url}) {
-    EntityParser.applyFormatting(
-      controller: controller,
-      formatType: type,
-      url: url,
-    );
+    if (controller is RichTextEditingController) {
+      controller.applyFormat(type, url: url);
+    } else {
+      EntityParser.applyFormatting(
+        controller: controller,
+        formatType: type,
+        url: url,
+      );
+    }
   }
 }
 
-/// Фильтр для ввода (заглушка)
-class _EmDashFilter extends TextInputFormatter {
-  const _EmDashFilter();
-  @override
-  TextEditingValue formatEditUpdate(
-          TextEditingValue oldValue, TextEditingValue newValue) =>
-      newValue;
-}
 
-/// Контроллер с подсветкой Markdown, Spoiler и Apple Emoji
-class MarkdownTextEditingController extends TextEditingController {
-  @override
-  TextSpan buildTextSpan(
-      {required BuildContext context,
-      TextStyle? style,
-      required bool withComposing}) {
-    final text = this.text;
-    final isFontLoaded = EmojiUtils.isFontLoaded.value;
-
-    if (!value.isComposingRangeValid || !withComposing) {
-      if (isFontLoaded && EmojiUtils.emojiRegex.hasMatch(text)) {
-        return _buildEmojiSpan(text, style);
-      }
-      return TextSpan(text: text, style: style);
-    }
-
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final markerStyle =
-        TextStyle(color: isDark ? Colors.white24 : Colors.black26);
-    final List<InlineSpan> children = [];
-
-    final pattern = RegExp(
-      r'(```[\s\S]*?(?:```|$))|' // 1: Code block
-      r'(\$\$[\s\S]*?(?:\$\$|$))|' // 2: Math block
-      r'(\*\*[\s\S]*?(?:\*\*|$))|' // 3: Bold **
-      r'(__[\s\S]*?(?:__|$))|' // 4: Bold __
-      r'(\*[\s\S]*?(?:\*|$))|' // 5: Italic *
-      r'(_[\s\S]*?(?:_|$))|' // 6: Italic _
-      r'(~~[\s\S]*?(?:~~|$))|' // 7: Strikethrough
-      r'(`[\s\S]*?(?:`|$))|' // 8: Inline code
-      r'(\|\|[\s\S]*?(?:\|\||$))|' // 9: Spoiler ||
-      r'(\[\ \] |\[x\] )|' // 10: Checkbox
-      r'((?:\u00a9|\u00ae|[\u2600-\u27bf]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]))', // 11: EMOJI
-      multiLine: true,
-      unicode: false,
-    );
-
-    int lastIndex = 0;
-    for (final match in pattern.allMatches(text)) {
-      if (match.start > lastIndex) {
-        children.add(TextSpan(text: text.substring(lastIndex, match.start)));
-      }
-      final matchText = match.group(0)!;
-
-      if (match.group(1) != null) {
-        _addCode(children, matchText, '```', markerStyle);
-      } else if (match.group(3) != null || match.group(4) != null) {
-        _addStyled(children, matchText, match.group(3) != null ? '**' : '__',
-            const TextStyle(fontWeight: FontWeight.bold), markerStyle);
-      } else if (match.group(5) != null || match.group(6) != null) {
-        _addStyled(children, matchText, match.group(5) != null ? '*' : '_',
-            const TextStyle(fontStyle: FontStyle.italic), markerStyle);
-      } else if (match.group(7) != null) {
-        _addStyled(
-            children,
-            matchText,
-            '~~',
-            const TextStyle(decoration: TextDecoration.lineThrough),
-            markerStyle);
-      } else if (match.group(8) != null) {
-        _addStyled(
-            children,
-            matchText,
-            '`',
-            const TextStyle(
-                fontFamily: 'monospace', backgroundColor: Colors.black12),
-            markerStyle);
-      } else if (match.group(9) != null) {
-        _addStyled(
-            children,
-            matchText,
-            '||',
-            TextStyle(
-                backgroundColor: isDark ? Colors.white12 : Colors.black12,
-                color: isDark ? Colors.white70 : Colors.black87),
-            markerStyle);
-      } else if (match.group(11) != null && isFontLoaded) {
-        children.add(TextSpan(
-          text: matchText,
-          style: style?.copyWith(
-            fontFamily: 'AppleEmoji',
-            fontSize: (style.fontSize ?? _kInputFontSize),
-          ),
-        ));
-      } else {
-        children.add(TextSpan(text: matchText));
-      }
-      lastIndex = match.end;
-    }
-
-    if (lastIndex < text.length) {
-      children.add(TextSpan(text: text.substring(lastIndex)));
-    }
-    return TextSpan(style: style, children: children);
-  }
-
-  TextSpan _buildEmojiSpan(String text, TextStyle? style) {
-    final List<InlineSpan> children = [];
-    text.splitMapJoin(
-      EmojiUtils.emojiRegex,
-      onMatch: (match) {
-        children.add(TextSpan(
-          text: match.group(0),
-          style: style?.copyWith(
-            fontFamily: 'AppleEmoji',
-            fontSize: (style.fontSize ?? _kInputFontSize),
-          ),
-        ));
-        return '';
-      },
-      onNonMatch: (nonMatch) {
-        children.add(TextSpan(text: nonMatch));
-        return '';
-      },
-    );
-    return TextSpan(style: style, children: children);
-  }
-
-  void _addStyled(List<InlineSpan> children, String match, String marker,
-      TextStyle style, TextStyle mStyle) {
-    if (match.length < marker.length) {
-      children.add(TextSpan(text: match));
-      return;
-    }
-    children.add(TextSpan(text: marker, style: mStyle));
-    final hasEnd = match.endsWith(marker) && match.length >= marker.length * 2;
-    final content = match.substring(
-        marker.length, match.length - (hasEnd ? marker.length : 0));
-    children.add(TextSpan(text: content, style: style));
-    if (hasEnd) children.add(TextSpan(text: marker, style: mStyle));
-  }
-
-  void _addCode(List<InlineSpan> children, String match, String marker,
-      TextStyle mStyle) {
-    if (match.length < marker.length) {
-      children.add(TextSpan(text: match));
-      return;
-    }
-    children.add(TextSpan(text: marker, style: mStyle));
-    final hasEnd = match.endsWith(marker) && match.length >= marker.length * 2;
-    final content = match.substring(
-        marker.length, match.length - (hasEnd ? marker.length : 0));
-    children.add(TextSpan(
-        text: content,
-        style: const TextStyle(
-            fontFamily: 'monospace', backgroundColor: Colors.black12)));
-    if (hasEnd) children.add(TextSpan(text: marker, style: mStyle));
-  }
-}

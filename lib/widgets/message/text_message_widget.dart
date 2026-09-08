@@ -3,14 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:markdown/markdown.dart' as md;
-import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/chat_service.dart';
 import '../../services/glass_toast_service.dart';
-import '../../services/profile_theme_provider.dart';
 import '../../utils/emoji_utils.dart';
 import '../../utils/entity_parser.dart';
-import '../profile/reply_strip_painter.dart';
 import 'code_block_widget.dart';
 import 'collapsible_blockquote_widget.dart';
 import 'spoiler_text_widget.dart';
@@ -88,6 +85,51 @@ class CodeElementBuilder extends MarkdownElementBuilder {
   }
 }
 
+/// Custom block syntax for collapsible blockquotes: lines starting with **>
+class CollapsibleBlockquoteBlockSyntax extends md.BlockSyntax {
+  static final RegExp _pattern = RegExp(r'^[ ]{0,3}\*\*>[ ]?(.*)$');
+
+  @override
+  RegExp get pattern => _pattern;
+
+  const CollapsibleBlockquoteBlockSyntax();
+
+  @override
+  List<md.Line> parseChildLines(md.BlockParser parser) {
+    final childLines = <md.Line>[];
+
+    while (!parser.isDone) {
+      final currentLine = parser.current;
+      final match = pattern.firstMatch(currentLine.content);
+      if (match != null) {
+        final markerStart = currentLine.content.indexOf('**>');
+        int markerEnd = markerStart + 3;
+        if (currentLine.content.length > markerEnd &&
+            (currentLine.content[markerEnd] == ' ' || currentLine.content[markerEnd] == '\t')) {
+          markerEnd++;
+        }
+        childLines.add(md.Line(currentLine.content.substring(markerEnd)));
+        parser.advance();
+        continue;
+      }
+      break;
+    }
+
+    return childLines;
+  }
+
+  @override
+  md.Node parse(md.BlockParser parser) {
+    final childLines = parseChildLines(parser);
+    final children = md.BlockParser(childLines, parser.document).parseLines(
+      parentSyntax: this,
+    );
+    final element = md.Element('blockquote', children);
+    element.attributes['collapsed'] = 'true';
+    return element;
+  }
+}
+
 /// Builder for Markdown blockquotes using [CollapsibleBlockquoteWidget].
 class BlockquoteElementBuilder extends MarkdownElementBuilder {
   final BuildContext context;
@@ -101,17 +143,17 @@ class BlockquoteElementBuilder extends MarkdownElementBuilder {
     final rawText = element.textContent.trim();
     if (rawText.isEmpty) return null;
 
-    final bool isCollapsible = rawText.startsWith('collapse:') ||
-        rawText.startsWith('**>') ||
-        element.attributes['collapsed'] == 'true';
+    final bool isCollapsible = element.attributes['collapsed'] == 'true' ||
+        rawText.startsWith('collapse:') ||
+        rawText.startsWith('**>');
 
-    final text = isCollapsible
-        ? rawText.replaceFirst(RegExp(r'^(?:collapse:|\*\*>\s?)\s*'), '')
-        : rawText;
+    final text = rawText
+        .replaceFirst(RegExp(r'^(?:collapse:|\*\*>\s?)\s*'), '');
 
     return CollapsibleBlockquoteWidget(
       text: text,
       isCollapsible: isCollapsible,
+      initialExpanded: false,
       isDark: isDark,
       isMe: isMe,
     );
@@ -252,9 +294,9 @@ class SpoilerElementBuilder extends MarkdownElementBuilder {
   }
 }
 
-/// Custom syntax for underline: --...-- or <u>...</u>
+/// Custom syntax for underline: __...__ or --...-- or <u>...</u>
 class UnderlineInlineSyntax extends md.InlineSyntax {
-  UnderlineInlineSyntax() : super(r'(?:--|<u>)([\s\S]+?)(?:--|</u>)');
+  UnderlineInlineSyntax() : super(r'(?:__|\-\-|<u>)([\s\S]+?)(?:__|\-\-|</u>)');
 
   @override
   bool onMatch(md.InlineParser parser, Match match) {
@@ -308,14 +350,17 @@ class TextMessageWidget extends StatelessWidget {
       shrinkWrap: true,
       softLineBreak: true, // Позволяет делать перенос строки одним нажатием Enter
       extensionSet: md.ExtensionSet(
-        md.ExtensionSet.gitHubFlavored.blockSyntaxes,
         [
-          ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+          const CollapsibleBlockquoteBlockSyntax(),
+          ...md.ExtensionSet.gitHubFlavored.blockSyntaxes,
+        ],
+        [
+          UnderlineInlineSyntax(),
           MathInlineSyntax(),
           CheckboxInlineSyntax(),
           EmojiInlineSyntax(),
           SpoilerInlineSyntax(),
-          UnderlineInlineSyntax(),
+          ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
         ],
       ),
       styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(

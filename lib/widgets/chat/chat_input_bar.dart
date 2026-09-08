@@ -91,7 +91,7 @@ class ChatInputBar extends StatefulWidget {
 }
 
 class _ChatInputBarState extends State<ChatInputBar> {
-  bool _showFormatting = false;
+  bool _hasSelection = false;
   bool _internalInvertMedia = false;
   LinkPreviewOptions? _internalLinkPreviewOptions;
   bool _linkPreviewDismissed = false;
@@ -130,6 +130,15 @@ class _ChatInputBarState extends State<ChatInputBar> {
 
   void _handleTextChange() {
     _extractUrls(widget.controller.text);
+    final sel = widget.controller.selection;
+    final hasSel = sel.isValid &&
+        !sel.isCollapsed &&
+        sel.textInside(widget.controller.text).isNotEmpty;
+    if (_hasSelection != hasSel) {
+      setState(() {
+        _hasSelection = hasSel;
+      });
+    }
   }
 
   void _extractUrls(String text) {
@@ -174,7 +183,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
     }
     widget.controller.clear();
     setState(() {
-      _showFormatting = false;
+      _hasSelection = false;
       _internalInvertMedia = false;
       _internalLinkPreviewOptions = null;
       _linkPreviewDismissed = false;
@@ -196,8 +205,8 @@ class _ChatInputBarState extends State<ChatInputBar> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 0. Formatting Toolbar (when toggled on)
-        if (_showFormatting)
+        // 0. Formatting Toolbar (when text is selected in input field)
+        if (_hasSelection)
           FormattingToolbar(
             controller: widget.controller,
             hasMedia: widget.attachedFiles.isNotEmpty,
@@ -206,7 +215,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
               setState(() => _internalInvertMedia = val);
               widget.onInvertMediaChanged?.call(val);
             },
-            onClose: () => setState(() => _showFormatting = false),
+            onClose: () => setState(() => _hasSelection = false),
           ),
 
         // 1. Link Preview Input Bar (when URLs detected and not disabled)
@@ -383,8 +392,6 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 onAttach: widget.onAttach,
                 onEmoji: widget.onEmoji,
                 onVoice: widget.onVoice,
-                onFormat: () => setState(() => _showFormatting = !_showFormatting),
-                isFormattingOpen: _showFormatting,
                 isSending: widget.isSending,
                 hasAttachments: widget.attachedFiles.isNotEmpty,
               ),

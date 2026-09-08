@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:miptgram/services/chat_service.dart';
 import 'package:miptgram/services/liquid_glass_provider.dart';
 import 'package:miptgram/widgets/chat/chat_scaffold.dart';
 import 'package:miptgram/widgets/chat/chat_input_bar.dart';
 import 'package:miptgram/widgets/chat/chat_messages_list_view.dart';
-import 'package:miptgram/l10n/app_localizations.dart';
 
 Widget createTestApp(Widget child) {
   return MultiProvider(
@@ -27,10 +25,10 @@ void main() {
         (WidgetTester tester) async {
       await tester.pumpWidget(
         createTestApp(
-          ChatScaffold(
-            appBar: const Text('Test AppBar'),
-            floatingActionButton: const Text('Test FAB'),
-            body: const Center(child: Text('Test Body Content')),
+          const ChatScaffold(
+            appBar: Text('Test AppBar'),
+            floatingActionButton: Text('Test FAB'),
+            body: Center(child: Text('Test Body Content')),
           ),
         ),
       );

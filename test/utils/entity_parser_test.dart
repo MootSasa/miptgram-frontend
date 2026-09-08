@@ -232,5 +232,29 @@ void main() {
       expect(ctrl.entities.first.offset, 5);
       expect(ctrl.entities.first.length, 7);
     });
+
+    test('isCursorItalic detects italic mode and cursor inside italic spans', () {
+      final ctrl = RichTextEditingController(text: 'Hello italic world');
+      expect(ctrl.isCursorItalic, isFalse);
+
+      // Active format set to italic
+      ctrl.activeFormat = 'italic';
+      expect(ctrl.isCursorItalic, isTrue);
+
+      ctrl.activeFormat = null;
+      expect(ctrl.isCursorItalic, isFalse);
+
+      // Format 'italic' on word 'italic' (offset 6 to 12)
+      ctrl.selection = const TextSelection(baseOffset: 6, extentOffset: 12);
+      ctrl.applyFormat('italic');
+
+      // Cursor inside italic text (e.g. offset 8)
+      ctrl.selection = const TextSelection.collapsed(offset: 8);
+      expect(ctrl.isCursorItalic, isTrue);
+
+      // Cursor outside italic text (e.g. offset 2)
+      ctrl.selection = const TextSelection.collapsed(offset: 2);
+      expect(ctrl.isCursorItalic, isFalse);
+    });
   });
 }

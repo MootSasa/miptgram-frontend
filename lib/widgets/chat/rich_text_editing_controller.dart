@@ -76,6 +76,17 @@ class RichTextEditingController extends TextEditingController {
     }
   }
 
+  /// Returns true if the cursor should be displayed in italic (slanted) style.
+  /// This is true if [activeFormat] is 'italic', or if the collapsed selection
+  /// is positioned within an italic span.
+  bool get isCursorItalic {
+    if (_activeFormat == 'italic') return true;
+    if (!selection.isValid || !selection.isCollapsed) return false;
+    final offset = selection.baseOffset;
+    if (offset < 0) return false;
+    return _spans.any((s) => s.type == 'italic' && s.start <= offset && s.end >= offset);
+  }
+
   /// Toggles the active format mode when cursor is collapsed, or applies to selection.
   void toggleActiveFormat(String format) {
     if (_activeFormat == format) {

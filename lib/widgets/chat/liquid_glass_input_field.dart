@@ -76,10 +76,12 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
     with SingleTickerProviderStateMixin {
   final GlobalKey _fieldKey = GlobalKey();
   late final AnimationController _blinkController;
+  late final ScrollController _scrollController;
 
   @override
   void initState() {
     super.initState();
+    _scrollController = ScrollController();
     _blinkController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 530),
@@ -111,6 +113,7 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
     widget.controller.removeListener(_onControllerChanged);
     widget.focusNode?.removeListener(_onFocusChanged);
     _blinkController.dispose();
+    _scrollController.dispose();
     EmojiUtils.isFontLoaded.removeListener(_handleFontLoaded);
     super.dispose();
   }
@@ -277,6 +280,7 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
 
   Widget _buildTextField(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final richCtrl = widget.controller is RichTextEditingController
         ? widget.controller as RichTextEditingController
         : null;
@@ -287,16 +291,28 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
     final showItalicCursor = isItalic && isFocused && hasCollapsedSelection;
 
     final cursorColor = theme.colorScheme.primary;
+    final selectionHandleColor =
+        isDark ? const Color(0xFF7BE5DA) : const Color(0xFF0088CC);
+    final selectionColor = isDark
+        ? const Color(0x597BE5DA)
+        : const Color(0x470088CC);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          maxHeight: _kInputMaxHeight,
-        ),
-        child: Scrollbar(
-          child: SingleChildScrollView(
-            reverse: true, // Всегда показывать последнюю строку
+    final textSelectionTheme = theme.textSelectionTheme.copyWith(
+      cursorColor: cursorColor,
+      selectionHandleColor: selectionHandleColor,
+      selectionColor: selectionColor,
+    );
+
+    return Theme(
+      data: theme.copyWith(textSelectionTheme: textSelectionTheme),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxHeight: _kInputMaxHeight,
+          ),
+          child: Scrollbar(
+            controller: _scrollController,
             child: ValueListenableBuilder<bool>(
               valueListenable: EmojiUtils.isFontLoaded,
               builder: (context, isLoaded, child) {
@@ -314,6 +330,7 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
                     key: _fieldKey,
                     controller: widget.controller,
                     focusNode: widget.focusNode,
+                    scrollController: _scrollController,
                     cursorColor: showItalicCursor ? Colors.transparent : cursorColor,
                     cursorWidth: 2.0,
                     cursorRadius: const Radius.circular(1.0),

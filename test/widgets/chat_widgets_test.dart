@@ -235,4 +235,51 @@ void main() {
       expect(controller.text, 'Visit Google site');
     });
   });
+
+  group('LiquidGlassInputField Widget Tests', () {
+    testWidgets(
+        'Renders TextField directly without SingleChildScrollView and assigns scrollController',
+        (WidgetTester tester) async {
+      final controller = TextEditingController(text: 'Test message');
+      final focusNode = FocusNode();
+
+      await tester.pumpWidget(
+        createTestApp(
+          LiquidGlassInputField(
+            enabled: true,
+            controller: controller,
+            hintText: 'Type a message...',
+            focusNode: focusNode,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final textFieldFinder = find.byType(TextField);
+      expect(textFieldFinder, findsOneWidget);
+
+      final textField = tester.widget<TextField>(textFieldFinder);
+      expect(textField.scrollController, isNotNull);
+      expect(textField.maxLines, isNull);
+
+      // Verify that TextField is NOT wrapped inside SingleChildScrollView
+      expect(
+        find.descendant(
+          of: find.byType(SingleChildScrollView),
+          matching: find.byType(TextField),
+        ),
+        findsNothing,
+      );
+
+      // Verify Theme provides textSelectionTheme
+      final themeFinder = find.ancestor(
+        of: textFieldFinder,
+        matching: find.byType(Theme),
+      );
+      expect(themeFinder, findsWidgets);
+      final themeWidget = tester.widget<Theme>(themeFinder.first);
+      expect(themeWidget.data.textSelectionTheme.selectionHandleColor, isNotNull);
+      expect(themeWidget.data.textSelectionTheme.selectionColor, isNotNull);
+    });
+  });
 }

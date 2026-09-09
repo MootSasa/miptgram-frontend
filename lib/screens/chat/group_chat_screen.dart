@@ -320,12 +320,23 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     final newContent = event.data['content']?.toString();
     if (messageId == null || newContent == null) return;
 
+    List<MessageEntity>? newEntities;
+    if (event.data['entities'] != null) {
+      try {
+        final list = event.data['entities'] as List;
+        newEntities = list
+            .map((e) => MessageEntity.fromJson(e as Map<String, dynamic>))
+            .toList();
+      } catch (_) {}
+    }
+
     if (mounted) {
       setState(() {
         final index = _messages.indexWhere((m) => m.id == messageId);
         if (index != -1) {
           _messages[index] = _messages[index].copyWith(
             content: newContent,
+            entities: newEntities ?? _messages[index].entities,
             isEdited: true,
           );
         }
@@ -333,7 +344,13 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     }
 
     try {
-      AppDatabase().updateMessageContent(messageId, newContent);
+      AppDatabase().updateMessageContent(
+        messageId,
+        newContent,
+        newEntities != null && newEntities.isNotEmpty
+            ? jsonEncode(newEntities.map((e) => e.toJson()).toList())
+            : null,
+      );
     } catch (_) {}
   }
 
@@ -1578,9 +1595,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       onEdit: () {
         setState(() {
           _cancelReply();
-          _messageController.text = message.entities.isNotEmpty
-              ? EntityParser.toMarkdown(message.content, message.entities)
-              : message.content;
+          _messageController.loadMessage(message.content, message.entities);
           _isEditing = true;
           _editingMessageId = message.id;
         });

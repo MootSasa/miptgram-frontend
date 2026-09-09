@@ -365,9 +365,41 @@ class TextMessageWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final markdownData = (entities != null && entities!.isNotEmpty)
-        ? EntityParser.toMarkdown(text, entities!)
+    final effectiveEntities = <MessageEntity>[
+      if (entities != null) ...entities!,
+    ];
+
+    if (effectiveEntities.isEmpty) {
+      final parsed = EntityParser.parseMarkdown(text);
+      if (parsed.entities.isNotEmpty) {
+        effectiveEntities.addAll(parsed.entities);
+      }
+    }
+
+    // Auto-detect any raw URLs in text not covered by existing entities
+    for (final match in EntityParser.urlRegex.allMatches(text)) {
+      final url = match.group(0)!;
+      final start = match.start;
+      final len = url.length;
+      final covered = effectiveEntities.any((e) =>
+          e.offset <= start && (e.offset + e.length) >= (start + len));
+      if (!covered) {
+        effectiveEntities.add(MessageEntity(
+          type: 'url',
+          offset: start,
+          length: len,
+          url: url,
+        ));
+      }
+    }
+
+    final markdownData = effectiveEntities.isNotEmpty
+        ? EntityParser.toMarkdown(text, effectiveEntities)
         : text;
+
+    final linkColor = isMe
+        ? (isDark ? const Color(0xFF7BE5DA) : const Color(0xFF007AFF))
+        : (isDark ? const Color(0xFF7BE5DA) : Theme.of(context).colorScheme.primary);
 
     return MarkdownBody(
       data: markdownData.trimRight(),
@@ -396,6 +428,14 @@ class TextMessageWidget extends StatelessWidget {
         pPadding: EdgeInsets.zero,
         blockSpacing: 0,
         listBulletPadding: const EdgeInsets.only(right: 4),
+        a: (style ?? Theme.of(context).textTheme.bodyMedium)?.copyWith(
+          color: linkColor,
+          decoration: TextDecoration.underline,
+          decorationColor: linkColor,
+          decorationThickness: 1.3,
+          fontSize: style?.fontSize ?? _kMessageFontSize,
+          height: 1.4,
+        ),
         code: TextStyle(
           fontFamily: 'monospace',
           fontSize: (style?.fontSize ?? _kMessageFontSize) * 0.9,
@@ -423,10 +463,17 @@ class TextMessageWidget extends StatelessWidget {
         'underline': UnderlineElementBuilder(style),
       },
       onTapLink: (text, href, title) async {
-        if (href != null) {
-          final url = Uri.parse(href);
-          if (await canLaunchUrl(url)) {
-            await launchUrl(url, mode: LaunchMode.externalApplication);
+        if (href != null && href.trim().isNotEmpty) {
+          final normalized = EntityParser.normalizeUrl(href.trim());
+          final uri = Uri.tryParse(normalized);
+          if (uri != null) {
+            try {
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+            } catch (e) {
+              debugPrint('Error launching URL $uri: $e');
+            }
           }
         }
       },

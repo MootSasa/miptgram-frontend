@@ -292,5 +292,54 @@ void main() {
       expect(urls, contains('https://google.com'));
       expect(urls, contains('https://www.github.com'));
     });
+
+    test('toMarkdown converts url and text_link entities into clickable markdown links', () {
+      const text = 'Visit Google or click here';
+      const entities = [
+        MessageEntity(type: 'url', offset: 6, length: 6, url: 'google.com'),
+        MessageEntity(type: 'text_link', offset: 16, length: 10, url: 'https://example.com'),
+      ];
+      final md = EntityParser.toMarkdown(text, entities);
+      expect(md, 'Visit [Google](https://google.com) or [click here](https://example.com)');
+    });
+
+    test('RichTextEditingController loadMessage loads clean text and spans', () {
+      final ctrl = RichTextEditingController();
+      const text = 'Visit Google site';
+      const entities = [
+        MessageEntity(type: 'text_link', offset: 6, length: 6, url: 'https://google.com'),
+      ];
+      ctrl.loadMessage(text, entities);
+      expect(ctrl.text, 'Visit Google site');
+      expect(ctrl.spans.length, 1);
+      expect(ctrl.spans.first.type, 'text_link');
+      expect(ctrl.spans.first.url, 'https://google.com');
+      expect(ctrl.spans.first.start, 6);
+      expect(ctrl.spans.first.end, 12);
+    });
+
+    test('applyLinkToSelection and removeLinkFromSelection edit links properly', () {
+      final ctrl = RichTextEditingController(text: 'Visit Google site');
+      ctrl.selection = const TextSelection(baseOffset: 6, extentOffset: 12);
+      ctrl.applyLinkToSelection('google.com');
+      expect(ctrl.spans.length, 1);
+      expect(ctrl.spans.first.url, 'https://google.com');
+
+      // Edit the link URL on the same range
+      ctrl.applyLinkToSelection('https://google.org', start: 6, end: 12);
+      expect(ctrl.spans.length, 1);
+      expect(ctrl.spans.first.url, 'https://google.org');
+
+      // Remove the link
+      ctrl.removeLinkFromSelection(start: 6, end: 12);
+      expect(ctrl.spans.isEmpty, isTrue);
+      expect(ctrl.text, 'Visit Google site');
+    });
+
+    test('RichTextEditingController entities detects raw URLs', () {
+      final ctrl = RichTextEditingController(text: 'Check google.com');
+      final entities = ctrl.entities;
+      expect(entities.any((e) => e.type == 'url' && e.url == 'google.com'), isTrue);
+    });
   });
 }

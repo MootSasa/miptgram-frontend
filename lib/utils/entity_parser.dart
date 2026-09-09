@@ -51,6 +51,9 @@ class EntityParser {
     caseSensitive: false,
   );
 
+  /// Regular expression for detecting URLs (both with scheme and bare domains).
+  static RegExp get urlRegex => _urlRegex;
+
   /// Ensures the URL starts with http:// or https://.
   static String normalizeUrl(String raw) {
     var u = cleanUrl(raw);
@@ -420,16 +423,11 @@ class EntityParser {
           }
           break;
         case 'url':
-          formatted = substring;
-          break;
         case 'text_link':
         case 'link':
-          final url = entity.url ?? substring;
-          if (url == substring) {
-            formatted = substring;
-          } else {
-            formatted = '[$substring]($url)';
-          }
+          final rawUrl = entity.url ?? substring;
+          final targetUrl = normalizeUrl(rawUrl);
+          formatted = '[$substring]($targetUrl)';
           break;
         default:
           formatted = substring;

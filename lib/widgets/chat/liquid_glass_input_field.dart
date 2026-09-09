@@ -750,7 +750,17 @@ class TextFormattingUtils {
   static void applyFormatting(TextEditingController controller, String type,
       {String? url}) {
     if (controller is RichTextEditingController) {
-      controller.applyFormat(type, url: url);
+      if (type == 'link' || type == 'text_link') {
+        if (url != null && url.isNotEmpty) {
+          controller.applyLinkToSelection(url);
+        } else {
+          controller.removeLinkFromSelection();
+        }
+      } else if (type == 'clear') {
+        controller.clearFormatting();
+      } else {
+        controller.applyFormat(type, url: url);
+      }
     } else {
       EntityParser.applyFormatting(
         controller: controller,
@@ -760,37 +770,125 @@ class TextFormattingUtils {
     }
   }
 
-  static void showLinkDialog(BuildContext context, TextEditingController controller) {
-    final textController = TextEditingController(text: 'https://');
+  static void showLinkDialog(
+      BuildContext context, TextEditingController controller) {
+    final sel = controller.selection;
+    RichSpan? existingLink;
+    if (controller is RichTextEditingController) {
+      existingLink = controller.getLinkSpanForSelection(sel);
+    }
+
+    final bool isEditingExisting = existingLink != null;
+    final String initialUrl = isEditingExisting
+        ? (existingLink.url ?? 'https://')
+        : (sel.isValid && !sel.isCollapsed
+            ? (EntityParser.urlRegex.hasMatch(controller.text.substring(
+                    math.min(sel.start, sel.end),
+                    math.max(sel.start, sel.end)))
+                ? EntityParser.normalizeUrl(controller.text.substring(
+                    math.min(sel.start, sel.end),
+                    math.max(sel.start, sel.end)))
+                : 'https://')
+            : 'https://');
+
+    final bool showTextField =
+        !isEditingExisting && (!sel.isValid || sel.isCollapsed);
+
+    final urlController = TextEditingController(text: initialUrl);
+    final textController = TextEditingController();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(ctx.l10n.translate('chat_action_link') != 'chat_action_link'
-            ? ctx.l10n.translate('chat_action_link')
-            : 'Ссылка'),
-        content: TextField(
-          controller: textController,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'https://example.com',
-            border: OutlineInputBorder(),
-          ),
-          keyboardType: TextInputType.url,
+        backgroundColor: isDark ? const Color(0xFF1E2225) : null,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          isEditingExisting
+              ? 'Редактировать ссылку'
+              : (AppLocalizations.of(ctx)?.translate('chat_action_link') ??
+                  'Ссылка'),
+          style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (showTextField) ...[
+              TextField(
+                controller: textController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Текст ссылки',
+                  hintText: 'Название ссылки',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            TextField(
+              controller: urlController,
+              autofocus: !showTextField,
+              decoration: InputDecoration(
+                labelText: isEditingExisting ? 'URL' : null,
+                hintText: 'https://example.com',
+                border: const OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.url,
+            ),
+          ],
         ),
         actions: [
+          if (isEditingExisting) ...[
+            Builder(builder: (c) {
+              final targetLink = existingLink!;
+              return TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  if (controller is RichTextEditingController) {
+                    controller.removeLinkFromSelection(
+                      start: targetLink.start,
+                      end: targetLink.end,
+                    );
+                  }
+                },
+                child: const Text('Удалить ссылку',
+                    style: TextStyle(color: Colors.redAccent)),
+              );
+            }),
+          ],
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: Text(ctx.l10n.translate('cancel')),
+            child: Text(
+                AppLocalizations.of(ctx)?.translate('cancel') ?? 'Отмена'),
           ),
           TextButton(
             onPressed: () {
-              final url = textController.text.trim();
+              final url = urlController.text.trim();
+              final label = textController.text.trim();
               Navigator.pop(ctx);
               if (url.isNotEmpty && url != 'https://') {
-                applyFormatting(controller, 'link', url: url);
+                if (controller is RichTextEditingController) {
+                  if (isEditingExisting) {
+                    final targetLink = existingLink!;
+                    controller.applyLinkToSelection(
+                      url,
+                      start: targetLink.start,
+                      end: targetLink.end,
+                    );
+                  } else if (showTextField && label.isNotEmpty) {
+                    controller.applyLinkToSelection(
+                      url,
+                      replacementText: label,
+                    );
+                  } else {
+                    controller.applyLinkToSelection(url);
+                  }
+                } else {
+                  applyFormatting(controller, 'link', url: url);
+                }
               }
             },
-            child: const Text('OK'),
+            child: Text(isEditingExisting ? 'Сохранить' : 'OK'),
           ),
         ],
       ),

@@ -191,5 +191,48 @@ void main() {
       expect(find.text('Цитировать'), findsOneWidget);
       expect(find.text('Назад'), findsNothing);
     });
+
+    testWidgets(
+        'showLinkDialog in edit mode displays Редактировать ссылку and Удалить ссылку',
+        (WidgetTester tester) async {
+      final controller = RichTextEditingController(text: 'Visit Google site');
+      controller.selection =
+          const TextSelection(baseOffset: 6, extentOffset: 12);
+      controller.applyLinkToSelection('https://google.com');
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) {
+                return ElevatedButton(
+                  onPressed: () {
+                    controller.selection =
+                        const TextSelection(baseOffset: 6, extentOffset: 12);
+                    TextFormattingUtils.showLinkDialog(context, controller);
+                  },
+                  child: const Text('Open Dialog'),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Open Dialog'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Редактировать ссылку'), findsOneWidget);
+      expect(find.text('Удалить ссылку'), findsOneWidget);
+      expect(find.text('https://google.com'), findsOneWidget);
+
+      // Tap "Удалить ссылку"
+      await tester.tap(find.text('Удалить ссылку'));
+      await tester.pumpAndSettle();
+
+      expect(controller.spans.isEmpty, isTrue);
+      expect(controller.text, 'Visit Google site');
+    });
   });
 }

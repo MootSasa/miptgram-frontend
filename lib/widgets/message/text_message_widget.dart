@@ -308,13 +308,38 @@ class UnderlineInlineSyntax extends md.InlineSyntax {
 
 /// Builder for underline text.
 class UnderlineElementBuilder extends MarkdownElementBuilder {
+  final TextStyle? baseStyle;
+
+  UnderlineElementBuilder([this.baseStyle]);
+
   @override
-  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+  Widget? visitElementAfterWithContext(
+    BuildContext context,
+    md.Element element,
+    TextStyle? preferredStyle,
+    TextStyle? parentStyle,
+  ) {
+    final effectiveStyle = parentStyle ?? preferredStyle ?? baseStyle ?? DefaultTextStyle.of(context).style;
     return Text(
       element.textContent,
-      style: preferredStyle?.copyWith(
+      style: effectiveStyle.copyWith(
         decoration: TextDecoration.underline,
+        decorationColor: effectiveStyle.color,
+        decorationThickness: 1.5,
       ),
+    );
+  }
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    final effectiveStyle = preferredStyle ?? baseStyle;
+    return Text(
+      element.textContent,
+      style: effectiveStyle?.copyWith(
+        decoration: TextDecoration.underline,
+        decorationColor: effectiveStyle.color,
+        decorationThickness: 1.5,
+      ) ?? const TextStyle(decoration: TextDecoration.underline),
     );
   }
 }
@@ -395,7 +420,7 @@ class TextMessageWidget extends StatelessWidget {
         'checkbox': CheckboxElementBuilder(),
         'emoji': EmojiElementBuilder(fontSize: style?.fontSize ?? _kMessageFontSize),
         'spoiler': SpoilerElementBuilder(style),
-        'underline': UnderlineElementBuilder(),
+        'underline': UnderlineElementBuilder(style),
       },
       onTapLink: (text, href, title) async {
         if (href != null) {

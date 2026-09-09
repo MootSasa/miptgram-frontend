@@ -230,12 +230,21 @@ class LinkPreviewOptions {
   });
 
   factory LinkPreviewOptions.fromJson(Map<String, dynamic> json) {
+    final rawDisabled = json['is_disabled'];
+    final bool isDisabled = rawDisabled == true || rawDisabled == 1 || rawDisabled == 'true';
+    final rawSmall = json['prefer_small_media'];
+    final bool preferSmall = rawSmall == true || rawSmall == 1 || rawSmall == 'true';
+    final rawLarge = json['prefer_large_media'];
+    final bool preferLarge = rawLarge == true || rawLarge == 1 || rawLarge == 'true';
+    final rawAbove = json['show_above_text'];
+    final bool showAbove = rawAbove == true || rawAbove == 1 || rawAbove == 'true';
+
     return LinkPreviewOptions(
-      isDisabled: json['is_disabled'] as bool? ?? false,
+      isDisabled: isDisabled,
       url: json['url']?.toString(),
-      preferSmallMedia: json['prefer_small_media'] as bool? ?? false,
-      preferLargeMedia: json['prefer_large_media'] as bool? ?? false,
-      showAboveText: json['show_above_text'] as bool? ?? false,
+      preferSmallMedia: preferSmall,
+      preferLargeMedia: preferLarge,
+      showAboveText: showAbove,
     );
   }
 

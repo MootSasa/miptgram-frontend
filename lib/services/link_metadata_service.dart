@@ -29,12 +29,12 @@ class LinkMetadataService {
   final Map<String, Future<LinkMetadata?>> _inFlight = {};
 
   LinkMetadata? getCached(String url) {
-    final clean = EntityParser.cleanUrl(url);
+    final clean = EntityParser.normalizeUrl(url);
     return _cache[clean];
   }
 
   Future<LinkMetadata?> fetchMetadata(String rawUrl) async {
-    final cleanUrl = EntityParser.cleanUrl(rawUrl);
+    final cleanUrl = EntityParser.normalizeUrl(rawUrl);
     if (cleanUrl.isEmpty) return null;
 
     if (_cache.containsKey(cleanUrl)) {

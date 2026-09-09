@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
+import 'package:flutter/services.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import '../../l10n/app_localizations.dart';
 import '../../utils/emoji_utils.dart';
@@ -465,14 +465,14 @@ class ItalicCaretPainter extends CustomPainter {
   }
 }
 
-/// Floating scrollable text selection context menu for rich text formatting.
-class ScrollableTextSelectionToolbar extends StatelessWidget {
+/// Telegram-style floating text selection toolbar with compact horizontal pill and expanded vertical menu.
+class TelegramTextSelectionToolbar extends StatefulWidget {
   final TextSelectionToolbarAnchors anchors;
   final List<ContextMenuButtonItem> buttonItems;
   final TextEditingController controller;
   final VoidCallback onHideToolbar;
 
-  const ScrollableTextSelectionToolbar({
+  const TelegramTextSelectionToolbar({
     Key? key,
     required this.anchors,
     required this.buttonItems,
@@ -481,176 +481,269 @@ class ScrollableTextSelectionToolbar extends StatelessWidget {
   }) : super(key: key);
 
   @override
+  State<TelegramTextSelectionToolbar> createState() =>
+      _TelegramTextSelectionToolbarState();
+}
+
+class _TelegramTextSelectionToolbarState
+    extends State<TelegramTextSelectionToolbar> {
+  bool _isExpanded = false;
+
+  static const Color _kDarkBg = Color(0xFF1E2225);
+  static const Color _kMintAccent = Color(0xFF7BE5DA);
+
+  void _executeCut() {
+    final cutItem = widget.buttonItems
+        .where((b) => b.type == ContextMenuButtonType.cut)
+        .firstOrNull;
+    if (cutItem?.onPressed != null) {
+      cutItem!.onPressed!();
+      return;
+    }
+    final sel = widget.controller.selection;
+    if (!sel.isValid || sel.isCollapsed) return;
+    final text = widget.controller.text.substring(sel.start, sel.end);
+    Clipboard.setData(ClipboardData(text: text));
+    final newText = widget.controller.text.replaceRange(sel.start, sel.end, '');
+    widget.controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: sel.start),
+    );
+  }
+
+  void _executeCopy() {
+    final copyItem = widget.buttonItems
+        .where((b) => b.type == ContextMenuButtonType.copy)
+        .firstOrNull;
+    if (copyItem?.onPressed != null) {
+      copyItem!.onPressed!();
+      return;
+    }
+    final sel = widget.controller.selection;
+    if (!sel.isValid || sel.isCollapsed) return;
+    final text = widget.controller.text.substring(sel.start, sel.end);
+    Clipboard.setData(ClipboardData(text: text));
+  }
+
+  Future<void> _executePaste() async {
+    final pasteItem = widget.buttonItems
+        .where((b) => b.type == ContextMenuButtonType.paste)
+        .firstOrNull;
+    if (pasteItem?.onPressed != null) {
+      pasteItem!.onPressed!();
+      return;
+    }
+    await _executePastePlainText();
+  }
+
+  Future<void> _executePastePlainText() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (data?.text != null) {
+      final sel = widget.controller.selection;
+      final start = sel.isValid ? sel.start : widget.controller.text.length;
+      final end = sel.isValid ? sel.end : start;
+      final newText =
+          widget.controller.text.replaceRange(start, end, data!.text!);
+      widget.controller.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: start + data.text!.length),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    final bgColor = isDark
-        ? const Color(0xFF1E293B).withValues(alpha: 0.96)
-        : Colors.white.withValues(alpha: 0.96);
-    final iconColor = isDark ? Colors.white : const Color(0xFF1E293B);
-    final dividerColor = isDark ? Colors.white24 : Colors.black12;
-
     return CustomSingleChildLayout(
       delegate: TextSelectionToolbarLayoutDelegate(
-        anchorAbove: anchors.primaryAnchor,
-        anchorBelow: anchors.secondaryAnchor ?? anchors.primaryAnchor,
+        anchorAbove: widget.anchors.primaryAnchor,
+        anchorBelow:
+            widget.anchors.secondaryAnchor ?? widget.anchors.primaryAnchor,
       ),
       child: Material(
         elevation: 8.0,
         borderRadius: BorderRadius.circular(16.0),
-        color: bgColor,
+        color: _kDarkBg,
         clipBehavior: Clip.antiAlias,
         child: Container(
-          height: 44.0,
-          constraints: BoxConstraints(
-            maxWidth: math.max(120.0, MediaQuery.of(context).size.width - 32.0),
-          ),
           decoration: BoxDecoration(
-            border: Border.all(
-              color: isDark ? Colors.white12 : Colors.black12,
-              width: 0.8,
-            ),
+            color: _kDarkBg,
             borderRadius: BorderRadius.circular(16.0),
+            border: Border.all(color: Colors.white12, width: 0.8),
           ),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 4.0),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // 1. Standard actions (Cut, Copy, Paste, etc.)
-                for (final item in buttonItems)
-                  TextButton(
-                    onPressed: item.onPressed,
-                    style: TextButton.styleFrom(
-                      foregroundColor: iconColor,
-                      padding: const EdgeInsets.symmetric(horizontal: 10.0),
-                      minimumSize: const Size(0, 36),
-                      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                    ),
-                    child: Text(item.label ?? ''),
-                  ),
+          child: _isExpanded ? _buildExpandedVerticalMenu() : _buildCompactPill(),
+        ),
+      ),
+    );
+  }
 
-                // 2. Divider if both standard actions and formatting buttons exist
-                if (buttonItems.isNotEmpty)
-                  Container(
-                    width: 1.0,
-                    height: 20.0,
-                    margin: const EdgeInsets.symmetric(horizontal: 4.0),
-                    color: dividerColor,
-                  ),
-
-                // 3. Formatting buttons with icons
-                _buildFormatButton(
-                  icon: iconoir.Bold(color: iconColor, width: 18, height: 18),
-                  tooltip: context.l10n.translate('format_bold'),
-                  onTap: () {
-                    TextFormattingUtils.applyFormatting(controller, 'bold');
-                    onHideToolbar();
-                  },
-                ),
-                _buildFormatButton(
-                  icon: iconoir.Italic(color: iconColor, width: 18, height: 18),
-                  tooltip: context.l10n.translate('format_italic'),
-                  onTap: () {
-                    TextFormattingUtils.applyFormatting(controller, 'italic');
-                    onHideToolbar();
-                  },
-                ),
-                _buildFormatButton(
-                  icon: iconoir.Strikethrough(color: iconColor, width: 18, height: 18),
-                  tooltip: context.l10n.translate('format_strikethrough'),
-                  onTap: () {
-                    TextFormattingUtils.applyFormatting(controller, 'strikethrough');
-                    onHideToolbar();
-                  },
-                ),
-                _buildFormatButton(
-                  icon: iconoir.Underline(color: iconColor, width: 18, height: 18),
-                  tooltip: context.l10n.translate('format_underline'),
-                  onTap: () {
-                    TextFormattingUtils.applyFormatting(controller, 'underline');
-                    onHideToolbar();
-                  },
-                ),
-                _buildFormatButton(
-                  icon: iconoir.EyeClosed(color: iconColor, width: 18, height: 18),
-                  tooltip: context.l10n.translate('format_spoiler'),
-                  onTap: () {
-                    TextFormattingUtils.applyFormatting(controller, 'spoiler');
-                    onHideToolbar();
-                  },
-                ),
-                _buildFormatButton(
-                  icon: iconoir.Code(color: iconColor, width: 18, height: 18),
-                  tooltip: context.l10n.translate('format_code'),
-                  onTap: () {
-                    TextFormattingUtils.applyFormatting(controller, 'code');
-                    onHideToolbar();
-                  },
-                ),
-                _buildFormatButton(
-                  icon: iconoir.Quote(color: iconColor, width: 18, height: 18),
-                  tooltip: context.l10n.translate('format_quote'),
-                  onTap: () {
-                    TextFormattingUtils.applyFormatting(controller, 'quote');
-                    onHideToolbar();
-                  },
-                ),
-                _buildFormatButton(
-                  icon: iconoir.NavArrowDown(color: iconColor, width: 18, height: 18),
-                  tooltip: context.l10n.translate('format_collapse'),
-                  onTap: () {
-                    TextFormattingUtils.applyFormatting(controller, 'collapse');
-                    onHideToolbar();
-                  },
-                ),
-                _buildFormatButton(
-                  icon: iconoir.Link(color: iconColor, width: 18, height: 18),
-                  tooltip: 'Ссылка',
-                  onTap: () {
-                    onHideToolbar();
-                    TextFormattingUtils.showLinkDialog(context, controller);
-                  },
-                ),
-                _buildFormatButton(
-                  icon: iconoir.Refresh(color: iconColor, width: 18, height: 18),
-                  tooltip: context.l10n.translate('format_clear'),
-                  onTap: () {
-                    TextFormattingUtils.applyFormatting(controller, 'clear');
-                    onHideToolbar();
-                  },
-                ),
-              ],
+  Widget _buildCompactPill() {
+    return Container(
+      height: 44.0,
+      padding: const EdgeInsets.symmetric(horizontal: 4.0),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          _buildPillButton('Вырезать', () {
+            _executeCut();
+            widget.onHideToolbar();
+          }),
+          _buildPillButton('Цитировать', () {
+            TextFormattingUtils.applyFormatting(widget.controller, 'quote');
+            widget.onHideToolbar();
+          }),
+          InkWell(
+            borderRadius: BorderRadius.circular(12.0),
+            onTap: () {
+              setState(() => _isExpanded = true);
+            },
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
+              child: Icon(Icons.more_vert, color: _kMintAccent, size: 22),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPillButton(String label, VoidCallback onTap) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12.0),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: _kMintAccent,
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ),
     );
   }
 
-  Widget _buildFormatButton({
-    required Widget icon,
-    required String tooltip,
-    required VoidCallback onTap,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8.0),
-        child: Container(
-          width: 36.0,
-          height: 36.0,
-          alignment: Alignment.center,
-          child: icon,
+  Widget _buildExpandedVerticalMenu() {
+    return Container(
+      width: 240.0,
+      constraints: const BoxConstraints(maxHeight: 300.0),
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildMenuItem('Копировать', () {
+                    _executeCopy();
+                    widget.onHideToolbar();
+                  }),
+                  _buildMenuItem('Скрытый', () {
+                    TextFormattingUtils.applyFormatting(
+                        widget.controller, 'spoiler');
+                    widget.onHideToolbar();
+                  }),
+                  _buildMenuItem('Вставить', () {
+                    _executePaste();
+                    widget.onHideToolbar();
+                  }),
+                  _buildMenuItem('Жирный', () {
+                    TextFormattingUtils.applyFormatting(
+                        widget.controller, 'bold');
+                    widget.onHideToolbar();
+                  }),
+                  _buildMenuItem('Вставить как обычный текст', () {
+                    _executePastePlainText();
+                    widget.onHideToolbar();
+                  }),
+                  _buildMenuItem('Курсив', () {
+                    TextFormattingUtils.applyFormatting(
+                        widget.controller, 'italic');
+                    widget.onHideToolbar();
+                  }),
+                  _buildMenuItem('Подчёркнутый', () {
+                    TextFormattingUtils.applyFormatting(
+                        widget.controller, 'underline');
+                    widget.onHideToolbar();
+                  }),
+                  _buildMenuItem('Зачёркнутый', () {
+                    TextFormattingUtils.applyFormatting(
+                        widget.controller, 'strikethrough');
+                    widget.onHideToolbar();
+                  }),
+                  _buildMenuItem('Моноширинный', () {
+                    TextFormattingUtils.applyFormatting(
+                        widget.controller, 'code');
+                    widget.onHideToolbar();
+                  }),
+                  _buildMenuItem('Ссылка', () {
+                    widget.onHideToolbar();
+                    TextFormattingUtils.showLinkDialog(
+                        context, widget.controller);
+                  }),
+                  _buildMenuItem('Очистить', () {
+                    TextFormattingUtils.applyFormatting(
+                        widget.controller, 'clear');
+                    widget.onHideToolbar();
+                  }),
+                ],
+              ),
+            ),
+          ),
+          const Divider(height: 1, thickness: 0.5, color: Colors.white12),
+          InkWell(
+            onTap: () {
+              setState(() => _isExpanded = false);
+            },
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 11.0),
+              child: Row(
+                children: [
+                  Icon(Icons.arrow_back, color: _kMintAccent, size: 18),
+                  SizedBox(width: 12),
+                  Text(
+                    'Назад',
+                    style: TextStyle(
+                      color: _kMintAccent,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMenuItem(String label, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: _kMintAccent,
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
     );
   }
 }
+
+typedef ScrollableTextSelectionToolbar = TelegramTextSelectionToolbar;
 
 /// Утилиты форматирования выделенного текста для контекстного меню
 class TextFormattingUtils {

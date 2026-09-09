@@ -68,12 +68,15 @@ class _LinkPreviewCardState extends State<LinkPreviewCard> {
     }
   }
 
-  String get _cleanUrl => EntityParser.cleanUrl(widget.url);
+  String get _cleanUrl => EntityParser.normalizeUrl(widget.url);
 
   String get _domain {
     try {
       final uri = Uri.parse(_cleanUrl);
-      return uri.host.replaceFirst(RegExp(r'^www\.'), '').toUpperCase();
+      if (uri.host.isNotEmpty) {
+        return uri.host.replaceFirst(RegExp(r'^www\.'), '').toUpperCase();
+      }
+      return 'LINK';
     } catch (_) {
       return 'LINK';
     }

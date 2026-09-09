@@ -50,6 +50,9 @@ class RichTextEditingController extends TextEditingController {
   String? _activeFormat;
   String _lastText = '';
 
+  /// Returns unmodifiable list of rich text spans.
+  List<RichSpan> get spans => List.unmodifiable(_spans);
+
   RichTextEditingController({String? text, List<MessageEntity>? initialEntities})
       : super(text: text ?? '') {
     _lastText = this.text;
@@ -308,7 +311,11 @@ class RichTextEditingController extends TextEditingController {
             segStyle = segStyle.copyWith(decoration: TextDecoration.lineThrough);
             break;
           case 'underline':
-            segStyle = segStyle.copyWith(decoration: TextDecoration.underline);
+            segStyle = segStyle.copyWith(
+              decoration: TextDecoration.underline,
+              decorationColor: segStyle.color,
+              decorationThickness: 1.5,
+            );
             break;
           case 'code':
             segStyle = segStyle.copyWith(

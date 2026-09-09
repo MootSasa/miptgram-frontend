@@ -931,16 +931,27 @@ class MessageBubble extends StatelessWidget {
         final previewOpts = message.linkPreviewOptions;
         final bool previewDisabled = previewOpts?.isDisabled ?? false;
         String? previewUrl = previewOpts?.url;
-        if (previewUrl == null && !previewDisabled) {
+        if ((previewUrl == null || previewUrl.isEmpty) && !previewDisabled) {
           final urls = EntityParser.extractUrls(message.content);
-          if (urls.isNotEmpty) previewUrl = urls.first;
+          if (urls.isNotEmpty) {
+            previewUrl = urls.first;
+          } else if (message.entities.isNotEmpty) {
+            for (final e in message.entities) {
+              if ((e.type == 'text_link' || e.type == 'link' || e.type == 'url') &&
+                  e.url != null &&
+                  e.url!.isNotEmpty) {
+                previewUrl = e.url;
+                break;
+              }
+            }
+          }
         }
 
-        if (previewUrl != null && !previewDisabled) {
+        if (previewUrl != null && previewUrl.isNotEmpty && !previewDisabled) {
           final bool showAbove = previewOpts?.showAboveText ?? false;
           final bool preferLarge = previewOpts?.preferLargeMedia ?? false;
           final previewCard = LinkPreviewCard(
-            url: previewUrl,
+            url: EntityParser.normalizeUrl(previewUrl),
             preferLargeMedia: preferLarge,
             isDark: isDark,
           );

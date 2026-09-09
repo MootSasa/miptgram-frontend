@@ -46,9 +46,19 @@ class _RawEntity {
 /// compatible with Dart strings, emoji surrogate pairs, and the Telegram Bot API standard.
 class EntityParser {
   static final RegExp _urlRegex = RegExp(
-    r'https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)',
+    r'(?:https?:\/\/|www\.)[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)'
+    r'|[-a-zA-Z0-9@:%._\+~#=]{1,256}\.(?:com|org|net|ru|io|me|dev|app|ai|edu|gov|co|info|biz|tv|cc|to|tech|online|site|space|fun|store|live|club|pro|vip|top|xyz)\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)',
     caseSensitive: false,
   );
+
+  /// Ensures the URL starts with http:// or https://.
+  static String normalizeUrl(String raw) {
+    var u = cleanUrl(raw);
+    if (!u.startsWith('http://') && !u.startsWith('https://')) {
+      u = 'https://$u';
+    }
+    return u;
+  }
 
   /// Strip trailing punctuation and unbalanced closing parentheses from a URL.
   static String cleanUrl(String url) {
@@ -82,9 +92,9 @@ class EntityParser {
     final urls = <String>[];
 
     // 1. Explicit markdown links: [label](url)
-    final mdLinkRegex = RegExp(r'\[(?:[^\]]*)\]\((https?:\/\/[^\s\)]+)\)');
+    final mdLinkRegex = RegExp(r'\[(?:[^\]]*)\]\(((?:https?:\/\/|www\.)?[^\s\)]+)\)');
     for (final match in mdLinkRegex.allMatches(text)) {
-      final u = cleanUrl(match.group(1)!);
+      final u = normalizeUrl(match.group(1)!);
       if (u.isNotEmpty && !urls.contains(u)) {
         urls.add(u);
       }
@@ -92,7 +102,7 @@ class EntityParser {
 
     // 2. Plain URLs
     for (final match in _urlRegex.allMatches(text)) {
-      final u = cleanUrl(match.group(0)!);
+      final u = normalizeUrl(match.group(0)!);
       if (u.isNotEmpty && !urls.contains(u)) {
         urls.add(u);
       }

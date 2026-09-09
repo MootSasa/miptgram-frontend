@@ -256,5 +256,41 @@ void main() {
       ctrl.selection = const TextSelection.collapsed(offset: 2);
       expect(ctrl.isCursorItalic, isFalse);
     });
+
+    testWidgets('underline formatting applies TextDecoration.underline in buildTextSpan', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) {
+            final ctrl = RichTextEditingController(text: 'Hello underline text');
+            ctrl.selection = const TextSelection(baseOffset: 6, extentOffset: 15);
+            ctrl.applyFormat('underline');
+
+            expect(ctrl.spans.length, 1);
+            expect(ctrl.spans.first.type, 'underline');
+
+            final span = ctrl.buildTextSpan(context: context, withComposing: false);
+            expect(span.children, isNotNull);
+            final underlineChild = span.children![1] as TextSpan;
+            expect(underlineChild.text, 'underline');
+            expect(underlineChild.style?.decoration, TextDecoration.underline);
+
+            return const SizedBox.shrink();
+          },
+        ),
+      ));
+    });
+
+    test('normalizeUrl prepends https:// when scheme is omitted', () {
+      expect(EntityParser.normalizeUrl('google.com'), 'https://google.com');
+      expect(EntityParser.normalizeUrl('www.github.com/flutter'), 'https://www.github.com/flutter');
+      expect(EntityParser.normalizeUrl('http://insecure.site'), 'http://insecure.site');
+      expect(EntityParser.normalizeUrl('https://secure.site'), 'https://secure.site');
+    });
+
+    test('extractUrls detects domains without http/https prefix', () {
+      final urls = EntityParser.extractUrls('Check out google.com and www.github.com');
+      expect(urls, contains('https://google.com'));
+      expect(urls, contains('https://www.github.com'));
+    });
   });
 }

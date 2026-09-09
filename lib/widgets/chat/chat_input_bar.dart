@@ -6,7 +6,6 @@ import '../../l10n/app_localizations.dart';
 import '../../services/chat_service.dart';
 import '../../services/liquid_glass_provider.dart';
 import '../../utils/entity_parser.dart';
-import 'formatting_toolbar.dart';
 import 'link_preview_input_bar.dart';
 import 'liquid_glass_input_field.dart';
 import 'reply_preview_bar.dart';
@@ -91,7 +90,6 @@ class ChatInputBar extends StatefulWidget {
 }
 
 class _ChatInputBarState extends State<ChatInputBar> {
-  bool _hasSelection = false;
   bool _internalInvertMedia = false;
   LinkPreviewOptions? _internalLinkPreviewOptions;
   bool _linkPreviewDismissed = false;
@@ -130,19 +128,20 @@ class _ChatInputBarState extends State<ChatInputBar> {
 
   void _handleTextChange() {
     _extractUrls(widget.controller.text);
-    final sel = widget.controller.selection;
-    final hasSel = sel.isValid &&
-        !sel.isCollapsed &&
-        sel.textInside(widget.controller.text).isNotEmpty;
-    if (_hasSelection != hasSel) {
-      setState(() {
-        _hasSelection = hasSel;
-      });
-    }
   }
 
   void _extractUrls(String text) {
-    final urls = EntityParser.extractUrls(text);
+    final urls = <String>[...EntityParser.extractUrls(text)];
+    if (widget.controller is RichTextEditingController) {
+      final richCtrl = widget.controller as RichTextEditingController;
+      for (final span in richCtrl.spans) {
+        if (span.url != null && span.url!.trim().isNotEmpty) {
+          final u = EntityParser.normalizeUrl(span.url!);
+          if (!urls.contains(u)) urls.add(u);
+        }
+      }
+    }
+
     if (_detectedUrls.length != urls.length ||
         !_detectedUrls.every(urls.contains)) {
       setState(() {
@@ -150,8 +149,12 @@ class _ChatInputBarState extends State<ChatInputBar> {
         if (urls.isEmpty) {
           _internalLinkPreviewOptions = null;
           _linkPreviewDismissed = false;
-        } else if (!_linkPreviewDismissed && _effectiveLinkPreviewOptions == null) {
-          _internalLinkPreviewOptions = LinkPreviewOptions(url: urls.first);
+        } else if (!_linkPreviewDismissed) {
+          if (_internalLinkPreviewOptions == null ||
+              _internalLinkPreviewOptions!.url == null ||
+              !urls.contains(_internalLinkPreviewOptions!.url)) {
+            _internalLinkPreviewOptions = LinkPreviewOptions(url: urls.first);
+          }
         }
       });
     }
@@ -172,10 +175,17 @@ class _ChatInputBarState extends State<ChatInputBar> {
         entities = parsed.entities;
       }
 
+      LinkPreviewOptions? sendPreviewOptions = _effectiveLinkPreviewOptions;
+      if (sendPreviewOptions == null &&
+          !_linkPreviewDismissed &&
+          _detectedUrls.isNotEmpty) {
+        sendPreviewOptions = LinkPreviewOptions(url: _detectedUrls.first);
+      }
+
       widget.onSendDetailed!(
         cleanText,
         entities,
-        _effectiveLinkPreviewOptions,
+        sendPreviewOptions,
         _effectiveInvertMedia,
       );
     } else {
@@ -183,7 +193,6 @@ class _ChatInputBarState extends State<ChatInputBar> {
     }
     widget.controller.clear();
     setState(() {
-      _hasSelection = false;
       _internalInvertMedia = false;
       _internalLinkPreviewOptions = null;
       _linkPreviewDismissed = false;
@@ -205,19 +214,6 @@ class _ChatInputBarState extends State<ChatInputBar> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 0. Formatting Toolbar (when text is selected in input field)
-        if (_hasSelection)
-          FormattingToolbar(
-            controller: widget.controller,
-            hasMedia: widget.attachedFiles.isNotEmpty,
-            invertMedia: _effectiveInvertMedia,
-            onToggleInvertMedia: (val) {
-              setState(() => _internalInvertMedia = val);
-              widget.onInvertMediaChanged?.call(val);
-            },
-            onClose: () => setState(() => _hasSelection = false),
-          ),
-
         // 1. Link Preview Input Bar (when URLs detected and not disabled)
         if (_detectedUrls.isNotEmpty &&
             _effectiveLinkPreviewOptions != null &&

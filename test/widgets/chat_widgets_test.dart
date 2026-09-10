@@ -281,5 +281,25 @@ void main() {
       expect(themeWidget.data.textSelectionTheme.selectionHandleColor, isNotNull);
       expect(themeWidget.data.textSelectionTheme.selectionColor, isNotNull);
     });
+
+    testWidgets(
+        'Assigns TelegramTextSelectionControls with TextSelectionHandleControls to TextField',
+        (WidgetTester tester) async {
+      final controller = TextEditingController(text: 'Hello world');
+      await tester.pumpWidget(
+        createTestApp(
+          LiquidGlassInputField(
+            enabled: true,
+            controller: controller,
+            hintText: 'Type...',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final textField = tester.widget<TextField>(find.byType(TextField));
+      expect(textField.selectionControls, isA<TextSelectionHandleControls>());
+      expect(textField.selectionControls, isA<TelegramTextSelectionControls>());
+    });
   });
 }

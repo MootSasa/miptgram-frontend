@@ -508,7 +508,8 @@ class ItalicCaretPainter extends CustomPainter {
 /// Кастомные маркеры выделения текста в стиле Telegram.
 /// Имеют размер 26px и увеличенную область нажатия, что обеспечивает
 /// комфортное и точное перетаскивание на сенсорных экранах.
-class TelegramTextSelectionControls extends MaterialTextSelectionControls {
+class TelegramTextSelectionControls extends MaterialTextSelectionControls
+    with TextSelectionHandleControls {
   TelegramTextSelectionControls();
 
   static const double _kHandleSize = 26.0;

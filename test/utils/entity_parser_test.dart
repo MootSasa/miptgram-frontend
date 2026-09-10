@@ -341,5 +341,80 @@ void main() {
       final entities = ctrl.entities;
       expect(entities.any((e) => e.type == 'url' && e.url == 'google.com'), isTrue);
     });
+
+    test('RichTextEditingController cleanText returns parsed text when typing markdown directly', () {
+      final ctrl = RichTextEditingController(text: 'Hello **world**');
+      expect(ctrl.text, 'Hello **world**');
+      expect(ctrl.cleanText, 'Hello world');
+      expect(ctrl.entities.length, 1);
+      expect(ctrl.entities.first.type, 'bold');
+      expect(ctrl.entities.first.offset, 6);
+      expect(ctrl.entities.first.length, 5);
+    });
+
+    testWidgets('monospace code has transparent background in RichTextEditingController buildTextSpan', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) {
+            final ctrl = RichTextEditingController(text: 'Hello code text');
+            ctrl.selection = const TextSelection(baseOffset: 6, extentOffset: 10);
+            ctrl.applyFormat('code');
+
+            final span = ctrl.buildTextSpan(context: context, withComposing: false);
+            final codeChild = span.children![1] as TextSpan;
+            expect(codeChild.text, 'code');
+            expect(codeChild.style?.fontFamily, 'monospace');
+            expect(codeChild.style?.backgroundColor, isNull);
+
+            return const SizedBox.shrink();
+          },
+        ),
+      ));
+    });
+  });
+
+  group('EntityParser Advanced & Nested Formatting', () {
+    test('parses nested bold inside spoiler', () {
+      final res = EntityParser.parseMarkdown('||**bold spoiler**||');
+      expect(res.cleanText, 'bold spoiler');
+      expect(res.entities.length, 2);
+      expect(res.entities.any((e) => e.type == 'spoiler' && e.offset == 0 && e.length == 12), isTrue);
+      expect(res.entities.any((e) => e.type == 'bold' && e.offset == 0 && e.length == 12), isTrue);
+    });
+
+    test('protects snake_case identifiers from italic parsing', () {
+      final res = EntityParser.parseMarkdown('my_variable_name should not be italic');
+      expect(res.cleanText, 'my_variable_name should not be italic');
+      expect(res.entities.isEmpty, isTrue);
+    });
+
+    test('parses bare domain markdown link', () {
+      final res = EntityParser.parseMarkdown('[Search](google.com)');
+      expect(res.cleanText, 'Search');
+      expect(res.entities.length, 1);
+      expect(res.entities.first.type, 'text_link');
+      expect(res.entities.first.url, 'https://google.com');
+    });
+
+    test('toMarkdown preserves order with multiple sequential and nested entities', () {
+      const text = 'First Second Third';
+      const entities = [
+        MessageEntity(type: 'bold', offset: 0, length: 5), // First
+        MessageEntity(type: 'spoiler', offset: 6, length: 6), // Second
+        MessageEntity(type: 'italic', offset: 13, length: 5), // Third
+      ];
+      final md = EntityParser.toMarkdown(text, entities);
+      expect(md, '**First** ||Second|| *Third*');
+    });
+
+    test('toMarkdown handles nested bold in spoiler', () {
+      const text = 'secret';
+      const entities = [
+        MessageEntity(type: 'spoiler', offset: 0, length: 6),
+        MessageEntity(type: 'bold', offset: 0, length: 6),
+      ];
+      final md = EntityParser.toMarkdown(text, entities);
+      expect(md, '||**secret**||');
+    });
   });
 }

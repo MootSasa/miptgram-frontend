@@ -327,11 +327,17 @@ class RichTextEditingController extends TextEditingController {
   }
 
   /// Returns clean plain text without any markdown delimiters.
-  String get cleanText => text;
+  String get cleanText {
+    if (_spans.isEmpty) {
+      return EntityParser.parseMarkdown(text).cleanText;
+    }
+    return text;
+  }
 
   /// Returns computed message entities matching the styled spans, plus any raw URLs.
   List<MessageEntity> get entities {
     List<MessageEntity> result = [];
+    final effectiveText = cleanText;
     if (_spans.isEmpty) {
       // If user typed markdown tokens manually, fallback to parseMarkdown
       final parsed = EntityParser.parseMarkdown(text);
@@ -346,7 +352,7 @@ class RichTextEditingController extends TextEditingController {
     }
 
     // Also detect any raw URLs in text not covered by existing entities
-    for (final match in EntityParser.urlRegex.allMatches(text)) {
+    for (final match in EntityParser.urlRegex.allMatches(effectiveText)) {
       final url = match.group(0)!;
       final start = match.start;
       final len = url.length;
@@ -523,13 +529,12 @@ class RichTextEditingController extends TextEditingController {
           case 'code':
             segStyle = segStyle.copyWith(
               fontFamily: 'monospace',
-              backgroundColor: isDark ? Colors.white12 : Colors.black12,
             );
             break;
           case 'spoiler':
             segStyle = segStyle.copyWith(
-              backgroundColor: isDark ? const Color(0xFF3B2D54) : const Color(0xFFE9D5FF),
-              color: isDark ? const Color(0xFFD8B4FE) : const Color(0xFF7E22CE),
+              backgroundColor: Colors.transparent,
+              color: isDark ? Colors.white38 : Colors.black38,
             );
             break;
           case 'quote':

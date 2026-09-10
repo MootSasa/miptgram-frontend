@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -7,6 +8,7 @@ import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import '../../l10n/app_localizations.dart';
 import '../../utils/emoji_utils.dart';
 import '../../utils/entity_parser.dart';
+import '../message/spoiler_text_widget.dart';
 import 'rich_text_editing_controller.dart';
 export 'rich_text_editing_controller.dart';
 
@@ -73,12 +75,15 @@ class LiquidGlassInputField extends StatefulWidget {
 }
 
 class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final GlobalKey _fieldKey = GlobalKey();
   late final AnimationController _blinkController;
+  late final AnimationController _spoilerController;
   late final ScrollController _scrollController;
+  final List<SpoilerParticle> _spoilerParticles = [];
   String _lastRecordedText = '';
   bool _lastShowItalic = false;
+  bool _lastHasSpoilers = false;
 
   bool _computeShowItalic() {
     final richCtrl = widget.controller is RichTextEditingController
@@ -88,6 +93,19 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
         (widget.focusNode?.hasFocus ?? false) &&
         widget.controller.selection.isValid &&
         widget.controller.selection.isCollapsed;
+  }
+
+  bool _hasSpoilers() {
+    final richCtrl = widget.controller is RichTextEditingController
+        ? widget.controller as RichTextEditingController
+        : null;
+    return richCtrl?.spans.any((s) => s.type == 'spoiler') ?? false;
+  }
+
+  void _ensureInputSpoilerParticles() {
+    while (_spoilerParticles.length < 80) {
+      _spoilerParticles.add(SpoilerParticle.create(300, 40));
+    }
   }
 
   @override
@@ -103,6 +121,17 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
     if (widget.focusNode?.hasFocus == true) {
       _blinkController.repeat(reverse: true);
     }
+
+    _spoilerController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+    _lastHasSpoilers = _hasSpoilers();
+    if (_lastHasSpoilers) {
+      _ensureInputSpoilerParticles();
+      _spoilerController.repeat();
+    }
+
     widget.controller.addListener(_onControllerChanged);
     widget.focusNode?.addListener(_onFocusChanged);
     // Refresh text field when font loads
@@ -117,6 +146,14 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
       widget.controller.addListener(_onControllerChanged);
       _lastRecordedText = widget.controller.text;
       _lastShowItalic = _computeShowItalic();
+      final hasSpoilers = _hasSpoilers();
+      if (hasSpoilers && !_spoilerController.isAnimating) {
+        _ensureInputSpoilerParticles();
+        _spoilerController.repeat();
+      } else if (!hasSpoilers && _spoilerController.isAnimating) {
+        _spoilerController.stop();
+      }
+      _lastHasSpoilers = hasSpoilers;
     }
     if (oldWidget.focusNode != widget.focusNode) {
       oldWidget.focusNode?.removeListener(_onFocusChanged);
@@ -129,6 +166,7 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
     widget.controller.removeListener(_onControllerChanged);
     widget.focusNode?.removeListener(_onFocusChanged);
     _blinkController.dispose();
+    _spoilerController.dispose();
     _scrollController.dispose();
     EmojiUtils.isFontLoaded.removeListener(_handleFontLoaded);
     super.dispose();
@@ -139,10 +177,21 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
     if (widget.focusNode?.hasFocus == true && !_blinkController.isAnimating) {
       _blinkController.repeat(reverse: true);
     }
+    final hasSpoilers = _hasSpoilers();
+    if (hasSpoilers && !_spoilerController.isAnimating) {
+      _ensureInputSpoilerParticles();
+      _spoilerController.repeat();
+    } else if (!hasSpoilers && _spoilerController.isAnimating) {
+      _spoilerController.stop();
+    }
+
     final showItalic = _computeShowItalic();
-    if (widget.controller.text != _lastRecordedText || showItalic != _lastShowItalic) {
+    if (widget.controller.text != _lastRecordedText ||
+        showItalic != _lastShowItalic ||
+        hasSpoilers != _lastHasSpoilers) {
       _lastRecordedText = widget.controller.text;
       _lastShowItalic = showItalic;
+      _lastHasSpoilers = hasSpoilers;
       if (mounted) setState(() {});
     }
   }
@@ -311,6 +360,8 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
     final hasCollapsedSelection = widget.controller.selection.isValid &&
         widget.controller.selection.isCollapsed;
     final showItalicCursor = isItalic && isFocused && hasCollapsedSelection;
+    final hasSpoilers = richCtrl?.spans.any((s) => s.type == 'spoiler') ?? false;
+    final spoilerColor = isDark ? Colors.white70 : Colors.black87;
 
     final cursorColor = theme.colorScheme.primary;
     final selectionHandleColor =
@@ -339,16 +390,26 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
               valueListenable: EmojiUtils.isFontLoaded,
               builder: (context, isLoaded, child) {
                 return CustomPaint(
-                  foregroundPainter: showItalicCursor
-                      ? ItalicCaretPainter(
+                  foregroundPainter: hasSpoilers && richCtrl != null
+                      ? InputSpoilerOverlayPainter(
                           fieldKey: _fieldKey,
-                          controller: widget.controller,
-                          color: cursorColor,
-                          repaint: _blinkController,
-                          opacityAnimation: _blinkController,
+                          controller: richCtrl,
+                          color: spoilerColor,
+                          particles: _spoilerParticles,
+                          repaint: _spoilerController,
                         )
                       : null,
-                  child: TextField(
+                  child: CustomPaint(
+                    foregroundPainter: showItalicCursor
+                        ? ItalicCaretPainter(
+                            fieldKey: _fieldKey,
+                            controller: widget.controller,
+                            color: cursorColor,
+                            repaint: _blinkController,
+                            opacityAnimation: _blinkController,
+                          )
+                        : null,
+                    child: TextField(
                     key: _fieldKey,
                     controller: widget.controller,
                     focusNode: widget.focusNode,
@@ -397,8 +458,9 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
                     },
                     textAlignVertical: TextAlignVertical.center,
                   ),
-                );
-              },
+                ),
+              );
+            },
             ),
           ),
         ),
@@ -502,6 +564,116 @@ class ItalicCaretPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant ItalicCaretPainter oldDelegate) {
     return oldDelegate.color != color;
+  }
+}
+
+/// Custom painter that overlays shimmering spoiler particles over spoiler text spans
+/// in the input field, exactly as Telegram does.
+class InputSpoilerOverlayPainter extends CustomPainter {
+  final GlobalKey fieldKey;
+  final RichTextEditingController controller;
+  final Color color;
+  final List<SpoilerParticle> particles;
+
+  InputSpoilerOverlayPainter({
+    required this.fieldKey,
+    required this.controller,
+    required this.color,
+    required this.particles,
+    required Listenable repaint,
+  }) : super(repaint: repaint);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0 || particles.isEmpty) return;
+
+    final renderBox = fieldKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null || !renderBox.hasSize) return;
+
+    final renderEditable = ItalicCaretPainter._findRenderEditable(renderBox);
+    if (renderEditable == null) return;
+
+    final text = controller.text;
+    final spoilerSpans = controller.spans.where((s) => s.type == 'spoiler').toList();
+    if (spoilerSpans.isEmpty) return;
+
+    for (final span in spoilerSpans) {
+      final start = span.start.clamp(0, text.length);
+      final end = span.end.clamp(start, text.length);
+      if (start >= end) continue;
+
+      final boxes = renderEditable.getBoxesForSelection(
+        TextSelection(baseOffset: start, extentOffset: end),
+      );
+
+      for (final box in boxes) {
+        final rawRect = box.toRect();
+        final globalTopLeft = renderEditable.localToGlobal(rawRect.topLeft);
+        final localTopLeft = renderBox.globalToLocal(globalTopLeft);
+        final rect = Rect.fromLTWH(
+          localTopLeft.dx,
+          localTopLeft.dy,
+          rawRect.width,
+          rawRect.height,
+        );
+
+        if (rect.width <= 0 || rect.height <= 0) continue;
+
+        // Clip strictly to this text box with slight rounded corners
+        canvas.save();
+        final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(3));
+        canvas.clipRRect(rrect);
+
+        // Subtle underlay
+        canvas.drawRRect(
+          rrect,
+          Paint()..color = color.withValues(alpha: 0.18),
+        );
+
+        // Render shimmering particles inside this box
+        final brightPoints = <Offset>[];
+        final dimPoints = <Offset>[];
+
+        for (final p in particles) {
+          p.update(rect.width, rect.height);
+          final pt = Offset(rect.left + p.x, rect.top + p.y);
+          if (p.alpha > 0.5) {
+            brightPoints.add(pt);
+          } else {
+            dimPoints.add(pt);
+          }
+        }
+
+        if (dimPoints.isNotEmpty) {
+          canvas.drawPoints(
+            ui.PointMode.points,
+            dimPoints,
+            Paint()
+              ..color = color.withValues(alpha: 0.45)
+              ..strokeWidth = 2.0
+              ..strokeCap = StrokeCap.round,
+          );
+        }
+
+        if (brightPoints.isNotEmpty) {
+          canvas.drawPoints(
+            ui.PointMode.points,
+            brightPoints,
+            Paint()
+              ..color = color.withValues(alpha: 0.85)
+              ..strokeWidth = 2.2
+              ..strokeCap = StrokeCap.round,
+          );
+        }
+
+        canvas.restore();
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant InputSpoilerOverlayPainter oldDelegate) {
+    return oldDelegate.color != color || oldDelegate.controller != controller;
   }
 }
 

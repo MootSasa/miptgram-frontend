@@ -13,10 +13,6 @@ import 'collapsible_blockquote_widget.dart';
 import 'spoiler_text_widget.dart';
 
 // --- НАСТРОЙКИ СТИЛЯ ТЕКСТОВОГО СООБЩЕНИЯ ---
-/// Прозрачность фона для инлайнового кода в темной теме.
-const double _kInlineCodeDarkOpacity = 0.1;
-/// Прозрачность фона для инлайнового кода в светлой теме.
-const double _kInlineCodeLightOpacity = 0.12;
 /// Стандартный размер шрифта сообщений.
 const double _kMessageFontSize = 17.0;
 // --------------------------------------------
@@ -49,9 +45,10 @@ class CodeElementBuilder extends MarkdownElementBuilder {
             codeText,
             style: preferredStyle?.copyWith(
               fontFamily: 'monospace',
-              backgroundColor: isDark 
-                  ? Colors.white.withValues(alpha: _kInlineCodeDarkOpacity) 
-                  : Colors.black.withValues(alpha: _kInlineCodeLightOpacity),
+              backgroundColor: Colors.transparent,
+            ) ?? TextStyle(
+              fontFamily: 'monospace',
+              color: Theme.of(context).textTheme.bodyMedium?.color,
             ),
           ),
         ),
@@ -269,7 +266,7 @@ class EmojiElementBuilder extends MarkdownElementBuilder {
 
 /// Custom syntax for spoilers: ||...||
 class SpoilerInlineSyntax extends md.InlineSyntax {
-  SpoilerInlineSyntax() : super(r'\|\|([\s\S]+?)\|\|');
+  SpoilerInlineSyntax() : super(r'\|\|((?:[^|\n]|\|(?!\|))+?)\|\|');
 
   @override
   bool onMatch(md.InlineParser parser, Match match) {
@@ -365,37 +362,29 @@ class TextMessageWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final effectiveEntities = <MessageEntity>[
-      if (entities != null) ...entities!,
-    ];
-
-    if (effectiveEntities.isEmpty) {
-      final parsed = EntityParser.parseMarkdown(text);
-      if (parsed.entities.isNotEmpty) {
-        effectiveEntities.addAll(parsed.entities);
+    final String markdownData;
+    if (entities != null && entities!.isNotEmpty) {
+      final effectiveEntities = <MessageEntity>[...entities!];
+      // Auto-detect any raw URLs in clean text not covered by existing entities
+      for (final match in EntityParser.urlRegex.allMatches(text)) {
+        final url = match.group(0)!;
+        final start = match.start;
+        final len = url.length;
+        final covered = effectiveEntities.any((e) =>
+            e.offset <= start && (e.offset + e.length) >= (start + len));
+        if (!covered) {
+          effectiveEntities.add(MessageEntity(
+            type: 'url',
+            offset: start,
+            length: len,
+            url: url,
+          ));
+        }
       }
+      markdownData = EntityParser.toMarkdown(text, effectiveEntities);
+    } else {
+      markdownData = text;
     }
-
-    // Auto-detect any raw URLs in text not covered by existing entities
-    for (final match in EntityParser.urlRegex.allMatches(text)) {
-      final url = match.group(0)!;
-      final start = match.start;
-      final len = url.length;
-      final covered = effectiveEntities.any((e) =>
-          e.offset <= start && (e.offset + e.length) >= (start + len));
-      if (!covered) {
-        effectiveEntities.add(MessageEntity(
-          type: 'url',
-          offset: start,
-          length: len,
-          url: url,
-        ));
-      }
-    }
-
-    final markdownData = effectiveEntities.isNotEmpty
-        ? EntityParser.toMarkdown(text, effectiveEntities)
-        : text;
 
     final linkColor = isMe
         ? (isDark ? const Color(0xFF7BE5DA) : const Color(0xFF007AFF))
@@ -438,11 +427,10 @@ class TextMessageWidget extends StatelessWidget {
         ),
         code: TextStyle(
           fontFamily: 'monospace',
-          fontSize: (style?.fontSize ?? _kMessageFontSize) * 0.9,
+          fontSize: (style?.fontSize ?? _kMessageFontSize) * 0.95,
           height: 1.4,
-          backgroundColor: isDark 
-              ? Colors.white.withValues(alpha: _kInlineCodeDarkOpacity) 
-              : Colors.black.withValues(alpha: _kInlineCodeLightOpacity),
+          color: (style ?? Theme.of(context).textTheme.bodyMedium)?.color,
+          backgroundColor: Colors.transparent,
         ),
         codeblockDecoration: const BoxDecoration(
           color: Colors.transparent,

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:miptgram/utils/entity_parser.dart';
 import 'package:miptgram/services/chat_service.dart';
 import 'package:miptgram/widgets/chat/rich_text_editing_controller.dart';
+import 'package:miptgram/widgets/message/text_message_widget.dart';
 
 void main() {
   group('EntityParser Markdown Parsing', () {
@@ -415,6 +416,85 @@ void main() {
       ];
       final md = EntityParser.toMarkdown(text, entities);
       expect(md, '||**secret**||');
+    });
+
+    test('RichTextEditingController applies quote format as blockquote', () {
+      final controller = RichTextEditingController(text: 'This is quoted');
+      controller.selection = const TextSelection(baseOffset: 0, extentOffset: 14);
+      controller.applyFormat('quote');
+
+      expect(controller.entities.length, 1);
+      expect(controller.entities.first.type, 'blockquote');
+      expect(controller.toMarkdown(), '> This is quoted');
+    });
+
+    testWidgets('RichTextEditingController supports multiple mixed formats simultaneously', (tester) async {
+      final controller = RichTextEditingController(text: 'Mixed style');
+      controller.selection = const TextSelection(baseOffset: 0, extentOffset: 11);
+
+      controller.applyFormat('bold');
+      controller.applyFormat('italic');
+      controller.applyFormat('underline');
+      controller.applyFormat('spoiler');
+
+      expect(controller.entities.length, 4);
+      expect(controller.entities.any((e) => e.type == 'bold'), isTrue);
+      expect(controller.entities.any((e) => e.type == 'italic'), isTrue);
+      expect(controller.entities.any((e) => e.type == 'underline'), isTrue);
+      expect(controller.entities.any((e) => e.type == 'spoiler'), isTrue);
+
+      final md = controller.toMarkdown();
+      expect(md.contains('**'), isTrue);
+      expect(md.contains('*'), isTrue);
+      expect(md.contains('__'), isTrue);
+      expect(md.contains('||'), isTrue);
+      expect(md.contains('Mixed style'), isTrue);
+
+      // Verify buildTextSpan applies combined styling without throwing
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              final span = controller.buildTextSpan(
+                context: context,
+                style: const TextStyle(fontSize: 16),
+                withComposing: false,
+              );
+              expect(span, isNotNull);
+              return Text.rich(span);
+            },
+          ),
+        ),
+      );
+    });
+
+    test('preserveWhitespace keeps multiple internal spaces and enters but removes trailing', () {
+      const input = 'Hello     world\n\n\n\nHow are you?    \n\n';
+      final output = TextMessageWidget.preserveWhitespace(input);
+
+      // Trailing spaces and enters are removed
+      expect(output.endsWith('\n'), isFalse);
+      expect(output.endsWith(' '), isFalse);
+
+      // Internal spaces are preserved with non-breaking spaces
+      expect(output.contains('Hello \u00A0 \u00A0 world'), isTrue);
+
+      // Internal multiple enters are preserved with non-breaking space empty lines
+      expect(output.contains('\n\u00A0\n\u00A0\n\u00A0\nHow are you?'), isTrue);
+    });
+
+    test('preserveWhitespace does not modify contents inside code blocks', () {
+      const input = 'Normal     text\n```python\ndef foo():\n    return 42\n```\n   \n';
+      final output = TextMessageWidget.preserveWhitespace(input);
+
+      // Code block content is untouched
+      expect(output.contains('```python\ndef foo():\n    return 42\n```'), isTrue);
+
+      // Normal text before code block has internal spaces preserved
+      expect(output.contains('Normal \u00A0 \u00A0 text'), isTrue);
+
+      // Trailing spaces/enters after code block are trimmed
+      expect(output.endsWith('```'), isTrue);
     });
   });
 }

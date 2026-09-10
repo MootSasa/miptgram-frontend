@@ -90,78 +90,94 @@ class _CollapsibleBlockquoteWidgetState
             color: cardBgColor,
             borderRadius: BorderRadius.circular(6),
           ),
-          child: IntrinsicHeight(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                ReplyStripWidget(
-                  preset: preset,
-                  style: stripStyle,
-                  width: 3.5,
-                  borderRadius: 2,
+          child: Stack(
+            children: [
+              Positioned(
+                top: 0,
+                right: 0,
+                child: iconoir.QuoteSolid(
+                  color: primaryColor.withValues(alpha: 0.35),
+                  width: 14,
+                  height: 14,
                 ),
-                const SizedBox(width: 8),
-                Flexible(
-                  fit: FlexFit.loose,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      AnimatedSize(
-                        duration: const Duration(milliseconds: 200),
-                        curve: Curves.easeInOut,
-                        alignment: Alignment.topLeft,
-                        child: widget.child ??
-                            Text(
-                              widget.text,
-                              maxLines: (showToggle && !_isExpanded) ? 3 : null,
-                              overflow: (showToggle && !_isExpanded)
-                                  ? TextOverflow.ellipsis
-                                  : TextOverflow.clip,
-                              style: quoteTextStyle,
+              ),
+              IntrinsicHeight(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ReplyStripWidget(
+                      preset: preset,
+                      style: stripStyle,
+                      width: 3.5,
+                      borderRadius: 2,
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      fit: FlexFit.loose,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 14.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            AnimatedSize(
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeInOut,
+                              alignment: Alignment.topLeft,
+                              child: widget.child ??
+                                  Text(
+                                    widget.text,
+                                    maxLines: (showToggle && !_isExpanded) ? 3 : null,
+                                    overflow: (showToggle && !_isExpanded)
+                                        ? TextOverflow.ellipsis
+                                        : TextOverflow.clip,
+                                    style: quoteTextStyle,
+                                  ),
                             ),
-                      ),
-                      if (showToggle) ...[
-                        const SizedBox(height: 4),
-                        InkWell(
-                          onTap: _toggleExpand,
-                          borderRadius: BorderRadius.circular(4),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  _isExpanded
-                                      ? context.l10n.translate('format_collapsed_state')
-                                      : context.l10n.translate('format_expand'),
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: primaryColor,
+                            if (showToggle) ...[
+                              const SizedBox(height: 4),
+                              InkWell(
+                                onTap: _toggleExpand,
+                                borderRadius: BorderRadius.circular(4),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        _isExpanded
+                                            ? context.l10n.translate('format_collapsed_state')
+                                            : context.l10n.translate('format_expand'),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: primaryColor,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      AnimatedRotation(
+                                        turns: _isExpanded ? 0.5 : 0.0,
+                                        duration: const Duration(milliseconds: 200),
+                                        child: iconoir.NavArrowDown(
+                                          width: 14,
+                                          height: 14,
+                                          color: primaryColor,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                const SizedBox(width: 4),
-                                AnimatedRotation(
-                                  turns: _isExpanded ? 0.5 : 0.0,
-                                  duration: const Duration(milliseconds: 200),
-                                  child: iconoir.NavArrowDown(
-                                    width: 14,
-                                    height: 14,
-                                    color: primaryColor,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                              ),
+                            ],
+                          ],
                         ),
-                      ],
-                    ],
-                  ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         );
       },

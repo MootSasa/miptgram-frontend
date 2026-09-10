@@ -514,7 +514,7 @@ class EntityParser {
       // 1. Insert closing tokens for entities ending at index i
       if (closings.containsKey(i)) {
         for (final entity in closings[i]!) {
-          if (entity.type == 'blockquote') {
+          if (entity.type == 'blockquote' || entity.type == 'quote') {
             activeBlockquotes.remove(entity);
           }
           buffer.write(_getClosingTag(entity, cleanText));
@@ -524,7 +524,7 @@ class EntityParser {
       // 2. Insert opening tokens for entities starting at index i
       if (openings.containsKey(i)) {
         for (final entity in openings[i]!) {
-          if (entity.type == 'blockquote') {
+          if (entity.type == 'blockquote' || entity.type == 'quote') {
             activeBlockquotes.add(entity);
           }
           buffer.write(_getOpeningTag(entity));
@@ -564,6 +564,7 @@ class EntityParser {
       case 'spoiler':
         return '||';
       case 'blockquote':
+      case 'quote':
         return entity.collapsed == true ? '**> ' : '> ';
       case 'url':
       case 'text_link':

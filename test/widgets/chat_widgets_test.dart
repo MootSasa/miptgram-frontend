@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:miptgram/services/liquid_glass_provider.dart';
+import 'package:miptgram/services/chat_service.dart';
 import 'package:miptgram/widgets/chat/chat_scaffold.dart';
 import 'package:miptgram/widgets/chat/chat_input_bar.dart';
 import 'package:miptgram/widgets/chat/chat_messages_list_view.dart';
 import 'package:miptgram/widgets/chat/liquid_glass_input_field.dart';
+import 'package:miptgram/widgets/message/text_message_widget.dart';
 
 Widget createTestApp(Widget child) {
   return MultiProvider(
@@ -136,6 +138,28 @@ void main() {
       await tester.tap(find.byType(IconButton));
       expect(cancelled, isTrue);
     });
+
+    testWidgets('ChatInputBar onSendDetailed trims trailing whitespace and enters while preserving internal ones', (WidgetTester tester) async {
+      final controller = RichTextEditingController(text: 'Hello    world\n\n\nHow are you?   \n\n');
+      String? sentText;
+
+      await tester.pumpWidget(
+        createTestApp(
+          ChatInputBar(
+            controller: controller,
+            onSendDetailed: (text, entities, preview, invert) {
+              sentText = text;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pumpAndSettle();
+
+      expect(sentText, 'Hello    world\n\n\nHow are you?');
+    });
   });
 
   group('TelegramTextSelectionToolbar Widget Tests', () {
@@ -172,14 +196,18 @@ void main() {
       await tester.tap(find.byIcon(Icons.more_vert));
       await tester.pumpAndSettle();
 
-      // State 2: Expanded vertical menu
+      // State 2: Expanded vertical menu with the 11 formatting options
       expect(find.text('Копировать'), findsOneWidget);
-      expect(find.text('Скрытый'), findsOneWidget);
       expect(find.text('Вставить'), findsOneWidget);
+      expect(find.text('Обычный'), findsOneWidget);
       expect(find.text('Жирный'), findsOneWidget);
-      expect(find.text('Вставить как обычный текст'), findsOneWidget);
       expect(find.text('Курсив'), findsOneWidget);
+      expect(find.text('Моно'), findsOneWidget);
+      expect(find.text('Создать код'), findsOneWidget);
+      expect(find.text('Зачёркнутый'), findsOneWidget);
       expect(find.text('Подчёркнутый'), findsOneWidget);
+      expect(find.text('Скрытый'), findsOneWidget);
+      expect(find.text('Добавить ссылку'), findsOneWidget);
       expect(find.text('Назад'), findsOneWidget);
 
       // Tap "Назад"
@@ -300,6 +328,38 @@ void main() {
       final textField = tester.widget<TextField>(find.byType(TextField));
       expect(textField.selectionControls, isA<TextSelectionHandleControls>());
       expect(textField.selectionControls, isA<TelegramTextSelectionControls>());
+    });
+  });
+
+  group('TextMessageWidget Tests', () {
+    testWidgets('Renders message preserving internal consecutive spaces and enters', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        createTestApp(
+          const TextMessageWidget(
+            text: 'Hello     world\n\n\n\nLine 2',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TextMessageWidget), findsOneWidget);
+    });
+
+    testWidgets('Renders mixed formatting with bold inside spoiler', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        createTestApp(
+          const TextMessageWidget(
+            text: 'secret',
+            entities: [
+              MessageEntity(type: 'spoiler', offset: 0, length: 6),
+              MessageEntity(type: 'bold', offset: 0, length: 6),
+            ],
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byType(TextMessageWidget), findsOneWidget);
     });
   });
 }

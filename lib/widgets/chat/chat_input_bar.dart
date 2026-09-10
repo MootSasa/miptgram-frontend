@@ -175,6 +175,27 @@ class _ChatInputBarState extends State<ChatInputBar> {
         entities = parsed.entities;
       }
 
+      // Trim only spaces and enters at the very end of the text.
+      // Consecutive spaces and enters inside the text are preserved without changes.
+      final trimmedText = cleanText.trimRight();
+      if (trimmedText.isEmpty) {
+        return;
+      }
+
+      final maxLen = trimmedText.length;
+      final adjustedEntities = <MessageEntity>[];
+      for (final e in entities) {
+        if (e.offset >= maxLen) continue;
+        if (e.offset + e.length > maxLen) {
+          final clampedLength = maxLen - e.offset;
+          if (clampedLength > 0) {
+            adjustedEntities.add(e.copyWith(length: clampedLength));
+          }
+        } else {
+          adjustedEntities.add(e);
+        }
+      }
+
       LinkPreviewOptions? sendPreviewOptions = _effectiveLinkPreviewOptions;
       if (sendPreviewOptions == null &&
           !_linkPreviewDismissed &&
@@ -183,8 +204,8 @@ class _ChatInputBarState extends State<ChatInputBar> {
       }
 
       widget.onSendDetailed!(
-        cleanText,
-        entities,
+        trimmedText,
+        adjustedEntities,
         sendPreviewOptions,
         _effectiveInvertMedia,
       );

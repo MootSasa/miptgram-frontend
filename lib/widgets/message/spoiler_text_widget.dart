@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import '../../utils/haptic_utils.dart';
 
 /// Lightweight particle for Telegram-style spoiler noise and shimmering dust.
@@ -211,6 +212,8 @@ class _SpoilerTextWidgetState extends State<SpoilerTextWidget>
     }
   }
 
+  final GlobalKey _childKey = GlobalKey();
+
   @override
   Widget build(BuildContext context) {
     if (_isFullyRevealed) {
@@ -244,7 +247,10 @@ class _SpoilerTextWidgetState extends State<SpoilerTextWidget>
                     child: child,
                   );
                 },
-                child: widget.child,
+                child: KeyedSubtree(
+                  key: _childKey,
+                  child: widget.child,
+                ),
               ),
 
               // Animated particle layer
@@ -255,6 +261,7 @@ class _SpoilerTextWidgetState extends State<SpoilerTextWidget>
                       _ensureParticles(constraints.maxWidth, constraints.maxHeight);
                       return CustomPaint(
                         painter: _TelegramSpoilerParticlePainter(
+                          childKey: _childKey,
                           particles: _particles,
                           color: particleColor,
                           isMedia: widget.isMedia,
@@ -277,19 +284,39 @@ class _SpoilerTextWidgetState extends State<SpoilerTextWidget>
 ///
 /// Uses [Canvas.drawPoints] for maximum rendering performance, batching all particle
 /// coordinates into GPU point primitives instead of hundreds of [Canvas.drawCircle] calls.
+/// Clips particles and underlay strictly to individual text line boxes.
 class _TelegramSpoilerParticlePainter extends CustomPainter {
+  final GlobalKey? childKey;
   final List<SpoilerParticle> particles;
   final Color color;
   final bool isMedia;
   final Animation<double>? revealAnimation;
 
   _TelegramSpoilerParticlePainter({
+    this.childKey,
     required this.particles,
     required this.color,
     required this.isMedia,
     this.revealAnimation,
     required Listenable repaint,
   }) : super(repaint: repaint);
+
+  static List<RenderParagraph> _findRenderParagraphs(RenderObject? root) {
+    final list = <RenderParagraph>[];
+    if (root == null) return list;
+    void visitor(RenderObject child) {
+      if (child is RenderParagraph) {
+        list.add(child);
+      }
+      child.visitChildren(visitor);
+    }
+    if (root is RenderParagraph) {
+      list.add(root);
+    } else {
+      root.visitChildren(visitor);
+    }
+    return list;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -299,65 +326,111 @@ class _TelegramSpoilerParticlePainter extends CustomPainter {
     final remainingOpacity = (1.0 - revealT).clamp(0.0, 1.0);
     if (remainingOpacity <= 0.0) return;
 
-    // Tinted underlay mask so text characters underneath are obscured
-    final underlayAlpha = (isMedia ? 0.25 : 0.20) * remainingOpacity;
-    if (underlayAlpha > 0.01) {
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(3)),
-        Paint()
-          ..color = color.withValues(alpha: underlayAlpha)
-          ..style = PaintingStyle.fill,
-      );
-    }
-
-    final brightPoints = <Offset>[];
-    final dimPoints = <Offset>[];
-
+    // Update particles for current size
     final explosionFactor = 1.0 + revealT * 3.5;
-
     for (final p in particles) {
       if (revealT > 0) {
         p.explode(explosionFactor);
       } else {
         p.update(size.width, size.height);
       }
+    }
 
-      final pt = Offset(p.x, p.y);
-      if (p.alpha > 0.5) {
-        brightPoints.add(pt);
-      } else {
-        dimPoints.add(pt);
+    // Determine target bounding boxes: line boxes for text or full size for media
+    final textRects = <Rect>[];
+    final childBox = childKey?.currentContext?.findRenderObject() as RenderBox?;
+
+    if (!isMedia && childBox != null && childBox.hasSize) {
+      final paragraphs = _findRenderParagraphs(childBox);
+      for (final p in paragraphs) {
+        final plain = p.text.toPlainText();
+        if (plain.isEmpty) continue;
+        final boxes = p.getBoxesForSelection(
+          TextSelection(baseOffset: 0, extentOffset: plain.length),
+        );
+        for (final box in boxes) {
+          final rawRect = box.toRect();
+          if (rawRect.width <= 0 || rawRect.height <= 0) continue;
+          try {
+            final pGlobal = p.localToGlobal(rawRect.topLeft);
+            final localOrigin = childBox.globalToLocal(pGlobal);
+            textRects.add(Rect.fromLTWH(localOrigin.dx, localOrigin.dy, rawRect.width, rawRect.height));
+          } catch (_) {
+            textRects.add(rawRect);
+          }
+        }
       }
     }
 
-    final dimAlpha = (0.45 * remainingOpacity).clamp(0.0, 1.0);
-    if (dimPoints.isNotEmpty && dimAlpha > 0.01) {
-      canvas.drawPoints(
-        ui.PointMode.points,
-        dimPoints,
-        Paint()
-          ..color = color.withValues(alpha: dimAlpha)
-          ..strokeWidth = 2.0
-          ..strokeCap = StrokeCap.round,
-      );
+    if (textRects.isEmpty) {
+      textRects.add(Offset.zero & size);
     }
 
+    final underlayAlpha = (isMedia ? 0.25 : 0.20) * remainingOpacity;
+    final dimAlpha = (0.45 * remainingOpacity).clamp(0.0, 1.0);
     final brightAlpha = (0.85 * remainingOpacity).clamp(0.0, 1.0);
-    if (brightPoints.isNotEmpty && brightAlpha > 0.01) {
-      canvas.drawPoints(
-        ui.PointMode.points,
-        brightPoints,
-        Paint()
-          ..color = color.withValues(alpha: brightAlpha)
-          ..strokeWidth = 2.2
-          ..strokeCap = StrokeCap.round,
-      );
+
+    for (final rect in textRects) {
+      if (rect.width <= 0 || rect.height <= 0) continue;
+
+      canvas.save();
+      final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(3));
+      canvas.clipRRect(rrect);
+
+      // Tinted underlay mask
+      if (underlayAlpha > 0.01) {
+        canvas.drawRRect(
+          rrect,
+          Paint()
+            ..color = color.withValues(alpha: underlayAlpha)
+            ..style = PaintingStyle.fill,
+        );
+      }
+
+      final brightPoints = <Offset>[];
+      final dimPoints = <Offset>[];
+
+      for (final p in particles) {
+        final px = (p.x % rect.width);
+        final py = (p.y % rect.height);
+        final pt = Offset(rect.left + px, rect.top + py);
+        if (p.alpha > 0.5) {
+          brightPoints.add(pt);
+        } else {
+          dimPoints.add(pt);
+        }
+      }
+
+      if (dimPoints.isNotEmpty && dimAlpha > 0.01) {
+        canvas.drawPoints(
+          ui.PointMode.points,
+          dimPoints,
+          Paint()
+            ..color = color.withValues(alpha: dimAlpha)
+            ..strokeWidth = 2.0
+            ..strokeCap = StrokeCap.round,
+        );
+      }
+
+      if (brightPoints.isNotEmpty && brightAlpha > 0.01) {
+        canvas.drawPoints(
+          ui.PointMode.points,
+          brightPoints,
+          Paint()
+            ..color = color.withValues(alpha: brightAlpha)
+            ..strokeWidth = 2.2
+            ..strokeCap = StrokeCap.round,
+        );
+      }
+
+      canvas.restore();
     }
   }
 
   @override
   bool shouldRepaint(covariant _TelegramSpoilerParticlePainter oldDelegate) {
     return oldDelegate.color != color ||
-        oldDelegate.revealAnimation != revealAnimation;
+        oldDelegate.revealAnimation != revealAnimation ||
+        oldDelegate.childKey != childKey;
   }
 }

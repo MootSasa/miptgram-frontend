@@ -29,12 +29,14 @@ class RichSpan {
       );
 
   MessageEntity toMessageEntity() => MessageEntity(
-        type: type == 'collapse' ? 'blockquote' : (type == 'link' ? 'text_link' : type),
+        type: (type == 'collapse' || type == 'quote')
+            ? 'blockquote'
+            : (type == 'link' ? 'text_link' : type),
         offset: start,
         length: end - start,
         url: url,
         language: language,
-        collapsed: type == 'collapse' ? true : (type == 'blockquote' ? false : null),
+        collapsed: type == 'collapse' ? true : (type == 'blockquote' || type == 'quote' ? false : null),
       );
 }
 
@@ -286,7 +288,9 @@ class RichTextEditingController extends TextEditingController {
     final end = math.max(sel.start, sel.end);
     if (start == end) return;
 
-    final normalizedType = (formatType == 'link') ? 'text_link' : formatType;
+    final normalizedType = (formatType == 'link')
+        ? 'text_link'
+        : (formatType == 'quote' ? 'blockquote' : formatType);
     if (normalizedType == 'text_link' && url != null) {
       applyLinkToSelection(url, start: start, end: end);
       return;
@@ -333,6 +337,9 @@ class RichTextEditingController extends TextEditingController {
     }
     return text;
   }
+
+  /// Converts the current text and formatting entities into a markdown formatted string.
+  String toMarkdown() => EntityParser.toMarkdown(cleanText, entities);
 
   /// Returns computed message entities matching the styled spans, plus any raw URLs.
   List<MessageEntity> get entities {
@@ -508,50 +515,69 @@ class RichTextEditingController extends TextEditingController {
 
       TextStyle segStyle = style ?? const TextStyle(fontSize: 17.0);
 
-      for (final s in activeSpans) {
-        switch (s.type) {
-          case 'bold':
-            segStyle = segStyle.copyWith(fontWeight: FontWeight.bold);
-            break;
-          case 'italic':
-            segStyle = segStyle.copyWith(fontStyle: FontStyle.italic);
-            break;
-          case 'strikethrough':
-            segStyle = segStyle.copyWith(decoration: TextDecoration.lineThrough);
-            break;
-          case 'underline':
-            segStyle = segStyle.copyWith(
-              decoration: TextDecoration.underline,
-              decorationColor: segStyle.color,
-              decorationThickness: 1.5,
-            );
-            break;
-          case 'code':
-            segStyle = segStyle.copyWith(
-              fontFamily: 'monospace',
-            );
-            break;
-          case 'spoiler':
-            segStyle = segStyle.copyWith(
-              backgroundColor: Colors.transparent,
-              color: isDark ? Colors.white38 : Colors.black38,
-            );
-            break;
-          case 'quote':
-          case 'collapse':
-            segStyle = segStyle.copyWith(
-              fontStyle: FontStyle.italic,
-              color: primaryColor,
-            );
-            break;
-          case 'text_link':
-          case 'link':
-            segStyle = segStyle.copyWith(
-              color: primaryColor,
-              decoration: TextDecoration.underline,
-            );
-            break;
-        }
+      // 1. Combine decorations
+      final hasStrike = activeSpans.any((s) => s.type == 'strikethrough');
+      final hasUnderline = activeSpans.any((s) =>
+          s.type == 'underline' || s.type == 'text_link' || s.type == 'link');
+      if (hasStrike && hasUnderline) {
+        segStyle = segStyle.copyWith(
+          decoration: TextDecoration.combine(
+              [TextDecoration.lineThrough, TextDecoration.underline]),
+          decorationColor: segStyle.color,
+          decorationThickness: 1.5,
+        );
+      } else if (hasStrike) {
+        segStyle = segStyle.copyWith(decoration: TextDecoration.lineThrough);
+      } else if (hasUnderline) {
+        segStyle = segStyle.copyWith(
+          decoration: TextDecoration.underline,
+          decorationColor: segStyle.color,
+          decorationThickness: 1.5,
+        );
+      }
+
+      // 2. Bold
+      if (activeSpans.any((s) => s.type == 'bold')) {
+        segStyle = segStyle.copyWith(fontWeight: FontWeight.bold);
+      }
+
+      // 3. Italic
+      if (activeSpans.any((s) =>
+          s.type == 'italic' ||
+          s.type == 'quote' ||
+          s.type == 'collapse' ||
+          s.type == 'blockquote')) {
+        segStyle = segStyle.copyWith(fontStyle: FontStyle.italic);
+      }
+
+      // 4. Monospace
+      if (activeSpans.any((s) => s.type == 'code' || s.type == 'pre')) {
+        segStyle = segStyle.copyWith(fontFamily: 'monospace');
+      }
+
+      // 5. Links
+      if (activeSpans.any((s) => s.type == 'text_link' || s.type == 'link')) {
+        segStyle = segStyle.copyWith(color: primaryColor);
+      }
+
+      // 6. Blockquote
+      if (activeSpans.any((s) =>
+          s.type == 'quote' ||
+          s.type == 'collapse' ||
+          s.type == 'blockquote')) {
+        segStyle = segStyle.copyWith(
+          color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1C2530),
+          backgroundColor:
+              isDark ? const Color(0x18FFFFFF) : const Color(0x12000000),
+        );
+      }
+
+      // 7. Spoiler text appearance
+      if (activeSpans.any((s) => s.type == 'spoiler')) {
+        segStyle = segStyle.copyWith(
+          backgroundColor: Colors.transparent,
+          color: isDark ? Colors.white38 : Colors.black38,
+        );
       }
 
       // Check for emojis

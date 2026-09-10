@@ -282,11 +282,51 @@ class SpoilerElementBuilder extends MarkdownElementBuilder {
 
   SpoilerElementBuilder(this.preferredStyle);
 
+  static final RegExp _markdownIndicator = RegExp(r'[*_~`\[]');
+
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    final effectiveStyle = preferredStyle ?? this.preferredStyle;
+    final content = element.textContent;
+
+    if (_markdownIndicator.hasMatch(content)) {
+      return SpoilerTextWidget(
+        textStyle: effectiveStyle,
+        child: MarkdownBody(
+          data: content,
+          selectable: false,
+          shrinkWrap: true,
+          softLineBreak: true,
+          extensionSet: md.ExtensionSet(
+            [],
+            [
+              UnderlineInlineSyntax(),
+              EmojiInlineSyntax(),
+              ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+            ],
+          ),
+          styleSheet: MarkdownStyleSheet(
+            p: effectiveStyle,
+            pPadding: EdgeInsets.zero,
+            strong: effectiveStyle?.copyWith(fontWeight: FontWeight.bold),
+            em: effectiveStyle?.copyWith(fontStyle: FontStyle.italic),
+            del: effectiveStyle?.copyWith(decoration: TextDecoration.lineThrough),
+            code: effectiveStyle?.copyWith(
+              fontFamily: 'monospace',
+              backgroundColor: Colors.transparent,
+            ),
+          ),
+          builders: {
+            'underline': UnderlineElementBuilder(effectiveStyle),
+            'emoji': EmojiElementBuilder(fontSize: effectiveStyle?.fontSize ?? _kMessageFontSize),
+          },
+        ),
+      );
+    }
+
     return SpoilerTextWidget.text(
-      text: element.textContent,
-      style: preferredStyle ?? this.preferredStyle,
+      text: content,
+      style: effectiveStyle,
     );
   }
 }
@@ -309,6 +349,8 @@ class UnderlineElementBuilder extends MarkdownElementBuilder {
 
   UnderlineElementBuilder([this.baseStyle]);
 
+  static final RegExp _markdownIndicator = RegExp(r'[*_~`\[]');
+
   @override
   Widget? visitElementAfterWithContext(
     BuildContext context,
@@ -317,26 +359,97 @@ class UnderlineElementBuilder extends MarkdownElementBuilder {
     TextStyle? parentStyle,
   ) {
     final effectiveStyle = parentStyle ?? preferredStyle ?? baseStyle ?? DefaultTextStyle.of(context).style;
+    final underlineStyle = effectiveStyle.copyWith(
+      decoration: TextDecoration.combine([
+        if (effectiveStyle.decoration != null && effectiveStyle.decoration != TextDecoration.none)
+          effectiveStyle.decoration!,
+        TextDecoration.underline,
+      ]),
+      decorationColor: effectiveStyle.color,
+      decorationThickness: 1.5,
+    );
+
+    final content = element.textContent;
+    if (_markdownIndicator.hasMatch(content)) {
+      return MarkdownBody(
+        data: content,
+        selectable: false,
+        shrinkWrap: true,
+        softLineBreak: true,
+        extensionSet: md.ExtensionSet(
+          [],
+          [
+            UnderlineInlineSyntax(),
+            EmojiInlineSyntax(),
+            ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+          ],
+        ),
+        styleSheet: MarkdownStyleSheet(
+          p: underlineStyle,
+          pPadding: EdgeInsets.zero,
+          strong: underlineStyle.copyWith(fontWeight: FontWeight.bold),
+          em: underlineStyle.copyWith(fontStyle: FontStyle.italic),
+          del: underlineStyle.copyWith(
+            decoration: TextDecoration.combine([
+              TextDecoration.underline,
+              TextDecoration.lineThrough,
+            ]),
+          ),
+          code: underlineStyle.copyWith(
+            fontFamily: 'monospace',
+            backgroundColor: Colors.transparent,
+          ),
+        ),
+        builders: {
+          'emoji': EmojiElementBuilder(fontSize: underlineStyle.fontSize ?? _kMessageFontSize),
+        },
+      );
+    }
+
     return Text(
-      element.textContent,
-      style: effectiveStyle.copyWith(
-        decoration: TextDecoration.underline,
-        decorationColor: effectiveStyle.color,
-        decorationThickness: 1.5,
-      ),
+      content,
+      style: underlineStyle,
     );
   }
 
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
     final effectiveStyle = preferredStyle ?? baseStyle;
+    final underlineStyle = (effectiveStyle ?? const TextStyle()).copyWith(
+      decoration: TextDecoration.combine([
+        if (effectiveStyle?.decoration != null && effectiveStyle!.decoration != TextDecoration.none)
+          effectiveStyle.decoration!,
+        TextDecoration.underline,
+      ]),
+      decorationColor: effectiveStyle?.color,
+      decorationThickness: 1.5,
+    );
+
+    final content = element.textContent;
+    if (_markdownIndicator.hasMatch(content)) {
+      return MarkdownBody(
+        data: content,
+        selectable: false,
+        shrinkWrap: true,
+        softLineBreak: true,
+        styleSheet: MarkdownStyleSheet(
+          p: underlineStyle,
+          pPadding: EdgeInsets.zero,
+          strong: underlineStyle.copyWith(fontWeight: FontWeight.bold),
+          em: underlineStyle.copyWith(fontStyle: FontStyle.italic),
+          del: underlineStyle.copyWith(
+            decoration: TextDecoration.combine([
+              TextDecoration.underline,
+              TextDecoration.lineThrough,
+            ]),
+          ),
+        ),
+      );
+    }
+
     return Text(
-      element.textContent,
-      style: effectiveStyle?.copyWith(
-        decoration: TextDecoration.underline,
-        decorationColor: effectiveStyle.color,
-        decorationThickness: 1.5,
-      ) ?? const TextStyle(decoration: TextDecoration.underline),
+      content,
+      style: underlineStyle,
     );
   }
 }
@@ -357,6 +470,60 @@ class TextMessageWidget extends StatelessWidget {
     this.isMe = false,
     this.entities,
   }) : super(key: key);
+
+  /// Preserves consecutive spaces and multiple enters inside message text,
+  /// while trimming only spaces and enters at the very end.
+  /// Content inside code blocks is left untouched.
+  static String preserveWhitespace(String text) {
+    final trimmed = text.trimRight();
+    if (trimmed.isEmpty) return '';
+
+    // Split by code blocks: ```...``` or `...`
+    final pattern = RegExp(r'(```[\s\S]*?```|`[^`\n]*?`)');
+    final buffer = StringBuffer();
+    int lastIndex = 0;
+
+    for (final match in pattern.allMatches(trimmed)) {
+      if (match.start > lastIndex) {
+        buffer.write(_preserveInNormalText(trimmed.substring(lastIndex, match.start)));
+      }
+      buffer.write(match.group(0)!);
+      lastIndex = match.end;
+    }
+    if (lastIndex < trimmed.length) {
+      buffer.write(_preserveInNormalText(trimmed.substring(lastIndex)));
+    }
+    return buffer.toString();
+  }
+
+  static String _preserveInNormalText(String text) {
+    // 1. Consecutive spaces (>= 2):
+    // CommonMark collapses consecutive ASCII spaces. We alternate space and non-breaking space (\u00A0)
+    // so every space is preserved with standard font width.
+    var result = text.replaceAllMapped(RegExp(r' {2,}'), (match) {
+      final len = match.group(0)!.length;
+      final sb = StringBuffer();
+      for (int i = 0; i < len; i++) {
+        sb.write(i % 2 == 1 ? '\u00A0' : ' ');
+      }
+      return sb.toString();
+    });
+
+    // 2. Multiple newlines (>= 2):
+    // With blockSpacing: 0, consecutive newlines would otherwise collapse without empty lines.
+    // Inserting '\u00A0' on empty lines ensures exact visual blank line count.
+    result = result.replaceAllMapped(RegExp(r'\n{2,}'), (match) {
+      final count = match.group(0)!.length;
+      final sb = StringBuffer();
+      for (int i = 0; i < count - 1; i++) {
+        sb.write('\n\u00A0');
+      }
+      sb.write('\n');
+      return sb.toString();
+    });
+
+    return result;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -390,8 +557,10 @@ class TextMessageWidget extends StatelessWidget {
         ? (isDark ? const Color(0xFF7BE5DA) : const Color(0xFF007AFF))
         : (isDark ? const Color(0xFF7BE5DA) : Theme.of(context).colorScheme.primary);
 
+    final formattedData = preserveWhitespace(markdownData);
+
     return MarkdownBody(
-      data: markdownData.trimRight(),
+      data: formattedData,
       selectable: false,
       shrinkWrap: true,
       softLineBreak: true, // Позволяет делать перенос строки одним нажатием Enter

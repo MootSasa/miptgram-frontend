@@ -291,14 +291,18 @@ class RenderBubbleLayout extends RenderBox
       );
     }
 
-    // Calculate offset of targetParagraph within root by walking up BoxParentData
+    // Calculate offset of targetParagraph within root
     Offset offsetInRoot = Offset.zero;
-    RenderObject current = targetParagraph;
-    while (current != root && current.parent != null) {
-      if (current.parentData is BoxParentData) {
-        offsetInRoot += (current.parentData as BoxParentData).offset;
+    try {
+      offsetInRoot = targetParagraph.localToGlobal(Offset.zero, ancestor: root);
+    } catch (_) {
+      RenderObject current = targetParagraph;
+      while (current != root && current.parent != null) {
+        if (current.parentData is BoxParentData) {
+          offsetInRoot += (current.parentData as BoxParentData).offset;
+        }
+        current = current.parent!;
       }
-      current = current.parent!;
     }
 
     final plainText = targetParagraph.text.toPlainText();

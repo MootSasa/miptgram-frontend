@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import '../../l10n/app_localizations.dart';
 import '../../utils/emoji_utils.dart';
@@ -32,6 +33,9 @@ const double _kEmojiIconSize = 26.0;
 
 /// Размер шрифта в поле ввода.
 const double _kInputFontSize = 17.0;
+
+/// Мятный акцентный цвет для тулбара и цитат.
+const Color _kMintAccent = Color(0xFF7BE5DA);
 
 /// Максимальная высота поля ввода до появления скролла.
 const double _kInputMaxHeight = 250.0;
@@ -84,6 +88,7 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
   String _lastRecordedText = '';
   bool _lastShowItalic = false;
   bool _lastHasSpoilers = false;
+  bool _lastHasQuotes = false;
 
   bool _computeShowItalic() {
     final richCtrl = widget.controller is RichTextEditingController
@@ -102,6 +107,17 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
     return richCtrl?.spans.any((s) => s.type == 'spoiler') ?? false;
   }
 
+  bool _hasQuotes() {
+    final richCtrl = widget.controller is RichTextEditingController
+        ? widget.controller as RichTextEditingController
+        : null;
+    return richCtrl?.spans.any((s) =>
+            s.type == 'blockquote' ||
+            s.type == 'quote' ||
+            s.type == 'collapse') ??
+        false;
+  }
+
   void _ensureInputSpoilerParticles() {
     while (_spoilerParticles.length < 80) {
       _spoilerParticles.add(SpoilerParticle.create(300, 40));
@@ -113,6 +129,7 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
     super.initState();
     _lastRecordedText = widget.controller.text;
     _lastShowItalic = _computeShowItalic();
+    _lastHasQuotes = _hasQuotes();
     _scrollController = ScrollController();
     _blinkController = AnimationController(
       vsync: this,
@@ -146,6 +163,7 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
       widget.controller.addListener(_onControllerChanged);
       _lastRecordedText = widget.controller.text;
       _lastShowItalic = _computeShowItalic();
+      _lastHasQuotes = _hasQuotes();
       final hasSpoilers = _hasSpoilers();
       if (hasSpoilers && !_spoilerController.isAnimating) {
         _ensureInputSpoilerParticles();
@@ -186,12 +204,15 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
     }
 
     final showItalic = _computeShowItalic();
+    final hasQuotes = _hasQuotes();
     if (widget.controller.text != _lastRecordedText ||
         showItalic != _lastShowItalic ||
-        hasSpoilers != _lastHasSpoilers) {
+        hasSpoilers != _lastHasSpoilers ||
+        hasQuotes != _lastHasQuotes) {
       _lastRecordedText = widget.controller.text;
       _lastShowItalic = showItalic;
       _lastHasSpoilers = hasSpoilers;
+      _lastHasQuotes = hasQuotes;
       if (mounted) setState(() {});
     }
   }
@@ -389,7 +410,18 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
             child: ValueListenableBuilder<bool>(
               valueListenable: EmojiUtils.isFontLoaded,
               builder: (context, isLoaded, child) {
+                final hasQuotes = _hasQuotes();
                 return CustomPaint(
+                  painter: hasQuotes && richCtrl != null
+                      ? InputQuotePainter(
+                          fieldKey: _fieldKey,
+                          controller: richCtrl,
+                          accentColor: _kMintAccent,
+                          cardColor: isDark
+                              ? const Color(0x22FFFFFF)
+                              : const Color(0x15000000),
+                        )
+                      : null,
                   foregroundPainter: hasSpoilers && richCtrl != null
                       ? InputSpoilerOverlayPainter(
                           fieldKey: _fieldKey,
@@ -567,6 +599,136 @@ class ItalicCaretPainter extends CustomPainter {
   }
 }
 
+/// Custom painter that renders a blockquote background, left accent strip,
+/// and upper-right quote icon directly inside the TextField in-place.
+class InputQuotePainter extends CustomPainter {
+  final GlobalKey fieldKey;
+  final RichTextEditingController controller;
+  final Color accentColor;
+  final Color cardColor;
+
+  InputQuotePainter({
+    required this.fieldKey,
+    required this.controller,
+    required this.accentColor,
+    required this.cardColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+
+    final renderBox = fieldKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null || !renderBox.hasSize) return;
+
+    final renderEditable = ItalicCaretPainter._findRenderEditable(renderBox);
+    if (renderEditable == null) return;
+
+    final text = controller.text;
+    final quoteSpans = controller.spans
+        .where((s) => s.type == 'blockquote' || s.type == 'quote' || s.type == 'collapse')
+        .toList();
+    if (quoteSpans.isEmpty) return;
+
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+
+    for (final span in quoteSpans) {
+      final start = span.start.clamp(0, text.length);
+      final end = span.end.clamp(start, text.length);
+      if (start >= end) continue;
+
+      final boxes = renderEditable.getBoxesForSelection(
+        TextSelection(baseOffset: start, extentOffset: end),
+      );
+      if (boxes.isEmpty) continue;
+
+      double minTop = double.infinity;
+      double maxBottom = -double.infinity;
+
+      for (final box in boxes) {
+        final rawRect = box.toRect();
+        final globalTopLeft = renderEditable.localToGlobal(rawRect.topLeft);
+        final localTopLeft = renderBox.globalToLocal(globalTopLeft);
+        if (localTopLeft.dy < minTop) minTop = localTopLeft.dy;
+        if (localTopLeft.dy + rawRect.height > maxBottom) {
+          maxBottom = localTopLeft.dy + rawRect.height;
+        }
+      }
+
+      if (minTop >= maxBottom) continue;
+
+      final quoteRect = Rect.fromLTRB(2.0, minTop - 2.0, size.width - 2.0, maxBottom + 2.0);
+      final bgRRect = RRect.fromRectAndRadius(quoteRect, const Radius.circular(6.0));
+
+      // 1. Draw card background
+      canvas.drawRRect(bgRRect, Paint()..color = cardColor);
+
+      // 2. Draw left vertical strip
+      final stripRRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(6.0, quoteRect.top + 2.0, 3.5, quoteRect.height - 4.0),
+        const Radius.circular(2.0),
+      );
+      canvas.drawRRect(stripRRect, Paint()..color = accentColor);
+
+      // 3. Draw quote-solid icon in upper-right corner
+      final quotePath = Path();
+      // Left quotation mark
+      quotePath.moveTo(9.21, 12.75);
+      quotePath.cubicTo(9.13, 13.52, 8.91, 14.14, 8.51, 14.69);
+      quotePath.cubicTo(7.99, 15.42, 7.12, 16.10, 5.66, 16.83);
+      quotePath.cubicTo(5.29, 17.01, 5.14, 17.46, 5.33, 17.84);
+      quotePath.cubicTo(5.51, 18.21, 5.96, 18.36, 6.34, 18.17);
+      quotePath.cubicTo(7.88, 17.40, 9.01, 16.58, 9.74, 15.56);
+      quotePath.cubicTo(10.48, 14.52, 10.75, 13.36, 10.75, 12.0);
+      quotePath.lineTo(10.75, 7.5);
+      quotePath.cubicTo(10.75, 6.53, 9.97, 5.75, 9.0, 5.75);
+      quotePath.lineTo(5.0, 5.75);
+      quotePath.cubicTo(4.03, 5.75, 3.25, 6.53, 3.25, 7.5);
+      quotePath.lineTo(3.25, 11.0);
+      quotePath.cubicTo(3.25, 11.97, 4.03, 12.75, 5.0, 12.75);
+      quotePath.close();
+
+      // Right quotation mark
+      quotePath.moveTo(19.21, 12.75);
+      quotePath.cubicTo(19.13, 13.52, 18.91, 14.14, 18.51, 14.69);
+      quotePath.cubicTo(17.99, 15.42, 17.12, 16.10, 15.66, 16.83);
+      quotePath.cubicTo(15.29, 17.01, 15.14, 17.46, 15.33, 17.84);
+      quotePath.cubicTo(15.51, 18.21, 15.96, 18.36, 16.34, 18.17);
+      quotePath.cubicTo(17.88, 17.40, 19.01, 16.58, 19.74, 15.56);
+      quotePath.cubicTo(20.48, 14.52, 20.75, 13.36, 20.75, 12.0);
+      quotePath.lineTo(20.75, 7.5);
+      quotePath.cubicTo(20.75, 6.53, 19.97, 5.75, 19.0, 5.75);
+      quotePath.lineTo(15.0, 5.75);
+      quotePath.cubicTo(14.03, 5.75, 13.25, 6.53, 13.25, 7.5);
+      quotePath.lineTo(13.25, 11.0);
+      quotePath.cubicTo(13.25, 11.97, 14.03, 12.75, 15.0, 12.75);
+      quotePath.close();
+
+      canvas.save();
+      canvas.translate(quoteRect.right - 22.0, quoteRect.top + 4.0);
+      canvas.scale(14.0 / 24.0);
+      canvas.drawPath(
+        quotePath,
+        Paint()
+          ..color = accentColor.withValues(alpha: 0.40)
+          ..style = PaintingStyle.fill,
+      );
+      canvas.restore();
+    }
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant InputQuotePainter oldDelegate) {
+    return oldDelegate.controller.text != controller.text ||
+        oldDelegate.controller.spans != controller.spans ||
+        oldDelegate.accentColor != accentColor ||
+        oldDelegate.cardColor != cardColor;
+  }
+}
+
 /// Custom painter that overlays shimmering spoiler particles over spoiler text spans
 /// in the input field, exactly as Telegram does.
 class InputSpoilerOverlayPainter extends CustomPainter {
@@ -596,6 +758,9 @@ class InputSpoilerOverlayPainter extends CustomPainter {
     final text = controller.text;
     final spoilerSpans = controller.spans.where((s) => s.type == 'spoiler').toList();
     if (spoilerSpans.isEmpty) return;
+
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
 
     for (final span in spoilerSpans) {
       final start = span.start.clamp(0, text.length);
@@ -635,8 +800,9 @@ class InputSpoilerOverlayPainter extends CustomPainter {
         final dimPoints = <Offset>[];
 
         for (final p in particles) {
-          p.update(rect.width, rect.height);
-          final pt = Offset(rect.left + p.x, rect.top + p.y);
+          final px = (p.x % rect.width);
+          final py = (p.y % rect.height);
+          final pt = Offset(rect.left + px, rect.top + py);
           if (p.alpha > 0.5) {
             brightPoints.add(pt);
           } else {
@@ -669,6 +835,8 @@ class InputSpoilerOverlayPainter extends CustomPainter {
         canvas.restore();
       }
     }
+
+    canvas.restore();
   }
 
   @override
@@ -942,8 +1110,8 @@ class _TelegramTextSelectionToolbarState
 
   Widget _buildExpandedVerticalMenu() {
     return Container(
-      width: 240.0,
-      constraints: const BoxConstraints(maxHeight: 280.0),
+      width: 250.0,
+      constraints: const BoxConstraints(maxHeight: 340.0),
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -956,58 +1124,111 @@ class _TelegramTextSelectionToolbarState
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _buildMenuItem('Копировать', () {
-                    _executeCopy();
-                    widget.onHideToolbar();
-                  }),
-                  _buildMenuItem('Скрытый', () {
-                    TextFormattingUtils.applyFormatting(
-                        widget.controller, 'spoiler');
-                    widget.onHideToolbar();
-                  }),
-                  _buildMenuItem('Вставить', () {
-                    _executePaste();
-                    widget.onHideToolbar();
-                  }),
-                  _buildMenuItem('Жирный', () {
-                    TextFormattingUtils.applyFormatting(
-                        widget.controller, 'bold');
-                    widget.onHideToolbar();
-                  }),
-                  _buildMenuItem('Вставить как обычный текст', () {
-                    _executePastePlainText();
-                    widget.onHideToolbar();
-                  }),
-                  _buildMenuItem('Курсив', () {
-                    TextFormattingUtils.applyFormatting(
-                        widget.controller, 'italic');
-                    widget.onHideToolbar();
-                  }),
-                  _buildMenuItem('Подчёркнутый', () {
-                    TextFormattingUtils.applyFormatting(
-                        widget.controller, 'underline');
-                    widget.onHideToolbar();
-                  }),
-                  _buildMenuItem('Зачёркнутый', () {
-                    TextFormattingUtils.applyFormatting(
-                        widget.controller, 'strikethrough');
-                    widget.onHideToolbar();
-                  }),
-                  _buildMenuItem('Моноширинный', () {
-                    TextFormattingUtils.applyFormatting(
-                        widget.controller, 'code');
-                    widget.onHideToolbar();
-                  }),
-                  _buildMenuItem('Ссылка', () {
-                    widget.onHideToolbar();
-                    TextFormattingUtils.showLinkDialog(
-                        context, widget.controller);
-                  }),
-                  _buildMenuItem('Очистить', () {
-                    TextFormattingUtils.applyFormatting(
-                        widget.controller, 'clear');
-                    widget.onHideToolbar();
-                  }),
+                  _buildMenuItem(
+                    icon: const iconoir.Copy(color: _kMintAccent, width: 20, height: 20),
+                    label: 'Копировать',
+                    textStyle: const TextStyle(fontWeight: FontWeight.w500),
+                    onTap: () {
+                      _executeCopy();
+                      widget.onHideToolbar();
+                    },
+                  ),
+                  _buildMenuItem(
+                    icon: const iconoir.PasteClipboard(color: _kMintAccent, width: 20, height: 20),
+                    label: 'Вставить',
+                    textStyle: const TextStyle(fontWeight: FontWeight.w500),
+                    onTap: () {
+                      _executePaste();
+                      widget.onHideToolbar();
+                    },
+                  ),
+                  _buildMenuItem(
+                    icon: const iconoir.Text(color: _kMintAccent, width: 20, height: 20),
+                    label: 'Обычный',
+                    textStyle: const TextStyle(fontWeight: FontWeight.normal),
+                    onTap: () {
+                      TextFormattingUtils.applyFormatting(widget.controller, 'clear');
+                      widget.onHideToolbar();
+                    },
+                  ),
+                  _buildMenuItem(
+                    icon: const iconoir.Bold(color: _kMintAccent, width: 20, height: 20),
+                    label: 'Жирный',
+                    textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                    onTap: () {
+                      TextFormattingUtils.applyFormatting(widget.controller, 'bold');
+                      widget.onHideToolbar();
+                    },
+                  ),
+                  _buildMenuItem(
+                    icon: const iconoir.Italic(color: _kMintAccent, width: 20, height: 20),
+                    label: 'Курсив',
+                    textStyle: const TextStyle(fontStyle: FontStyle.italic),
+                    onTap: () {
+                      TextFormattingUtils.applyFormatting(widget.controller, 'italic');
+                      widget.onHideToolbar();
+                    },
+                  ),
+                  _buildMenuItem(
+                    icon: const iconoir.Code(color: _kMintAccent, width: 20, height: 20),
+                    label: 'Моно',
+                    textStyle: const TextStyle(fontFamily: 'monospace'),
+                    onTap: () {
+                      TextFormattingUtils.applyFormatting(widget.controller, 'code');
+                      widget.onHideToolbar();
+                    },
+                  ),
+                  _buildMenuItem(
+                    icon: const iconoir.CodeBrackets(color: _kMintAccent, width: 20, height: 20),
+                    label: 'Создать код',
+                    textStyle: const TextStyle(fontWeight: FontWeight.w500),
+                    onTap: () {
+                      widget.onHideToolbar();
+                      TextFormattingUtils.showCodeDialog(context, widget.controller);
+                    },
+                  ),
+                  _buildMenuItem(
+                    icon: const iconoir.Strikethrough(color: _kMintAccent, width: 20, height: 20),
+                    label: 'Зачёркнутый',
+                    textStyle: const TextStyle(
+                      decoration: TextDecoration.lineThrough,
+                      decorationColor: _kMintAccent,
+                    ),
+                    onTap: () {
+                      TextFormattingUtils.applyFormatting(widget.controller, 'strikethrough');
+                      widget.onHideToolbar();
+                    },
+                  ),
+                  _buildMenuItem(
+                    icon: const iconoir.Underline(color: _kMintAccent, width: 20, height: 20),
+                    label: 'Подчёркнутый',
+                    textStyle: const TextStyle(
+                      decoration: TextDecoration.underline,
+                      decorationColor: _kMintAccent,
+                    ),
+                    onTap: () {
+                      TextFormattingUtils.applyFormatting(widget.controller, 'underline');
+                      widget.onHideToolbar();
+                    },
+                  ),
+                  _buildMenuItem(
+                    icon: const iconoir.EyeClosed(color: _kMintAccent, width: 20, height: 20),
+                    label: 'Скрытый',
+                    textStyle: const TextStyle(fontWeight: FontWeight.w500),
+                    onTap: () {
+                      TextFormattingUtils.applyFormatting(widget.controller, 'spoiler');
+                      widget.onHideToolbar();
+                    },
+                  ),
+                  _buildMenuItem(
+                    icon: const iconoir.Link(color: _kMintAccent, width: 20, height: 20),
+                    label: 'Добавить ссылку',
+                    textStyle: const TextStyle(fontWeight: FontWeight.w500),
+                    onTap: () {
+                      widget.onHideToolbar();
+                      TextFormattingUtils.showLinkDialog(context, widget.controller);
+                    },
+                  ),
                 ],
               ),
             ),
@@ -1040,18 +1261,34 @@ class _TelegramTextSelectionToolbarState
     );
   }
 
-  Widget _buildMenuItem(String label, VoidCallback onTap) {
+  Widget _buildMenuItem({
+    required Widget icon,
+    required String label,
+    TextStyle? textStyle,
+    required VoidCallback onTap,
+  }) {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
-        child: Text(
-          label,
-          style: const TextStyle(
-            color: _kMintAccent,
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-          ),
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 9.0),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 20.0,
+              height: 20.0,
+              child: Center(child: icon),
+            ),
+            const SizedBox(width: 12.0),
+            Expanded(
+              child: Text(
+                label,
+                style: (textStyle ?? const TextStyle()).copyWith(
+                  color: _kMintAccent,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1083,6 +1320,72 @@ class TextFormattingUtils {
         url: url,
       );
     }
+  }
+
+  static void showCodeDialog(
+      BuildContext context, TextEditingController controller) {
+    final sel = controller.selection;
+    final start = sel.isValid ? math.min(sel.start, sel.end) : controller.text.length;
+    final end = sel.isValid ? math.max(sel.start, sel.end) : start;
+    final String selectedText = (start < end)
+        ? controller.text.substring(start, end)
+        : '';
+
+    final langController = TextEditingController();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF1E2225) : null,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Создать блок кода',
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: langController,
+              autofocus: true,
+              style: TextStyle(color: isDark ? Colors.white : Colors.black),
+              decoration: const InputDecoration(
+                labelText: 'Язык программирования',
+                hintText: 'например: dart, python, js...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Отмена'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final lang = langController.text.trim();
+              Navigator.of(ctx).pop();
+
+              final codeBlock = '```$lang\n$selectedText\n```';
+              final newText = controller.text.replaceRange(start, end, codeBlock);
+
+              final cursorOffset = selectedText.isEmpty
+                  ? start + 4 + lang.length
+                  : start + codeBlock.length;
+
+              controller.value = TextEditingValue(
+                text: newText,
+                selection: TextSelection.collapsed(offset: cursorOffset),
+              );
+            },
+            child: const Text('Создать'),
+          ),
+        ],
+      ),
+    );
   }
 
   static void showLinkDialog(

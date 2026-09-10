@@ -77,10 +77,24 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
   final GlobalKey _fieldKey = GlobalKey();
   late final AnimationController _blinkController;
   late final ScrollController _scrollController;
+  String _lastRecordedText = '';
+  bool _lastShowItalic = false;
+
+  bool _computeShowItalic() {
+    final richCtrl = widget.controller is RichTextEditingController
+        ? widget.controller as RichTextEditingController
+        : null;
+    return (richCtrl?.isCursorItalic ?? false) &&
+        (widget.focusNode?.hasFocus ?? false) &&
+        widget.controller.selection.isValid &&
+        widget.controller.selection.isCollapsed;
+  }
 
   @override
   void initState() {
     super.initState();
+    _lastRecordedText = widget.controller.text;
+    _lastShowItalic = _computeShowItalic();
     _scrollController = ScrollController();
     _blinkController = AnimationController(
       vsync: this,
@@ -101,6 +115,8 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.removeListener(_onControllerChanged);
       widget.controller.addListener(_onControllerChanged);
+      _lastRecordedText = widget.controller.text;
+      _lastShowItalic = _computeShowItalic();
     }
     if (oldWidget.focusNode != widget.focusNode) {
       oldWidget.focusNode?.removeListener(_onFocusChanged);
@@ -123,7 +139,12 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
     if (widget.focusNode?.hasFocus == true && !_blinkController.isAnimating) {
       _blinkController.repeat(reverse: true);
     }
-    if (mounted) setState(() {});
+    final showItalic = _computeShowItalic();
+    if (widget.controller.text != _lastRecordedText || showItalic != _lastShowItalic) {
+      _lastRecordedText = widget.controller.text;
+      _lastShowItalic = showItalic;
+      if (mounted) setState(() {});
+    }
   }
 
   void _onFocusChanged() {
@@ -137,6 +158,7 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
       }
       _blinkController.value = 1.0;
     }
+    _lastShowItalic = _computeShowItalic();
     if (mounted) setState(() {});
   }
 
@@ -331,6 +353,7 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
                     controller: widget.controller,
                     focusNode: widget.focusNode,
                     scrollController: _scrollController,
+                    selectionControls: telegramTextSelectionControls,
                     cursorColor: showItalicCursor ? Colors.transparent : cursorColor,
                     cursorWidth: 2.0,
                     cursorRadius: const Radius.circular(1.0),
@@ -482,6 +505,83 @@ class ItalicCaretPainter extends CustomPainter {
   }
 }
 
+/// Кастомные маркеры выделения текста в стиле Telegram.
+/// Имеют размер 26px и увеличенную область нажатия, что обеспечивает
+/// комфортное и точное перетаскивание на сенсорных экранах.
+class TelegramTextSelectionControls extends MaterialTextSelectionControls {
+  TelegramTextSelectionControls();
+
+  static const double _kHandleSize = 26.0;
+
+  @override
+  Size getHandleSize(double textLineHeight) => const Size(_kHandleSize, _kHandleSize);
+
+  @override
+  Offset getHandleAnchor(TextSelectionHandleType type, double textLineHeight) {
+    return switch (type) {
+      TextSelectionHandleType.collapsed => const Offset(_kHandleSize / 2, -4),
+      TextSelectionHandleType.left => const Offset(_kHandleSize, 0),
+      TextSelectionHandleType.right => Offset.zero,
+    };
+  }
+
+  @override
+  Widget buildHandle(
+    BuildContext context,
+    TextSelectionHandleType type,
+    double textHeight, [
+    VoidCallback? onTap,
+  ]) {
+    final ThemeData theme = Theme.of(context);
+    final Color handleColor =
+        TextSelectionTheme.of(context).selectionHandleColor ?? theme.colorScheme.primary;
+    final Widget handle = SizedBox(
+      width: _kHandleSize,
+      height: _kHandleSize,
+      child: CustomPaint(
+        painter: _TelegramSelectionHandlePainter(color: handleColor),
+        child: GestureDetector(onTap: onTap, behavior: HitTestBehavior.translucent),
+      ),
+    );
+
+    return switch (type) {
+      TextSelectionHandleType.left => Transform.rotate(
+        angle: math.pi / 2.0,
+        child: handle,
+      ),
+      TextSelectionHandleType.right => handle,
+      TextSelectionHandleType.collapsed => Transform.rotate(
+        angle: math.pi / 4.0,
+        child: handle,
+      ),
+    };
+  }
+}
+
+class _TelegramSelectionHandlePainter extends CustomPainter {
+  final Color color;
+  _TelegramSelectionHandlePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color;
+    final double radius = size.width / 2.0;
+    final circle = Rect.fromCircle(center: Offset(radius, radius), radius: radius);
+    final point = Rect.fromLTWH(0.0, 0.0, radius, radius);
+    final path = Path()
+      ..addOval(circle)
+      ..addRect(point);
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_TelegramSelectionHandlePainter oldPainter) {
+    return color != oldPainter.color;
+  }
+}
+
+final TextSelectionControls telegramTextSelectionControls = TelegramTextSelectionControls();
+
 /// Telegram-style floating text selection toolbar with compact horizontal pill and expanded vertical menu.
 class TelegramTextSelectionToolbar extends StatefulWidget {
   final TextSelectionToolbarAnchors anchors;
@@ -575,6 +675,7 @@ class _TelegramTextSelectionToolbarState
         anchorAbove: widget.anchors.primaryAnchor,
         anchorBelow:
             widget.anchors.secondaryAnchor ?? widget.anchors.primaryAnchor,
+        fitsAbove: widget.anchors.primaryAnchor.dy >= 180 ? true : null,
       ),
       child: Material(
         elevation: 8.0,
@@ -587,7 +688,31 @@ class _TelegramTextSelectionToolbarState
             borderRadius: BorderRadius.circular(16.0),
             border: Border.all(color: Colors.white12, width: 0.8),
           ),
-          child: _isExpanded ? _buildExpandedVerticalMenu() : _buildCompactPill(),
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeOutCubic,
+              transitionBuilder: (child, animation) {
+                return FadeTransition(
+                  opacity: animation,
+                  child: child,
+                );
+              },
+              child: _isExpanded
+                  ? KeyedSubtree(
+                      key: const ValueKey('expanded'),
+                      child: _buildExpandedVerticalMenu(),
+                    )
+                  : KeyedSubtree(
+                      key: const ValueKey('compact'),
+                      child: _buildCompactPill(),
+                    ),
+            ),
+          ),
         ),
       ),
     );
@@ -645,13 +770,13 @@ class _TelegramTextSelectionToolbarState
   Widget _buildExpandedVerticalMenu() {
     return Container(
       width: 240.0,
-      constraints: const BoxConstraints(maxHeight: 300.0),
+      constraints: const BoxConstraints(maxHeight: 280.0),
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
+          Flexible(
             child: SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
               child: Column(

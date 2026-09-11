@@ -1137,27 +1137,21 @@ class MessageBubble extends StatelessWidget {
         color: backgroundColor,
         borderRadius: BorderRadius.circular(kMessageBorderRadius),
       ),
-      child: AnimatedSize(
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeInOutCubic,
-        alignment: isMe ? Alignment.topRight : Alignment.topLeft,
-        clipBehavior: Clip.none,
-        child: hasMedia
-            ? mediaContentWidget!
-            : MessageBubbleLayout(
-                content: textBodyWidget,
-                metadata: metadataWidget,
-                text: message.content,
-                textStyle: textStyle,
-                hasBlockElement: endsWithBlock,
-                isBigEmoji: isBigEmoji,
-                replyWidget: replyWidget,
-                replyWidth: replyWidthEstimate,
-                senderNameWidget: senderNameWidget,
-                senderNameWidth: senderNameWidthEstimate,
-                metadataWidth: metadataWidthEstimate,
-              ),
-      ),
+      child: hasMedia
+          ? mediaContentWidget!
+          : MessageBubbleLayout(
+              content: textBodyWidget,
+              metadata: metadataWidget,
+              text: message.content,
+              textStyle: textStyle,
+              hasBlockElement: endsWithBlock,
+              isBigEmoji: isBigEmoji,
+              replyWidget: replyWidget,
+              replyWidth: replyWidthEstimate,
+              senderNameWidget: senderNameWidget,
+              senderNameWidth: senderNameWidthEstimate,
+              metadataWidth: metadataWidthEstimate,
+            ),
     );
 
     Widget result = Align(

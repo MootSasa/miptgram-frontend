@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:provider/provider.dart';
@@ -9,8 +10,8 @@ import '../profile/reply_strip_painter.dart';
 
 /// Interactive Collapsible Blockquote Widget.
 ///
-/// Features a stylish accent strip on the left, card background, and an expand/collapse
-/// button when the blockquote is marked collapsible or exceeds 3 lines.
+/// Features a stylish accent strip on the left, card background, line-by-line smooth
+/// reveal animation, and a firmly docked expand/collapse button at the bottom.
 class CollapsibleBlockquoteWidget extends StatefulWidget {
   final String text;
   final Widget? child;
@@ -39,20 +40,38 @@ class CollapsibleBlockquoteWidget extends StatefulWidget {
 }
 
 class _CollapsibleBlockquoteWidgetState
-    extends State<CollapsibleBlockquoteWidget> {
-  late bool _isExpanded;
+    extends State<CollapsibleBlockquoteWidget>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _curvedAnimation;
 
   @override
   void initState() {
     super.initState();
-    _isExpanded = widget.initialExpanded;
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+      value: widget.initialExpanded ? 1.0 : 0.0,
+    );
+    _curvedAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeInOutCubic,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   void _toggleExpand() {
     HapticUtils.tap();
-    setState(() {
-      _isExpanded = !_isExpanded;
-    });
+    if (_controller.value > 0.5) {
+      _controller.reverse();
+    } else {
+      _controller.forward();
+    }
   }
 
   @override
@@ -75,129 +94,186 @@ class _CollapsibleBlockquoteWidgetState
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Container has horizontal padding 8+8=16, ReplyStrip 3.5, space 8, quote icon padding 14 -> 41.5 total
-        final double maxContentWidth = constraints.hasBoundedWidth
-            ? (constraints.maxWidth - 41.5).clamp(10.0, double.infinity)
-            : double.infinity;
+        // Container padding horizontal: 8 + 8 = 16
+        // ReplyStrip width: 3.5
+        // Gap: 8
+        // Quote icon right padding / margin: 18
+        // Total non-text width: 45.5
+        final double availableWidth = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : 360.0;
+        final double maxContentWidth = (availableWidth - 45.5).clamp(10.0, double.infinity);
 
-        final textPainter = TextPainter(
+        final textDirection = Directionality.of(context);
+
+        final collapsedPainter = TextPainter(
           text: TextSpan(text: widget.text, style: quoteTextStyle),
-          textDirection: Directionality.of(context),
+          textDirection: textDirection,
           maxLines: 3,
         )..layout(maxWidth: maxContentWidth);
 
-        // Only show toggle button if quote exceeds 3 lines
-        final bool showToggle = textPainter.didExceedMaxLines;
+        final fullPainter = TextPainter(
+          text: TextSpan(text: widget.text, style: quoteTextStyle),
+          textDirection: textDirection,
+          maxLines: null,
+        )..layout(maxWidth: maxContentWidth);
+
+        final bool didExceed = collapsedPainter.didExceedMaxLines;
+        final bool showToggle = widget.isCollapsible || didExceed;
+
+        final double collapsedHeight = collapsedPainter.height;
+        final double fullHeight = fullPainter.height;
 
         return MetaData(
           metaData: 'block_element',
           child: Container(
-            constraints: BoxConstraints(
-              maxWidth: constraints.hasBoundedWidth ? constraints.maxWidth : double.infinity,
-            ),
+            width: double.infinity,
             margin: const EdgeInsets.symmetric(vertical: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             decoration: BoxDecoration(
               color: cardBgColor,
               borderRadius: BorderRadius.circular(6),
             ),
-            child: Stack(
-            children: [
-              Positioned(
-                top: 0,
-                right: 0,
-                child: iconoir.QuoteSolid(
-                  color: primaryColor.withValues(alpha: 0.35),
-                  width: 14,
-                  height: 14,
-                ),
-              ),
-              IntrinsicHeight(
-                child: Row(
+            clipBehavior: Clip.antiAlias,
+            child: AnimatedBuilder(
+              animation: _curvedAnimation,
+              builder: (context, child) {
+                final double progress = showToggle ? _curvedAnimation.value : 1.0;
+                final double currentTextHeight = showToggle
+                    ? ui.lerpDouble(collapsedHeight, fullHeight, progress)!
+                    : fullHeight;
+
+                final bool isExpanded = progress > 0.5;
+
+                return Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    ReplyStripWidget(
-                      preset: effectivePreset,
-                      style: effectiveStripStyle,
-                      width: 3.5,
-                      borderRadius: 2,
-                    ),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      fit: FlexFit.loose,
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(maxWidth: maxContentWidth),
-                        child: Padding(
-                          padding: const EdgeInsets.only(right: 14.0),
-                          child: Column(
+                    // Main Quote Content
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                      child: Stack(
+                        children: [
+                          Positioned(
+                            top: 0,
+                            right: 0,
+                            child: iconoir.QuoteSolid(
+                              color: primaryColor.withValues(alpha: 0.35),
+                              width: 14,
+                              height: 14,
+                            ),
+                          ),
+                          Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              AnimatedSize(
-                                duration: const Duration(milliseconds: 250),
-                                curve: Curves.easeInOutCubic,
-                                alignment: Alignment.topLeft,
-                                clipBehavior: Clip.hardEdge,
-                                child: widget.child ??
-                                    Text(
-                                      widget.text,
-                                      maxLines: (showToggle && !_isExpanded) ? 3 : null,
-                                      overflow: (showToggle && !_isExpanded)
-                                          ? TextOverflow.ellipsis
-                                          : TextOverflow.clip,
-                                      style: quoteTextStyle,
-                                    ),
+                              SizedBox(
+                                height: currentTextHeight,
+                                child: ReplyStripWidget(
+                                  preset: effectivePreset,
+                                  style: effectiveStripStyle,
+                                  width: 3.5,
+                                  borderRadius: 2,
+                                ),
                               ),
-                              if (showToggle) ...[
-                                const SizedBox(height: 4),
-                                InkWell(
-                                  onTap: _toggleExpand,
-                                  borderRadius: BorderRadius.circular(4),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(
-                                          _isExpanded
-                                              ? context.l10n.translate('format_collapsed_state')
-                                              : context.l10n.translate('format_expand'),
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                            color: primaryColor,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        AnimatedRotation(
-                                          turns: _isExpanded ? 0.5 : 0.0,
-                                          duration: const Duration(milliseconds: 250),
-                                          curve: Curves.easeInOutCubic,
-                                          child: iconoir.NavArrowDown(
-                                            width: 14,
-                                            height: 14,
-                                            color: primaryColor,
-                                          ),
-                                        ),
-                                      ],
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 14.0),
+                                  child: SizedBox(
+                                    height: currentTextHeight,
+                                    child: ClipRect(
+                                      child: (showToggle && progress < 1.0)
+                                          ? ShaderMask(
+                                              shaderCallback: (Rect bounds) {
+                                                const double fadeHeight = 20.0;
+                                                final double fadeRatio = (bounds.height > fadeHeight)
+                                                    ? (bounds.height - fadeHeight) / bounds.height
+                                                    : 0.0;
+                                                return LinearGradient(
+                                                  begin: Alignment.topCenter,
+                                                  end: Alignment.bottomCenter,
+                                                  stops: [0.0, fadeRatio, 1.0],
+                                                  colors: const [
+                                                    Colors.white,
+                                                    Colors.white,
+                                                    Colors.transparent,
+                                                  ],
+                                                ).createShader(bounds);
+                                              },
+                                              blendMode: BlendMode.dstIn,
+                                              child: widget.child ??
+                                                  Text(
+                                                    widget.text,
+                                                    style: quoteTextStyle,
+                                                  ),
+                                            )
+                                          : widget.child ??
+                                              Text(
+                                                widget.text,
+                                                style: quoteTextStyle,
+                                              ),
                                     ),
                                   ),
                                 ),
-                              ],
+                              ),
                             ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Firmly docked expand/collapse footer button
+                    if (showToggle)
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border(
+                            top: BorderSide(
+                              color: primaryColor.withValues(alpha: 0.12),
+                              width: 0.5,
+                            ),
+                          ),
+                          color: primaryColor.withValues(alpha: 0.04),
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: _toggleExpand,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    isExpanded
+                                        ? context.l10n.translate('format_collapsed_state')
+                                        : context.l10n.translate('format_expand'),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: primaryColor,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Transform.rotate(
+                                    angle: progress * 3.141592653589793,
+                                    child: iconoir.NavArrowDown(
+                                      width: 14,
+                                      height: 14,
+                                      color: primaryColor,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
                   ],
-                ),
-              ),
-            ],
+                );
+              },
+            ),
           ),
-        ),
-      );
-    },
-  );
+        );
+      },
+    );
   }
 }

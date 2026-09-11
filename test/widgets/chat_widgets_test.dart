@@ -461,6 +461,55 @@ void main() {
       expect(strip.style, stripStyle);
     });
 
+    testWidgets('CollapsibleBlockquoteWidget expands and collapses with pinned bottom button and smooth animation', (WidgetTester tester) async {
+      const longQuote = 'Line 1: The quick brown fox jumps over the lazy dog.\n'
+          'Line 2: Pack my box with five dozen liquor jugs.\n'
+          'Line 3: Sphinx of black quartz, judge my vow.\n'
+          'Line 4: How vexingly quick daft zebras jump!\n'
+          'Line 5: Bright vixens jump; dozy fowl quack.\n'
+          'Line 6: Jackdaws love my big sphinx of quartz.';
+
+      await tester.pumpWidget(
+        createTestApp(
+          const CollapsibleBlockquoteWidget(
+            text: longQuote,
+            isDark: false,
+            isMe: false,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Expand button should be visible since quote has 6 lines
+      expect(find.byType(InkWell), findsOneWidget);
+      final initialBox = tester.renderObject<RenderBox>(find.byType(CollapsibleBlockquoteWidget));
+      final double collapsedHeight = initialBox.size.height;
+
+      // Tap to expand
+      await tester.tap(find.byType(InkWell));
+      await tester.pump(); // Dispatch tap gesture to trigger _toggleExpand
+      await tester.pump(const Duration(milliseconds: 160)); // Halfway through 320ms animation
+
+      final halfwayBox = tester.renderObject<RenderBox>(find.byType(CollapsibleBlockquoteWidget));
+      expect(halfwayBox.size.height, greaterThan(collapsedHeight));
+
+      await tester.pumpAndSettle();
+      final expandedBox = tester.renderObject<RenderBox>(find.byType(CollapsibleBlockquoteWidget));
+      expect(expandedBox.size.height, greaterThan(collapsedHeight));
+      expect(expandedBox.size.height, greaterThanOrEqualTo(halfwayBox.size.height));
+
+      // Tap to collapse
+      await tester.tap(find.byType(InkWell));
+      await tester.pump(); // Dispatch tap gesture
+      await tester.pump(const Duration(milliseconds: 160));
+      final collapsingBox = tester.renderObject<RenderBox>(find.byType(CollapsibleBlockquoteWidget));
+      expect(collapsingBox.size.height, lessThanOrEqualTo(expandedBox.size.height));
+
+      await tester.pumpAndSettle();
+      final finalBox = tester.renderObject<RenderBox>(find.byType(CollapsibleBlockquoteWidget));
+      expect(finalBox.size.height, closeTo(collapsedHeight, 1.0));
+    });
+
     testWidgets('CodeBlockWidget renders with custom sender preset and strip style', (WidgetTester tester) async {
       const preset = NameColorPresets.green;
       const stripStyle = ReplyStripStyle.dualColor;

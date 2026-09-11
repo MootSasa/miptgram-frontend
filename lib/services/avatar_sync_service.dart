@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../utils/image_utils.dart';
 import 'account_manager.dart';
 import 'auth_service.dart';
 
@@ -46,6 +48,12 @@ class AvatarSyncService extends ChangeNotifier {
     final permanentPath = permanentFile.path;
     debugPrint('[AvatarSyncService] Saved permanent avatar copy to: $permanentPath');
 
+    // Сохраняем стабильную локальную копию текущего аватара: avatar_${userId}_current.jpg
+    final currentLocalFile = File('${avatarsDir.path}/avatar_${userId}_current.jpg');
+    try {
+      await sourceFile.copy(currentLocalFile.path);
+    } catch (_) {}
+
     // 2. Добавляем путь в очередь отложенной загрузки
     final pendingList = prefs.getStringList(_pendingKey(userId)) ?? [];
     if (!pendingList.contains(permanentPath)) {
@@ -63,6 +71,7 @@ class AvatarSyncService extends ChangeNotifier {
     await _accountManager.updateAccountProfile(
       userId,
       avatarUrl: permanentPath,
+      localAvatarPath: currentLocalFile.path,
     );
 
     notifyListeners();
@@ -153,6 +162,27 @@ class AvatarSyncService extends ChangeNotifier {
             pendingList.removeAt(0);
             await prefs.setStringList(_pendingKey(userId), pendingList);
 
+            // Кэшируем байты в DefaultCacheManager, чтобы CachedNetworkImageProvider
+            // мог мгновенно отображать аватарку оффлайн
+            try {
+              final bytes = await pendingFile.readAsBytes();
+              await DefaultCacheManager().putFile(
+                remoteAvatarUrl,
+                bytes,
+                fileExtension: 'jpg',
+              );
+              final validRemote = getValidAvatarUrl(remoteAvatarUrl);
+              if (validRemote != null && validRemote != remoteAvatarUrl) {
+                await DefaultCacheManager().putFile(
+                  validRemote,
+                  bytes,
+                  fileExtension: 'jpg',
+                );
+              }
+            } catch (e) {
+              debugPrint('[AvatarSyncService] Cache put error: $e');
+            }
+
             // Обновляем историю: заменяем локальный путь на серверный URL
             final historyList = prefs.getStringList(_historyKey(userId)) ?? [];
             final idx = historyList.indexOf(pendingPath);
@@ -167,6 +197,7 @@ class AvatarSyncService extends ChangeNotifier {
               await _accountManager.updateAccountProfile(
                 userId,
                 avatarUrl: remoteAvatarUrl,
+                localAvatarPath: pendingPath,
               );
             }
 

@@ -18,8 +18,8 @@ class NameColorSyncService extends ChangeNotifier {
 
   final AccountManager _accountManager = AccountManager();
 
-  static const String _prefNameColorKey = 'user_name_color_preset_id';
-  static const String _prefStripStyleKey = 'user_reply_strip_style';
+  static String _prefNameColorKey(String uid) => '${uid}_user_name_color_preset_id';
+  static String _prefStripStyleKey(String uid) => '${uid}_user_reply_strip_style';
 
   /// Сохраняет настройки цвета имени и стиля полоски ответа локально
   /// и инициирует фоновую синхронизацию с сервером.
@@ -27,16 +27,14 @@ class NameColorSyncService extends ChangeNotifier {
     required NameColorPreset preset,
     required ReplyStripStyle style,
   }) async {
-    debugPrint('[NameColorSyncService] Saving name color preset=${preset.id}, style=${style.name}');
     final prefs = await SharedPreferences.getInstance();
-
-    await prefs.setString(_prefNameColorKey, preset.id);
-    await prefs.setString(_prefStripStyleKey, style.name);
-
     final currentAccount = _accountManager.currentAccount;
     if (currentAccount != null) {
+      final uid = currentAccount.userId;
+      await prefs.setString(_prefNameColorKey(uid), preset.id);
+      await prefs.setString(_prefStripStyleKey(uid), style.name);
       await _accountManager.updateAccountProfile(
-        currentAccount.userId,
+        uid,
       );
     }
 

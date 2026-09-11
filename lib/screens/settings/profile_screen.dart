@@ -18,6 +18,7 @@ import '../../services/avatar_sync_service.dart';
 import '../../services/liquid_glass_provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../utils/avatar_crop_utils.dart';
+import '../../utils/image_utils.dart';
 import '../../utils/haptic_utils.dart';
 import '../../widgets/profile/expandable_avatar.dart';
 import '../../widgets/profile/avatar_gallery_viewer.dart';
@@ -86,20 +87,9 @@ class ProfileScreenState extends State<ProfileScreen>
     if (_avatarFile != null) {
       provider = FileImage(_avatarFile!);
     } else if (_avatarUrl != null && _avatarUrl!.isNotEmpty) {
-      if (_avatarUrl!.startsWith('http://') || _avatarUrl!.startsWith('https://')) {
-        provider = NetworkImage(_avatarUrl!);
-      } else {
-        final f = File(_avatarUrl!);
-        if (f.existsSync()) provider = FileImage(f);
-      }
+      provider = avatarImageProvider(_avatarUrl);
     } else if (_avatarUrls.isNotEmpty) {
-      final first = _avatarUrls.first;
-      if (first.startsWith('http://') || first.startsWith('https://')) {
-        provider = NetworkImage(first);
-      } else {
-        final f = File(first);
-        if (f.existsSync()) provider = FileImage(f);
-      }
+      provider = avatarImageProvider(_avatarUrls.first);
     }
 
     if (provider == null) {

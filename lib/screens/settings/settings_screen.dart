@@ -334,7 +334,22 @@ class _SettingsScreenState extends State<SettingsScreen>
   void initState() {
     super.initState();
     _currentAccount = _accountManager.currentAccount;
+    _accountManager.addListener(_onAccountChanged);
     _loadUpdateChannel();
+  }
+
+  void _onAccountChanged() {
+    if (mounted) {
+      setState(() {
+        _currentAccount = _accountManager.currentAccount;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _accountManager.removeListener(_onAccountChanged);
+    super.dispose();
   }
 
   @override
@@ -417,7 +432,13 @@ class _SettingsScreenState extends State<SettingsScreen>
                 SwipeBackPageRoute(
                   builder: (_) => const ProfileScreen(),
                 ),
-              );
+              ).then((_) {
+                if (mounted) {
+                  setState(() {
+                    _currentAccount = _accountManager.currentAccount;
+                  });
+                }
+              });
             },
           ),
 
@@ -435,7 +456,13 @@ class _SettingsScreenState extends State<SettingsScreen>
                 SwipeBackPageRoute(
                   builder: (_) => const AccountsScreen(),
                 ),
-              );
+              ).then((_) {
+                if (mounted) {
+                  setState(() {
+                    _currentAccount = _accountManager.currentAccount;
+                  });
+                }
+              });
             },
           ),
 
@@ -739,27 +766,37 @@ class _SettingsScreenState extends State<SettingsScreen>
               SwipeBackPageRoute(
                 builder: (_) => const AccountsScreen(),
               ),
-            );
+            ).then((_) {
+              if (mounted) {
+                setState(() {
+                  _currentAccount = _accountManager.currentAccount;
+                });
+              }
+            });
           },
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
                 CircleAvatar(
-                  key: ValueKey('settings_avatar_${account.userId}'),
+                  key: ValueKey('settings_avatar_${account.userId}_${account.avatarUrl}_${account.localAvatarPath}'),
                   radius: 28,
-                  backgroundImage: avatarImageProvider(account.avatarUrl),
+                  backgroundImage: avatarImageProvider(account.avatarUrl, localFallbackPath: account.localAvatarPath),
                   backgroundColor: const Color(0xFF0088CC),
-                  child: account.avatarUrl == null
-                  ? Text(
-                      (account.displayName ?? account.username ?? '?')[0].toUpperCase(),
-                      style: const TextStyle(
-                        fontSize: 28,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    )
-                  : null,
+                  onBackgroundImageError: (e, s) {
+                    debugPrint('[SettingsScreen] Failed to render avatar: $e');
+                  },
+                  child: (account.avatarUrl == null || account.avatarUrl!.isEmpty) &&
+                          (account.localAvatarPath == null || !File(account.localAvatarPath!).existsSync())
+                      ? Text(
+                          (account.displayName ?? account.username ?? '?')[0].toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 28,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        )
+                      : null,
                 ),
                 const SizedBox(width: 16),
                 Expanded(

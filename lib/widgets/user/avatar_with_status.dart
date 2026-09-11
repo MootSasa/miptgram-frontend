@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../utils/image_utils.dart';
 
 /// A widget that displays a user avatar with an online status indicator.
 /// Shows a blue circle in the bottom-right corner when the user is online.
@@ -20,30 +21,17 @@ class AvatarWithStatus extends StatelessWidget {
     this.onTap,
   }) : super(key: key);
 
-  /// Validates and returns a valid avatar URL, or null if invalid
-  String? _getValidAvatarUrl() {
-    if (avatarUrl == null || avatarUrl!.isEmpty) return null;
-    try {
-      final uri = Uri.parse(avatarUrl!);
-      if (uri.hasScheme && (uri.scheme == 'http' || uri.scheme == 'https')) {
-        return avatarUrl;
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final validUrl = _getValidAvatarUrl();
+    final provider = avatarImageProvider(avatarUrl);
     final bgColor = backgroundColor ?? const Color(0xFF0088CC);
     
     Widget avatar = CircleAvatar(
       radius: radius,
       backgroundColor: bgColor,
-      backgroundImage: validUrl != null ? NetworkImage(validUrl) : null,
-      child: validUrl == null
+      backgroundImage: provider,
+      onBackgroundImageError: provider != null ? (_, __) {} : null,
+      child: provider == null
           ? Text(
               name.isNotEmpty ? name[0].toUpperCase() : '?',
               style: TextStyle(

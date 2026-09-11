@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../../utils/image_utils.dart';
 
 /// Аватарка с анимацией расширения по вертикальному свайпу.
 ///
@@ -407,15 +409,25 @@ class _ExpandableAvatarState extends State<ExpandableAvatar> {
               _avatarErrorWidget(bgColor, iconSize, isDark),
         );
       } else {
-        imageWidget = Image.network(
-          url,
-          fit: BoxFit.cover,
-          alignment: imgAlignment,
-          width: width,
-          height: height,
-          errorBuilder: (context, error, stackTrace) =>
-              _avatarErrorWidget(bgColor, iconSize, isDark),
-        );
+        final validUrl = getValidAvatarUrl(url);
+        if (validUrl != null && (validUrl.startsWith('http://') || validUrl.startsWith('https://'))) {
+          imageWidget = CachedNetworkImage(
+            imageUrl: validUrl,
+            fit: BoxFit.cover,
+            alignment: imgAlignment,
+            width: width,
+            height: height,
+            placeholder: (context, _) => Container(
+              width: width,
+              height: height,
+              color: bgColor,
+            ),
+            errorWidget: (context, _, __) =>
+                _avatarErrorWidget(bgColor, iconSize, isDark),
+          );
+        } else {
+          imageWidget = _avatarErrorWidget(bgColor, iconSize, isDark);
+        }
       }
     }
 

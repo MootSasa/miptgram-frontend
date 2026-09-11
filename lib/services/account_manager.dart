@@ -11,7 +11,7 @@ import 'auth_service.dart';
 /// - Storing and switching between multiple accounts
 /// - Remembering the last active account
 /// - Tracking device sessions
-class AccountManager {
+class AccountManager extends ChangeNotifier {
   AccountManager._internal();
   static final AccountManager _instance = AccountManager._internal();
   factory AccountManager() => _instance;
@@ -63,6 +63,7 @@ class AccountManager {
     } else {
       await _prefs.remove(_currentAccountIdKey);
     }
+    notifyListeners();
   }
 
   /// Add a new account. Throws if account with same userId already exists.
@@ -111,12 +112,8 @@ class AccountManager {
     final index = _accounts.indexWhere((acc) => acc.userId == userId);
     if (index != -1) {
       final oldAccount = _accounts[index];
-      _accounts[index] = Account(
-        userId: oldAccount.userId,
+      _accounts[index] = oldAccount.copyWith(
         token: token,
-        username: oldAccount.username,
-        displayName: oldAccount.displayName,
-        avatarUrl: oldAccount.avatarUrl,
         lastLogin: DateTime.now(),
       );
       if (_currentAccount?.userId == userId) {
@@ -135,6 +132,7 @@ class AccountManager {
     String? surname,
     String? email,
     String? phone,
+    String? localAvatarPath,
   }) async {
     final index = _accounts.indexWhere((acc) => acc.userId == userId);
     if (index != -1) {
@@ -150,6 +148,7 @@ class AccountManager {
         surname: surname ?? oldAccount.surname,
         email: email ?? oldAccount.email,
         phone: phone ?? oldAccount.phone,
+        localAvatarPath: localAvatarPath ?? oldAccount.localAvatarPath,
       );
       if (_currentAccount?.userId == userId) {
         _currentAccount = _accounts[index];
@@ -440,6 +439,7 @@ class Account {
   final String? surname;
   final String? email;
   final String? phone;
+  final String? localAvatarPath;
 
   Account({
     required this.userId,
@@ -452,6 +452,7 @@ class Account {
     this.surname,
     this.email,
     this.phone,
+    this.localAvatarPath,
   });
 
   Map<String, dynamic> toJson() {
@@ -466,6 +467,7 @@ class Account {
       'surname': surname,
       'email': email,
       'phone': phone,
+      'localAvatarPath': localAvatarPath,
     };
   }
 
@@ -483,6 +485,7 @@ class Account {
       surname: json['surname'] as String?,
       email: json['email'] as String?,
       phone: json['phone'] as String?,
+      localAvatarPath: json['localAvatarPath'] as String?,
     );
   }
 
@@ -497,6 +500,7 @@ class Account {
     String? surname,
     String? email,
     String? phone,
+    String? localAvatarPath,
   }) {
     return Account(
       userId: userId ?? this.userId,
@@ -509,6 +513,7 @@ class Account {
       surname: surname ?? this.surname,
       email: email ?? this.email,
       phone: phone ?? this.phone,
+      localAvatarPath: localAvatarPath ?? this.localAvatarPath,
     );
   }
 }

@@ -48,7 +48,15 @@ class ChatListItem extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 22,
+            backgroundColor: const Color(0xFF0088CC),
             backgroundImage: avatarImageProvider(avatarUrl),
+            onBackgroundImageError: (_, __) {},
+            child: avatarImageProvider(avatarUrl) == null
+                ? Text(
+                    chatName.isNotEmpty ? chatName[0].toUpperCase() : '?',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  )
+                : null,
           ),
           if (!isGroup && isOnline)
             Positioned(

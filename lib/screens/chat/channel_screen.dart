@@ -26,6 +26,7 @@ import '../../widgets/chat/unread_separator.dart';
 import '../../utils/swipe_back_route.dart';
 import 'private_chat_screen.dart';
 import 'group_chat_screen.dart';
+import '../../utils/entity_parser.dart';
 import '../../l10n/app_localizations.dart';
 import '../../utils/date_time_utils.dart';
 
@@ -538,8 +539,14 @@ class _ChannelScreenState extends State<ChannelScreen> {
     }
   }
 
-  Future<void> _sendMessage() async {
-    final String text = _messageController.text.trim();
+  Future<void> _sendMessage({
+    String? cleanText,
+    List<MessageEntity>? entities,
+    LinkPreviewOptions? linkPreviewOptions,
+    bool invertMedia = false,
+  }) async {
+    final String rawText = _messageController.text.trim();
+    final String text = cleanText?.trim() ?? rawText;
     if (text.isEmpty || _isSending) return;
 
     final replyTo = _replyToMessage;
@@ -558,6 +565,11 @@ class _ChannelScreenState extends State<ChannelScreen> {
       _quoteLength = 0;
     });
 
+    final parsed = cleanText != null ? null : EntityParser.parseMarkdown(text);
+    final String effectiveContent = cleanText ?? parsed!.cleanText;
+    final List<MessageEntity>? effectiveEntities =
+        entities ?? (parsed?.entities.isNotEmpty == true ? parsed!.entities : null);
+
     final syncService = SyncService();
     String? pendingLocalId;
     DbMessage? pendingMsg;
@@ -565,7 +577,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
       pendingMsg = await syncService.createPendingMessage(
         chatId: widget.channelId,
         senderId: _currentUserId ?? '',
-        content: text,
+        content: effectiveContent,
         messageType: 'text',
         replyToMessageId: replyTo?.id,
         isQuote: replyIsQuote,
@@ -576,6 +588,9 @@ class _ChannelScreenState extends State<ChannelScreen> {
         replyToSenderName: replyTo?.senderName,
         replyToContent: replyTo?.content,
         replyToMessageType: replyTo?.messageType ?? 'text',
+        entities: effectiveEntities,
+        linkPreviewOptions: linkPreviewOptions,
+        invertMedia: invertMedia,
       );
     } catch (e) {
       debugPrint('SyncService createPendingMessage error: $e');
@@ -614,7 +629,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
       try {
         final result = await ChatService.sendMessage(
           chatId: widget.channelId,
-          content: text,
+          content: effectiveContent,
           messageType: 'text',
           localId: pendingLocalId,
           replyToMessageId: replyTo?.id,
@@ -622,6 +637,9 @@ class _ChannelScreenState extends State<ChannelScreen> {
           quoteText: replyQuoteText,
           quoteOffset: replyQuoteOffset,
           quoteLength: replyQuoteLength,
+          entities: effectiveEntities,
+          linkPreviewOptions: linkPreviewOptions,
+          invertMedia: invertMedia,
         );
 
         if (result['success'] == true) {
@@ -1212,6 +1230,14 @@ class _ChannelScreenState extends State<ChannelScreen> {
       onCancelReply: _cancelReply,
       onTapReply: _replyToMessage != null ? () => _scrollToMessage(_replyToMessage!.id) : null,
       onSend: _sendMessage,
+      onSendDetailed: (cleanText, entities, linkPreviewOptions, invertMedia) {
+        _sendMessage(
+          cleanText: cleanText,
+          entities: entities,
+          linkPreviewOptions: linkPreviewOptions,
+          invertMedia: invertMedia,
+        );
+      },
       currentUserId: _currentUserId,
       isSending: _isSending,
     );

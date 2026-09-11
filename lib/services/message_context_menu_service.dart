@@ -16,6 +16,7 @@ class MessageContextMenuService {
     required GlobalKey messageKey,
     required bool isMe,
     required VoidCallback onReply,
+    VoidCallback? onQuote,
     required VoidCallback onPin,
     required VoidCallback onEdit,
     required Function(Message message) onDelete,
@@ -43,6 +44,7 @@ class MessageContextMenuService {
           isMe: isMe,
           sendStatus: message.sendStatus,
           onReply: onReply,
+          onQuote: onQuote,
           onCopy: () {
             Clipboard.setData(ClipboardData(text: message.content));
           },

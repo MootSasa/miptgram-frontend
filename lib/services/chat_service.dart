@@ -158,16 +158,20 @@ class ReplyInfo {
 
 /// MessageEntity represents a formatted range in text (Bold, Italic, Spoiler, Code, Link, etc.).
 class MessageEntity {
-  final String type; // 'bold', 'italic', 'code', 'spoiler', 'strikethrough', 'underline', 'link', 'mention', 'blockquote'
+  final String type; // 'bold', 'italic', 'code', 'pre', 'spoiler', 'strikethrough', 'underline', 'link', 'text_link', 'mention', 'blockquote', 'expandable_blockquote'
   final int offset;
   final int length;
   final String? url;
+  final String? language; // For 'pre' code blocks
+  final bool? collapsed; // For expandable/collapsible blockquotes
 
   const MessageEntity({
     required this.type,
     required this.offset,
     required this.length,
     this.url,
+    this.language,
+    this.collapsed,
   });
 
   factory MessageEntity.fromJson(Map<String, dynamic> json) {
@@ -176,6 +180,8 @@ class MessageEntity {
       offset: (json['offset'] as num?)?.toInt() ?? 0,
       length: (json['length'] as num?)?.toInt() ?? 0,
       url: json['url']?.toString(),
+      language: json['language']?.toString(),
+      collapsed: json['collapsed'] as bool?,
     );
   }
 
@@ -184,7 +190,87 @@ class MessageEntity {
         'offset': offset,
         'length': length,
         if (url != null) 'url': url,
+        if (language != null) 'language': language,
+        if (collapsed != null) 'collapsed': collapsed,
       };
+
+  MessageEntity copyWith({
+    String? type,
+    int? offset,
+    int? length,
+    String? url,
+    String? language,
+    bool? collapsed,
+  }) {
+    return MessageEntity(
+      type: type ?? this.type,
+      offset: offset ?? this.offset,
+      length: length ?? this.length,
+      url: url ?? this.url,
+      language: language ?? this.language,
+      collapsed: collapsed ?? this.collapsed,
+    );
+  }
+}
+
+/// LinkPreviewOptions controls the presentation of link preview in messages.
+class LinkPreviewOptions {
+  final bool isDisabled;
+  final String? url;
+  final bool preferSmallMedia;
+  final bool preferLargeMedia;
+  final bool showAboveText;
+
+  const LinkPreviewOptions({
+    this.isDisabled = false,
+    this.url,
+    this.preferSmallMedia = false,
+    this.preferLargeMedia = false,
+    this.showAboveText = false,
+  });
+
+  factory LinkPreviewOptions.fromJson(Map<String, dynamic> json) {
+    final rawDisabled = json['is_disabled'];
+    final bool isDisabled = rawDisabled == true || rawDisabled == 1 || rawDisabled == 'true';
+    final rawSmall = json['prefer_small_media'];
+    final bool preferSmall = rawSmall == true || rawSmall == 1 || rawSmall == 'true';
+    final rawLarge = json['prefer_large_media'];
+    final bool preferLarge = rawLarge == true || rawLarge == 1 || rawLarge == 'true';
+    final rawAbove = json['show_above_text'];
+    final bool showAbove = rawAbove == true || rawAbove == 1 || rawAbove == 'true';
+
+    return LinkPreviewOptions(
+      isDisabled: isDisabled,
+      url: json['url']?.toString(),
+      preferSmallMedia: preferSmall,
+      preferLargeMedia: preferLarge,
+      showAboveText: showAbove,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'is_disabled': isDisabled,
+        if (url != null) 'url': url,
+        'prefer_small_media': preferSmallMedia,
+        'prefer_large_media': preferLargeMedia,
+        'show_above_text': showAboveText,
+      };
+
+  LinkPreviewOptions copyWith({
+    bool? isDisabled,
+    String? url,
+    bool? preferSmallMedia,
+    bool? preferLargeMedia,
+    bool? showAboveText,
+  }) {
+    return LinkPreviewOptions(
+      isDisabled: isDisabled ?? this.isDisabled,
+      url: url ?? this.url,
+      preferSmallMedia: preferSmallMedia ?? this.preferSmallMedia,
+      preferLargeMedia: preferLargeMedia ?? this.preferLargeMedia,
+      showAboveText: showAboveText ?? this.showAboveText,
+    );
+  }
 }
 
 /// Message represents a message in a chat.
@@ -227,6 +313,8 @@ class Message {
   // Album grouping and text formatting entities
   final String? groupedId;
   final List<MessageEntity> entities;
+  final LinkPreviewOptions? linkPreviewOptions;
+  final bool invertMedia;
 
   // Reactions
   final Map<String, int> reactions; // emoji -> count
@@ -261,6 +349,8 @@ class Message {
     this.forwardFromName,
     this.groupedId,
     this.entities = const [],
+    this.linkPreviewOptions,
+    this.invertMedia = false,
     this.reactions = const {},
     this.myReactions = const {},
   });
@@ -355,6 +445,16 @@ class Message {
               ?.map((e) => MessageEntity.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],
+      linkPreviewOptions: json['link_preview_options'] != null
+          ? LinkPreviewOptions.fromJson(
+              json['link_preview_options'] is String
+                  ? jsonDecode(json['link_preview_options'])
+                  : json['link_preview_options'] as Map<String, dynamic>,
+            )
+          : null,
+      invertMedia: json['invert_media'] == true ||
+          json['invert_media'] == 1 ||
+          json['invert_media'] == 'true',
       reactions: parsedReactions,
       myReactions: parsedMyReactions,
     );
@@ -410,6 +510,17 @@ class Message {
       } catch (_) {}
     }
 
+    LinkPreviewOptions? parsedLinkPreviewOptions;
+    if (model.linkPreviewOptions != null &&
+        model.linkPreviewOptions!.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(model.linkPreviewOptions!);
+        if (decoded is Map<String, dynamic>) {
+          parsedLinkPreviewOptions = LinkPreviewOptions.fromJson(decoded);
+        }
+      } catch (_) {}
+    }
+
     return Message(
       id: model.serverId ?? model.localId,
       chatId: model.chatId,
@@ -436,6 +547,8 @@ class Message {
       forwardFromName: model.forwardFromName,
       groupedId: model.groupedId,
       entities: parsedEntities,
+      linkPreviewOptions: parsedLinkPreviewOptions,
+      invertMedia: model.invertMedia,
       reactions: dbReactions,
       myReactions: dbMyReactions,
     );
@@ -471,6 +584,8 @@ class Message {
     String? forwardFromName,
     String? groupedId,
     List<MessageEntity>? entities,
+    LinkPreviewOptions? linkPreviewOptions,
+    bool? invertMedia,
     Map<String, int>? reactions,
     Set<String>? myReactions,
   }) {
@@ -503,6 +618,8 @@ class Message {
       forwardFromName: forwardFromName ?? this.forwardFromName,
       groupedId: groupedId ?? this.groupedId,
       entities: entities ?? this.entities,
+      linkPreviewOptions: linkPreviewOptions ?? this.linkPreviewOptions,
+      invertMedia: invertMedia ?? this.invertMedia,
       reactions: reactions ?? this.reactions,
       myReactions: myReactions ?? this.myReactions,
     );
@@ -869,6 +986,9 @@ class ChatService {
     String? quoteText,
     int quoteOffset = 0,
     int quoteLength = 0,
+    List<MessageEntity>? entities,
+    LinkPreviewOptions? linkPreviewOptions,
+    bool invertMedia = false,
   }) async {
     try {
       final token = await AuthService.getToken();
@@ -892,6 +1012,15 @@ class ChatService {
         }
       }
       if (localId != null) body['local_id'] = localId;
+      if (entities != null && entities.isNotEmpty) {
+        body['entities'] = entities.map((e) => e.toJson()).toList();
+      }
+      if (linkPreviewOptions != null) {
+        body['link_preview_options'] = linkPreviewOptions.toJson();
+      }
+      if (invertMedia) {
+        body['invert_media'] = true;
+      }
 
       if (AppConfig.enableDebugLogging) {
         debugPrint(
@@ -980,6 +1109,7 @@ class ChatService {
     required String chatId,
     required String messageId,
     required String content,
+    List<MessageEntity>? entities,
   }) async {
     try {
       final token = await AuthService.getToken();
@@ -990,6 +1120,9 @@ class ChatService {
       final body = <String, dynamic>{
         'content': content,
       };
+      if (entities != null && entities.isNotEmpty) {
+        body['entities'] = entities.map((e) => e.toJson()).toList();
+      }
 
       final response = await http.put(
         Uri.parse('${AppConfig.baseUrl}/api/chats/$chatId/messages/$messageId'),

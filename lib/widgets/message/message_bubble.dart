@@ -2,18 +2,23 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
+import 'package:provider/provider.dart';
 import '../../config/app_config.dart';
+import '../../models/name_color_preset.dart';
 import '../../services/chat_service.dart';
+import '../../services/profile_theme_provider.dart';
 import '../../utils/emoji_utils.dart';
 import '../../utils/haptic_utils.dart';
 import '../chat/message_reply_info.dart';
 import '../chat/reactions_panel.dart';
 import 'message_status_widget.dart';
+import '../../utils/entity_parser.dart';
 import 'text_message_widget.dart';
 import 'fullscreen_photo_viewer.dart';
 import 'inline_video_player.dart';
 import 'document_message_widget.dart';
 import 'video_message_widget.dart';
+import 'link_preview_card.dart';
 import '../../l10n/app_localizations.dart';
 
 /// Радиус скругления "облачка" сообщения.
@@ -263,14 +268,32 @@ class RenderBubbleLayout extends RenderBox
     RenderParagraph? firstParagraph;
     RenderParagraph? lastParagraph;
     int paragraphCount = 0;
+    bool lastParagraphIsBlock = false;
+
+    bool isInsideBlock(RenderObject obj) {
+      RenderObject? curr = obj;
+      while (curr != null && curr != root) {
+        if (curr is RenderMetaData && curr.metaData == 'block_element') {
+          return true;
+        }
+        curr = curr.parent;
+      }
+      return false;
+    }
 
     void visitor(RenderObject child) {
       if (child is RenderParagraph) {
         final text = child.text.toPlainText();
         if (text.trim().isNotEmpty) {
-          firstParagraph ??= child;
-          lastParagraph = child;
-          paragraphCount++;
+          if (isInsideBlock(child)) {
+            lastParagraphIsBlock = true;
+            lastParagraph = null;
+          } else {
+            lastParagraphIsBlock = false;
+            firstParagraph ??= child;
+            lastParagraph = child;
+            paragraphCount++;
+          }
         }
       }
       child.visitChildren(visitor);
@@ -279,7 +302,7 @@ class RenderBubbleLayout extends RenderBox
     visitor(root);
 
     final targetParagraph = lastParagraph;
-    if (targetParagraph == null) {
+    if (lastParagraphIsBlock || targetParagraph == null) {
       return const _BubbleContentMetrics(
         hasText: false,
         isSingleLine: false,
@@ -289,14 +312,18 @@ class RenderBubbleLayout extends RenderBox
       );
     }
 
-    // Calculate offset of targetParagraph within root by walking up BoxParentData
+    // Calculate offset of targetParagraph within root
     Offset offsetInRoot = Offset.zero;
-    RenderObject current = targetParagraph;
-    while (current != root && current.parent != null) {
-      if (current.parentData is BoxParentData) {
-        offsetInRoot += (current.parentData as BoxParentData).offset;
+    try {
+      offsetInRoot = targetParagraph.localToGlobal(Offset.zero, ancestor: root);
+    } catch (_) {
+      RenderObject current = targetParagraph;
+      while (current != root && current.parent != null) {
+        if (current.parentData is BoxParentData) {
+          offsetInRoot += (current.parentData as BoxParentData).offset;
+        }
+        current = current.parent!;
       }
-      current = current.parent!;
     }
 
     final plainText = targetParagraph.text.toPlainText();
@@ -708,9 +735,56 @@ class MessageBubble extends StatelessWidget {
               : Theme.of(context).colorScheme.onSecondaryContainer),
     );
 
+    final String trimmedContent = message.content.trim();
+    final List<String> contentLines = trimmedContent.split('\n');
+    final String lastLine = contentLines.isNotEmpty ? contentLines.last.trim() : '';
+    final bool contentEndsWithQuote = lastLine.startsWith('>') ||
+        lastLine.startsWith('**>') ||
+        trimmedContent.startsWith('>') ||
+        trimmedContent.startsWith('**>');
+    final bool entityEndsWithQuote = message.entities.any((e) =>
+        (e.type == 'blockquote' || e.type == 'quote') &&
+        (e.offset + e.length >= trimmedContent.length - 2));
+    final bool entityEndsWithPre = message.entities.any((e) =>
+        (e.type == 'pre' || e.type == 'code') &&
+        (e.offset + e.length >= trimmedContent.length - 2));
+
+    final profileTheme = context.watch<ProfileThemeProvider?>();
+    final NameColorPreset effectivePreset;
+    final ReplyStripStyle effectiveStripStyle;
+    if (isMe) {
+      effectivePreset = profileTheme?.currentNameColorPreset ?? NameColorPresets.defaults.first;
+      effectiveStripStyle = profileTheme?.currentStripStyle ?? ReplyStripStyle.solid;
+    } else if (message.senderNameColorId != null && message.senderNameColorId!.isNotEmpty) {
+      effectivePreset = NameColorPresets.getById(message.senderNameColorId!);
+      effectiveStripStyle = ReplyStripStyle.values.firstWhere(
+        (s) => s.name == message.senderReplyStripStyle,
+        orElse: () => ReplyStripStyle.solid,
+      );
+    } else {
+      final presetIndex = message.senderId.hashCode.abs() % NameColorPresets.defaults.length;
+      effectivePreset = NameColorPresets.defaults[presetIndex];
+      effectiveStripStyle = ReplyStripStyle.solid;
+    }
+
+    final previewOpts = message.linkPreviewOptions;
+    final bool previewDisabled = previewOpts?.isDisabled ?? false;
+    String? previewUrl = previewOpts?.url;
+    if (previewUrl == null && !previewDisabled) {
+      final urls = EntityParser.extractUrls(message.content);
+      if (urls.isNotEmpty) previewUrl = urls.first;
+    }
+    final bool hasEffectivePreview = previewUrl != null && !previewDisabled;
+    final bool showAbove = previewOpts?.showAboveText ?? false;
+    final bool previewAtBottom = hasEffectivePreview && !showAbove && !hasMedia;
+
     final bool endsWithBlock =
-        message.content.trim().endsWith('```') ||
-        message.content.trim().endsWith('\$\$') ||
+        trimmedContent.endsWith('```') ||
+        trimmedContent.endsWith(r'$$') ||
+        contentEndsWithQuote ||
+        entityEndsWithQuote ||
+        entityEndsWithPre ||
+        previewAtBottom ||
         hasMedia;
 
     // Build Metadata Widget
@@ -860,7 +934,7 @@ class MessageBubble extends StatelessWidget {
       final style = TextStyle(
         fontSize: 13,
         fontWeight: FontWeight.bold,
-        color: Theme.of(context).colorScheme.primary,
+        color: effectivePreset.primaryColor,
       );
       final TextPainter senderNameTp = TextPainter(
         text: TextSpan(text: senderName!, style: style),
@@ -877,6 +951,8 @@ class MessageBubble extends StatelessWidget {
         ),
       );
     }
+
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
 
     Widget textBodyWidget;
     if (isBigEmoji) {
@@ -896,7 +972,57 @@ class MessageBubble extends StatelessWidget {
         text: message.content,
         style: textStyle,
         isMe: isMe,
+        entities: message.entities,
+        nameColorPreset: effectivePreset,
+        replyStripStyle: effectiveStripStyle,
       );
+
+      if (!hasMedia) {
+        final previewOpts = message.linkPreviewOptions;
+        final bool previewDisabled = previewOpts?.isDisabled ?? false;
+        String? previewUrl = previewOpts?.url;
+        if ((previewUrl == null || previewUrl.isEmpty) && !previewDisabled) {
+          final urls = EntityParser.extractUrls(message.content);
+          if (urls.isNotEmpty) {
+            previewUrl = urls.first;
+          } else if (message.entities.isNotEmpty) {
+            for (final e in message.entities) {
+              if ((e.type == 'text_link' || e.type == 'link' || e.type == 'url') &&
+                  e.url != null &&
+                  e.url!.isNotEmpty) {
+                previewUrl = e.url;
+                break;
+              }
+            }
+          }
+        }
+
+        if (previewUrl != null && previewUrl.isNotEmpty && !previewDisabled) {
+          final bool showAbove = previewOpts?.showAboveText ?? false;
+          final bool preferLarge = previewOpts?.preferLargeMedia ?? false;
+          final previewCard = LinkPreviewCard(
+            url: EntityParser.normalizeUrl(previewUrl),
+            preferLargeMedia: preferLarge,
+            isDark: isDark,
+          );
+
+          textBodyWidget = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: showAbove
+                ? [
+                    previewCard,
+                    const SizedBox(height: 6.0),
+                    textBodyWidget,
+                  ]
+                : [
+                    textBodyWidget,
+                    const SizedBox(height: 6.0),
+                    previewCard,
+                  ],
+          );
+        }
+      }
     }
 
     Widget? mediaContentWidget;
@@ -910,18 +1036,30 @@ class MessageBubble extends StatelessWidget {
           text: message.content,
           style: textStyle,
           isMe: isMe,
+          entities: message.entities,
+          nameColorPreset: effectivePreset,
+          replyStripStyle: effectiveStripStyle,
         );
 
+        final bool invertMedia = message.invertMedia;
         innerContent = Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            mediaWidget,
-            const SizedBox(height: 6.0),
-            captionWidget,
-            const SizedBox(height: 3.0),
-            metadataWidget,
-          ],
+          children: invertMedia
+              ? [
+                  captionWidget,
+                  const SizedBox(height: 6.0),
+                  mediaWidget,
+                  const SizedBox(height: 3.0),
+                  metadataWidget,
+                ]
+              : [
+                  mediaWidget,
+                  const SizedBox(height: 6.0),
+                  captionWidget,
+                  const SizedBox(height: 3.0),
+                  metadataWidget,
+                ],
         );
       } else if (_isImage || _isVideo) {
         innerContent = Stack(
@@ -967,7 +1105,7 @@ class MessageBubble extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.primary,
+                    color: effectivePreset.primaryColor,
                   ),
                 ),
               ),

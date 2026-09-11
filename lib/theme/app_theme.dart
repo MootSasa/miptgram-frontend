@@ -111,6 +111,11 @@ class AppTheme {
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
       ),
+      textSelectionTheme: const TextSelectionThemeData(
+        cursorColor: brand,
+        selectionColor: Color(0x470088CC),
+        selectionHandleColor: brand,
+      ),
     );
   }
 
@@ -222,6 +227,11 @@ class AppTheme {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
+      ),
+      textSelectionTheme: const TextSelectionThemeData(
+        cursorColor: Color(0xFF7BE5DA),
+        selectionColor: Color(0x597BE5DA),
+        selectionHandleColor: Color(0xFF7BE5DA),
       ),
     );
   }

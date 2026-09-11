@@ -47,14 +47,16 @@ class SwipeBackPageRoute<T> extends MaterialPageRoute<T> {
   @override
   Widget buildTransitions(BuildContext context, Animation<double> animation,
       Animation<double> secondaryAnimation, Widget child) {
+    final bool isInteractive = popGestureInProgress;
+
     // === Primary animation: current route entering/leaving ===
     final slideTransition = Tween<Offset>(
       begin: const Offset(1.0, 0.0),
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: animation,
-      curve: Curves.linear,
-      reverseCurve: Curves.linear,
+      curve: isInteractive ? Curves.linear : Curves.easeOutCubic,
+      reverseCurve: isInteractive ? Curves.linear : Curves.easeInCubic,
     ));
 
     // Shadow for the left edge of the current screen
@@ -159,6 +161,8 @@ class _SwipeBackGestureDetectorState extends State<_SwipeBackGestureDetector> {
     if (modalRoute?.isCurrent != true) return;
     if (!widget.animation.isCompleted) return;
 
+    Navigator.of(context).didStartUserGesture();
+
     setState(() {
       _isActive = true;
       _dragOffset = 0.0;
@@ -174,11 +178,9 @@ class _SwipeBackGestureDetectorState extends State<_SwipeBackGestureDetector> {
     final progress = (offset / _screenWidth).clamp(0.0, 1.0);
     
     if (widget.animationController != null) {
-      // Direct manipulation 1:1
+      // Direct manipulation 1:1 without triggering widget tree rebuilds
       widget.animationController!.value = 1.0 - progress;
     }
-    
-    setState(() {});
   }
 
   void _onHorizontalDragEnd(DragEndDetails details) {
@@ -188,6 +190,8 @@ class _SwipeBackGestureDetectorState extends State<_SwipeBackGestureDetector> {
     final velocity = details.primaryVelocity ?? 0.0;
 
     final shouldPop = progress > _kPopThreshold || velocity > _kMinFlingVelocity;
+    final navigator = Navigator.of(context);
+    final modalRoute = ModalRoute.of(context);
 
     if (shouldPop) {
       HapticUtils.impact();
@@ -199,7 +203,12 @@ class _SwipeBackGestureDetectorState extends State<_SwipeBackGestureDetector> {
         -velocity / _screenWidth,
       );
       widget.animationController!.animateWith(simulation).then((_) {
-        if (mounted) Navigator.of(context).pop();
+        if (mounted) {
+          navigator.didStopUserGesture();
+          if (modalRoute?.isCurrent == true) {
+            navigator.pop();
+          }
+        }
       });
     } else {
       // Spring back to full screen
@@ -209,9 +218,32 @@ class _SwipeBackGestureDetectorState extends State<_SwipeBackGestureDetector> {
         1.0,
         -velocity / _screenWidth,
       );
-      widget.animationController!.animateWith(simulation);
+      widget.animationController!.animateWith(simulation).then((_) {
+        if (mounted) {
+          navigator.didStopUserGesture();
+        }
+      });
     }
 
+    setState(() {
+      _isActive = false;
+    });
+  }
+
+  void _onHorizontalDragCancel() {
+    if (!_isActive) return;
+    final navigator = Navigator.of(context);
+    final simulation = SpringSimulation(
+      const SpringDescription(mass: 1.0, stiffness: 400, damping: 28),
+      widget.animationController!.value,
+      1.0,
+      0.0,
+    );
+    widget.animationController!.animateWith(simulation).then((_) {
+      if (mounted) {
+        navigator.didStopUserGesture();
+      }
+    });
     setState(() {
       _isActive = false;
     });
@@ -224,6 +256,7 @@ class _SwipeBackGestureDetectorState extends State<_SwipeBackGestureDetector> {
     final mediaQuery = MediaQuery.of(context);
     final screenHeight = mediaQuery.size.height;
     final screenWidth = mediaQuery.size.width;
+    final bottomInset = mediaQuery.viewInsets.bottom;
 
     return RawGestureDetector(
       gestures: <Type, GestureRecognizerFactory>{
@@ -232,16 +265,19 @@ class _SwipeBackGestureDetectorState extends State<_SwipeBackGestureDetector> {
             canPop: modalRoute?.canPop ?? false,
             screenHeight: screenHeight,
             screenWidth: screenWidth,
+            bottomInset: bottomInset,
             isPopBlocked: isPopBlocked,
           ),
           (_BackGestureRecognizer instance) {
             instance.canPop = modalRoute?.canPop ?? false;
             instance.screenHeight = screenHeight;
             instance.screenWidth = screenWidth;
+            instance.bottomInset = bottomInset;
             instance.isPopBlocked = isPopBlocked;
             instance.onStart = _onHorizontalDragStart;
             instance.onUpdate = _onHorizontalDragUpdate;
             instance.onEnd = _onHorizontalDragEnd;
+            instance.onCancel = _onHorizontalDragCancel;
           },
         ),
       },
@@ -252,30 +288,49 @@ class _SwipeBackGestureDetectorState extends State<_SwipeBackGestureDetector> {
 }
 
 /// Распознаватель полноэкранного свайпа назад (как в Telegram).
-/// Работает по всей площади экрана, но уступает арену жестов
-/// внутренним скроллируемым виджетам (PageView, Slider и т.д.), пока они могут скроллиться.
+/// Работает по всей площади экрана за исключением нижней зоны ввода/клавиатуры,
+/// и уступает арену жестов внутренним скроллируемым виджетам (PageView, Slider и т.д.).
 class _BackGestureRecognizer extends HorizontalDragGestureRecognizer {
   bool canPop;
   double screenHeight;
   double screenWidth;
+  double bottomInset;
   bool isPopBlocked;
 
   _BackGestureRecognizer({
     required this.canPop,
     required this.screenHeight,
     required this.screenWidth,
+    required this.bottomInset,
     required this.isPopBlocked,
   });
+
+  bool _isPointInExcludedArea(Offset position) {
+    // When keyboard is open, exclude the keyboard + input field area.
+    // When keyboard is closed, exclude the bottom 120px where the input field is located.
+    final double bottomThreshold =
+        screenHeight - (bottomInset > 0 ? bottomInset + 100.0 : 120.0);
+    return position.dy > bottomThreshold;
+  }
 
   @override
   bool isPointerAllowed(PointerEvent event) {
     if (!canPop) return false;
+    if (_isPointInExcludedArea(event.position)) return false;
     return super.isPointerAllowed(event);
   }
 
   @override
+  void addAllowedPointer(PointerDownEvent event) {
+    if (_isPointInExcludedArea(event.position)) {
+      return;
+    }
+    super.addAllowedPointer(event);
+  }
+
+  @override
   void handleEvent(PointerEvent event) {
-    if (!canPop) {
+    if (!canPop || _isPointInExcludedArea(event.position)) {
       resolve(GestureDisposition.rejected);
       return;
     }

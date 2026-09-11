@@ -3,19 +3,17 @@ import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:markdown/markdown.dart' as md;
-import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../models/name_color_preset.dart';
+import '../../services/chat_service.dart';
 import '../../services/glass_toast_service.dart';
-import '../../services/profile_theme_provider.dart';
 import '../../utils/emoji_utils.dart';
-import '../profile/reply_strip_painter.dart';
+import '../../utils/entity_parser.dart';
 import 'code_block_widget.dart';
+import 'collapsible_blockquote_widget.dart';
+import 'spoiler_text_widget.dart';
 
 // --- НАСТРОЙКИ СТИЛЯ ТЕКСТОВОГО СООБЩЕНИЯ ---
-/// Прозрачность фона для инлайнового кода в темной теме.
-const double _kInlineCodeDarkOpacity = 0.1;
-/// Прозрачность фона для инлайнового кода в светлой теме.
-const double _kInlineCodeLightOpacity = 0.12;
 /// Стандартный размер шрифта сообщений.
 const double _kMessageFontSize = 17.0;
 // --------------------------------------------
@@ -25,8 +23,16 @@ class CodeElementBuilder extends MarkdownElementBuilder {
   final BuildContext context;
   final bool isDark;
   final bool isMe;
+  final NameColorPreset? preset;
+  final ReplyStripStyle? stripStyle;
 
-  CodeElementBuilder(this.context, this.isDark, this.isMe);
+  CodeElementBuilder(
+    this.context,
+    this.isDark,
+    this.isMe, {
+    this.preset,
+    this.stripStyle,
+  });
 
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
@@ -48,9 +54,10 @@ class CodeElementBuilder extends MarkdownElementBuilder {
             codeText,
             style: preferredStyle?.copyWith(
               fontFamily: 'monospace',
-              backgroundColor: isDark 
-                  ? Colors.white.withValues(alpha: _kInlineCodeDarkOpacity) 
-                  : Colors.black.withValues(alpha: _kInlineCodeLightOpacity),
+              backgroundColor: Colors.transparent,
+            ) ?? TextStyle(
+              fontFamily: 'monospace',
+              color: Theme.of(context).textTheme.bodyMedium?.color,
             ),
           ),
         ),
@@ -80,62 +87,93 @@ class CodeElementBuilder extends MarkdownElementBuilder {
       language: language,
       isDark: isDark,
       isMe: isMe,
+      preset: preset,
+      stripStyle: stripStyle,
     );
   }
 }
 
-/// Builder for Markdown blockquotes using [ReplyStripWidget].
+/// Custom block syntax for collapsible blockquotes: lines starting with **>
+class CollapsibleBlockquoteBlockSyntax extends md.BlockSyntax {
+  static final RegExp _pattern = RegExp(r'^[ ]{0,3}\*\*>[ ]?(.*)$');
+
+  @override
+  RegExp get pattern => _pattern;
+
+  const CollapsibleBlockquoteBlockSyntax();
+
+  @override
+  List<md.Line> parseChildLines(md.BlockParser parser) {
+    final childLines = <md.Line>[];
+
+    while (!parser.isDone) {
+      final currentLine = parser.current;
+      final match = pattern.firstMatch(currentLine.content);
+      if (match != null) {
+        final markerStart = currentLine.content.indexOf('**>');
+        int markerEnd = markerStart + 3;
+        if (currentLine.content.length > markerEnd &&
+            (currentLine.content[markerEnd] == ' ' || currentLine.content[markerEnd] == '\t')) {
+          markerEnd++;
+        }
+        childLines.add(md.Line(currentLine.content.substring(markerEnd)));
+        parser.advance();
+        continue;
+      }
+      break;
+    }
+
+    return childLines;
+  }
+
+  @override
+  md.Node parse(md.BlockParser parser) {
+    final childLines = parseChildLines(parser);
+    final children = md.BlockParser(childLines, parser.document).parseLines(
+      parentSyntax: this,
+    );
+    final element = md.Element('blockquote', children);
+    element.attributes['collapsed'] = 'true';
+    return element;
+  }
+}
+
+/// Builder for Markdown blockquotes using [CollapsibleBlockquoteWidget].
 class BlockquoteElementBuilder extends MarkdownElementBuilder {
   final BuildContext context;
   final bool isDark;
   final bool isMe;
+  final NameColorPreset? preset;
+  final ReplyStripStyle? stripStyle;
 
-  BlockquoteElementBuilder(this.context, this.isDark, this.isMe);
+  BlockquoteElementBuilder(
+    this.context,
+    this.isDark,
+    this.isMe, {
+    this.preset,
+    this.stripStyle,
+  });
 
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
-    final text = element.textContent.trim();
-    if (text.isEmpty) return null;
+    final rawText = element.textContent.trim();
+    if (rawText.isEmpty) return null;
 
-    final profileTheme = context.watch<ProfileThemeProvider>();
-    final preset = profileTheme.currentNameColorPreset;
-    final stripStyle = profileTheme.currentStripStyle;
+    final bool isCollapsible = element.attributes['collapsed'] == 'true' ||
+        rawText.startsWith('collapse:') ||
+        rawText.startsWith('**>');
 
-    final cardBgColor = preset.getOpaqueCardBackgroundColor(isDark);
-    const textColor = Color(0xFF1C2530);
+    final text = rawText
+        .replaceFirst(RegExp(r'^(?:collapse:|\*\*>\s?)\s*'), '');
 
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: cardBgColor,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: IntrinsicHeight(
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ReplyStripWidget(
-              preset: preset,
-              style: stripStyle,
-              width: 3.5,
-              borderRadius: 2,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                text,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: textColor,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+    return CollapsibleBlockquoteWidget(
+      text: text,
+      isCollapsible: isCollapsible,
+      initialExpanded: false,
+      isDark: isDark,
+      isMe: isMe,
+      preset: preset,
+      stripStyle: stripStyle,
     );
   }
 }
@@ -247,6 +285,196 @@ class EmojiElementBuilder extends MarkdownElementBuilder {
   }
 }
 
+/// Custom syntax for spoilers: ||...||
+class SpoilerInlineSyntax extends md.InlineSyntax {
+  SpoilerInlineSyntax() : super(r'\|\|((?:[^|\n]|\|(?!\|))+?)\|\|');
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final element = md.Element.text('spoiler', match.group(1)!);
+    parser.addNode(element);
+    return true;
+  }
+}
+
+/// Builder for spoilers using [SpoilerTextWidget].
+class SpoilerElementBuilder extends MarkdownElementBuilder {
+  final TextStyle? preferredStyle;
+
+  SpoilerElementBuilder(this.preferredStyle);
+
+  static final RegExp _markdownIndicator = RegExp(r'[*_~`\[]');
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    final effectiveStyle = preferredStyle ?? this.preferredStyle;
+    final content = element.textContent;
+
+    if (_markdownIndicator.hasMatch(content)) {
+      return SpoilerTextWidget(
+        textStyle: effectiveStyle,
+        child: MarkdownBody(
+          data: content,
+          selectable: false,
+          shrinkWrap: true,
+          softLineBreak: true,
+          extensionSet: md.ExtensionSet(
+            [],
+            [
+              UnderlineInlineSyntax(),
+              EmojiInlineSyntax(),
+              ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+            ],
+          ),
+          styleSheet: MarkdownStyleSheet(
+            p: effectiveStyle,
+            pPadding: EdgeInsets.zero,
+            strong: effectiveStyle?.copyWith(fontWeight: FontWeight.bold),
+            em: effectiveStyle?.copyWith(fontStyle: FontStyle.italic),
+            del: effectiveStyle?.copyWith(decoration: TextDecoration.lineThrough),
+            code: effectiveStyle?.copyWith(
+              fontFamily: 'monospace',
+              backgroundColor: Colors.transparent,
+            ),
+          ),
+          builders: {
+            'underline': UnderlineElementBuilder(effectiveStyle),
+            'emoji': EmojiElementBuilder(fontSize: effectiveStyle?.fontSize ?? _kMessageFontSize),
+          },
+        ),
+      );
+    }
+
+    return SpoilerTextWidget.text(
+      text: content,
+      style: effectiveStyle,
+    );
+  }
+}
+
+/// Custom syntax for underline: __...__ or --...-- or <u>...</u>
+class UnderlineInlineSyntax extends md.InlineSyntax {
+  UnderlineInlineSyntax() : super(r'(?:__|\-\-|<u>)([\s\S]+?)(?:__|\-\-|</u>)');
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final element = md.Element.text('underline', match.group(1)!);
+    parser.addNode(element);
+    return true;
+  }
+}
+
+/// Builder for underline text.
+class UnderlineElementBuilder extends MarkdownElementBuilder {
+  final TextStyle? baseStyle;
+
+  UnderlineElementBuilder([this.baseStyle]);
+
+  static final RegExp _markdownIndicator = RegExp(r'[*_~`\[]');
+
+  @override
+  Widget? visitElementAfterWithContext(
+    BuildContext context,
+    md.Element element,
+    TextStyle? preferredStyle,
+    TextStyle? parentStyle,
+  ) {
+    final effectiveStyle = parentStyle ?? preferredStyle ?? baseStyle ?? DefaultTextStyle.of(context).style;
+    final underlineStyle = effectiveStyle.copyWith(
+      decoration: TextDecoration.combine([
+        if (effectiveStyle.decoration != null && effectiveStyle.decoration != TextDecoration.none)
+          effectiveStyle.decoration!,
+        TextDecoration.underline,
+      ]),
+      decorationColor: effectiveStyle.color,
+      decorationThickness: 1.5,
+    );
+
+    final content = element.textContent;
+    if (_markdownIndicator.hasMatch(content)) {
+      return MarkdownBody(
+        data: content,
+        selectable: false,
+        shrinkWrap: true,
+        softLineBreak: true,
+        extensionSet: md.ExtensionSet(
+          [],
+          [
+            UnderlineInlineSyntax(),
+            EmojiInlineSyntax(),
+            ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+          ],
+        ),
+        styleSheet: MarkdownStyleSheet(
+          p: underlineStyle,
+          pPadding: EdgeInsets.zero,
+          strong: underlineStyle.copyWith(fontWeight: FontWeight.bold),
+          em: underlineStyle.copyWith(fontStyle: FontStyle.italic),
+          del: underlineStyle.copyWith(
+            decoration: TextDecoration.combine([
+              TextDecoration.underline,
+              TextDecoration.lineThrough,
+            ]),
+          ),
+          code: underlineStyle.copyWith(
+            fontFamily: 'monospace',
+            backgroundColor: Colors.transparent,
+          ),
+        ),
+        builders: {
+          'emoji': EmojiElementBuilder(fontSize: underlineStyle.fontSize ?? _kMessageFontSize),
+        },
+      );
+    }
+
+    return Text(
+      content,
+      style: underlineStyle,
+    );
+  }
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    final effectiveStyle = preferredStyle ?? baseStyle;
+    final underlineStyle = (effectiveStyle ?? const TextStyle()).copyWith(
+      decoration: TextDecoration.combine([
+        if (effectiveStyle?.decoration != null && effectiveStyle!.decoration != TextDecoration.none)
+          effectiveStyle.decoration!,
+        TextDecoration.underline,
+      ]),
+      decorationColor: effectiveStyle?.color,
+      decorationThickness: 1.5,
+    );
+
+    final content = element.textContent;
+    if (_markdownIndicator.hasMatch(content)) {
+      return MarkdownBody(
+        data: content,
+        selectable: false,
+        shrinkWrap: true,
+        softLineBreak: true,
+        styleSheet: MarkdownStyleSheet(
+          p: underlineStyle,
+          pPadding: EdgeInsets.zero,
+          strong: underlineStyle.copyWith(fontWeight: FontWeight.bold),
+          em: underlineStyle.copyWith(fontStyle: FontStyle.italic),
+          del: underlineStyle.copyWith(
+            decoration: TextDecoration.combine([
+              TextDecoration.underline,
+              TextDecoration.lineThrough,
+            ]),
+          ),
+        ),
+      );
+    }
+
+    return Text(
+      content,
+      style: underlineStyle,
+    );
+  }
+}
+
 /// Виджет для отображения текстового сообщения с Markdown-подсветкой.
 ///
 /// Использует [flutter_markdown] для рендеринга и [CodeBlockWidget] для блоков кода.
@@ -254,30 +482,125 @@ class TextMessageWidget extends StatelessWidget {
   final String text;
   final TextStyle? style;
   final bool isMe;
+  final List<MessageEntity>? entities;
+  final NameColorPreset? nameColorPreset;
+  final ReplyStripStyle? replyStripStyle;
 
   const TextMessageWidget({
     Key? key,
     required this.text,
     this.style,
     this.isMe = false,
+    this.entities,
+    this.nameColorPreset,
+    this.replyStripStyle,
   }) : super(key: key);
+
+  /// Preserves consecutive spaces and multiple enters inside message text,
+  /// while trimming only spaces and enters at the very end.
+  /// Content inside code blocks is left untouched.
+  static String preserveWhitespace(String text) {
+    final trimmed = text.trimRight();
+    if (trimmed.isEmpty) return '';
+
+    // Split by code blocks: ```...``` or `...`
+    final pattern = RegExp(r'(```[\s\S]*?```|`[^`\n]*?`)');
+    final buffer = StringBuffer();
+    int lastIndex = 0;
+
+    for (final match in pattern.allMatches(trimmed)) {
+      if (match.start > lastIndex) {
+        buffer.write(_preserveInNormalText(trimmed.substring(lastIndex, match.start)));
+      }
+      buffer.write(match.group(0)!);
+      lastIndex = match.end;
+    }
+    if (lastIndex < trimmed.length) {
+      buffer.write(_preserveInNormalText(trimmed.substring(lastIndex)));
+    }
+    return buffer.toString();
+  }
+
+  static String _preserveInNormalText(String text) {
+    // 1. Consecutive spaces (>= 2):
+    // CommonMark collapses consecutive ASCII spaces. We alternate space and non-breaking space (\u00A0)
+    // so every space is preserved with standard font width.
+    var result = text.replaceAllMapped(RegExp(r' {2,}'), (match) {
+      final len = match.group(0)!.length;
+      final sb = StringBuffer();
+      for (int i = 0; i < len; i++) {
+        sb.write(i % 2 == 1 ? '\u00A0' : ' ');
+      }
+      return sb.toString();
+    });
+
+    // 2. Multiple newlines (>= 2):
+    // With blockSpacing: 0, consecutive newlines would otherwise collapse without empty lines.
+    // Inserting '\u00A0' on empty lines ensures exact visual blank line count.
+    result = result.replaceAllMapped(RegExp(r'\n{2,}'), (match) {
+      final count = match.group(0)!.length;
+      final sb = StringBuffer();
+      for (int i = 0; i < count - 1; i++) {
+        sb.write('\n\u00A0');
+      }
+      sb.write('\n');
+      return sb.toString();
+    });
+
+    return result;
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    final String markdownData;
+    if (entities != null && entities!.isNotEmpty) {
+      final effectiveEntities = <MessageEntity>[...entities!];
+      // Auto-detect any raw URLs in clean text not covered by existing entities
+      for (final match in EntityParser.urlRegex.allMatches(text)) {
+        final url = match.group(0)!;
+        final start = match.start;
+        final len = url.length;
+        final covered = effectiveEntities.any((e) =>
+            e.offset <= start && (e.offset + e.length) >= (start + len));
+        if (!covered) {
+          effectiveEntities.add(MessageEntity(
+            type: 'url',
+            offset: start,
+            length: len,
+            url: url,
+          ));
+        }
+      }
+      markdownData = EntityParser.toMarkdown(text, effectiveEntities);
+    } else {
+      markdownData = text;
+    }
+
+    final linkColor = isMe
+        ? (isDark ? const Color(0xFF7BE5DA) : const Color(0xFF007AFF))
+        : (isDark ? const Color(0xFF7BE5DA) : Theme.of(context).colorScheme.primary);
+
+    final formattedData = preserveWhitespace(markdownData);
+
     return MarkdownBody(
-      data: text.trimRight(),
+      data: formattedData,
       selectable: false,
       shrinkWrap: true,
       softLineBreak: true, // Позволяет делать перенос строки одним нажатием Enter
       extensionSet: md.ExtensionSet(
-        md.ExtensionSet.gitHubFlavored.blockSyntaxes,
         [
-          ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+          const CollapsibleBlockquoteBlockSyntax(),
+          ...md.ExtensionSet.gitHubFlavored.blockSyntaxes,
+        ],
+        [
+          UnderlineInlineSyntax(),
           MathInlineSyntax(),
           CheckboxInlineSyntax(),
           EmojiInlineSyntax(),
+          SpoilerInlineSyntax(),
+          ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
         ],
       ),
       styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
@@ -288,13 +611,20 @@ class TextMessageWidget extends StatelessWidget {
         pPadding: EdgeInsets.zero,
         blockSpacing: 0,
         listBulletPadding: const EdgeInsets.only(right: 4),
+        a: (style ?? Theme.of(context).textTheme.bodyMedium)?.copyWith(
+          color: linkColor,
+          decoration: TextDecoration.underline,
+          decorationColor: linkColor,
+          decorationThickness: 1.3,
+          fontSize: style?.fontSize ?? _kMessageFontSize,
+          height: 1.4,
+        ),
         code: TextStyle(
           fontFamily: 'monospace',
-          fontSize: (style?.fontSize ?? _kMessageFontSize) * 0.9,
+          fontSize: (style?.fontSize ?? _kMessageFontSize) * 0.95,
           height: 1.4,
-          backgroundColor: isDark 
-              ? Colors.white.withValues(alpha: _kInlineCodeDarkOpacity) 
-              : Colors.black.withValues(alpha: _kInlineCodeLightOpacity),
+          color: (style ?? Theme.of(context).textTheme.bodyMedium)?.color,
+          backgroundColor: Colors.transparent,
         ),
         codeblockDecoration: const BoxDecoration(
           color: Colors.transparent,
@@ -306,17 +636,38 @@ class TextMessageWidget extends StatelessWidget {
         blockquotePadding: EdgeInsets.zero,
       ),
       builders: {
-        'code': CodeElementBuilder(context, isDark, isMe),
-        'blockquote': BlockquoteElementBuilder(context, isDark, isMe),
+        'code': CodeElementBuilder(
+          context,
+          isDark,
+          isMe,
+          preset: nameColorPreset,
+          stripStyle: replyStripStyle,
+        ),
+        'blockquote': BlockquoteElementBuilder(
+          context,
+          isDark,
+          isMe,
+          preset: nameColorPreset,
+          stripStyle: replyStripStyle,
+        ),
         'latex': MathElementBuilder(),
         'checkbox': CheckboxElementBuilder(),
         'emoji': EmojiElementBuilder(fontSize: style?.fontSize ?? _kMessageFontSize),
+        'spoiler': SpoilerElementBuilder(style),
+        'underline': UnderlineElementBuilder(style),
       },
       onTapLink: (text, href, title) async {
-        if (href != null) {
-          final url = Uri.parse(href);
-          if (await canLaunchUrl(url)) {
-            await launchUrl(url, mode: LaunchMode.externalApplication);
+        if (href != null && href.trim().isNotEmpty) {
+          final normalized = EntityParser.normalizeUrl(href.trim());
+          final uri = Uri.tryParse(normalized);
+          if (uri != null) {
+            try {
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+            } catch (e) {
+              debugPrint('Error launching URL $uri: $e');
+            }
           }
         }
       },

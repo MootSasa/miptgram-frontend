@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:uuid/uuid.dart';
@@ -109,6 +110,26 @@ class SyncService {
     final existing = await _db.getMessageByServerId(serverId);
     if (existing != null) return; // Уже есть — пропускаем
 
+    String? entitiesStr;
+    if (payload['entities'] != null) {
+      if (payload['entities'] is String) {
+        entitiesStr = payload['entities'] as String;
+      } else {
+        entitiesStr = jsonEncode(payload['entities']);
+      }
+    }
+    String? linkPreviewOptionsStr;
+    if (payload['link_preview_options'] != null) {
+      if (payload['link_preview_options'] is String) {
+        linkPreviewOptionsStr = payload['link_preview_options'] as String;
+      } else {
+        linkPreviewOptionsStr = jsonEncode(payload['link_preview_options']);
+      }
+    }
+    final bool invertMedia = payload['invert_media'] == true ||
+        payload['invert_media'] == 1 ||
+        payload['invert_media'] == 'true';
+
     await _db.saveMessage(MessagesCompanion(
       serverId: Value(serverId),
       localId: Value(_uuid.v4()),
@@ -135,6 +156,9 @@ class SyncService {
       senderAvatarUrl: Value(payload['sender_avatar_url']?.toString()),
       createdAt: Value(payload['created_at']?.toString() ??
           DateTime.now().toIso8601String()),
+      entities: Value(entitiesStr),
+      linkPreviewOptions: Value(linkPreviewOptionsStr),
+      invertMedia: Value(invertMedia),
     ));
   }
 
@@ -142,8 +166,17 @@ class SyncService {
     final serverId = payload['message_id']?.toString();
     if (serverId == null) return;
 
+    String? entitiesStr;
+    if (payload['entities'] != null) {
+      if (payload['entities'] is String) {
+        entitiesStr = payload['entities'] as String;
+      } else {
+        entitiesStr = jsonEncode(payload['entities']);
+      }
+    }
+
     await _db.updateMessageContent(
-        serverId, payload['content']?.toString() ?? '');
+        serverId, payload['content']?.toString() ?? '', entitiesStr);
   }
 
   Future<void> _applyDeleteMessage(Map<String, dynamic> payload) async {
@@ -227,9 +260,21 @@ class SyncService {
     String? replyToSenderName,
     String? replyToContent,
     String replyToMessageType = 'text',
+    dynamic entities,
+    dynamic linkPreviewOptions,
+    bool invertMedia = false,
   }) async {
     final localId = _uuid.v4();
     final now = DateTime.now().toUtc().toIso8601String();
+
+    final String? entitiesStr = entities is List
+        ? jsonEncode(entities.map((e) => e is MessageEntity ? e.toJson() : e).toList())
+        : (entities is String ? entities : null);
+    final String? linkPreviewOptionsStr = linkPreviewOptions is LinkPreviewOptions
+        ? jsonEncode(linkPreviewOptions.toJson())
+        : (linkPreviewOptions is Map
+            ? jsonEncode(linkPreviewOptions)
+            : (linkPreviewOptions is String ? linkPreviewOptions : null));
 
     await _db.saveMessage(MessagesCompanion(
       serverId: const Value.absent(), // Нет серверного ID пока
@@ -253,6 +298,9 @@ class SyncService {
       isEdited: const Value(false),
       sendStatus: Value(MessageSendStatus.sending.index),
       createdAt: Value(now),
+      entities: Value(entitiesStr),
+      linkPreviewOptions: Value(linkPreviewOptionsStr),
+      invertMedia: Value(invertMedia),
     ));
 
     // Return the saved message as DbMessage
@@ -283,6 +331,11 @@ class SyncService {
       isForward: false,
       forwardFromId: null,
       forwardFromName: null,
+      groupedId: null,
+      entities: entitiesStr,
+      reactions: null,
+      linkPreviewOptions: linkPreviewOptionsStr,
+      invertMedia: invertMedia,
     );
   }
 

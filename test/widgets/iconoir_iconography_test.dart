@@ -123,18 +123,18 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Initially empty -> should have Emoji, Attachment, Microphone
+      // Initially empty -> should have Emoji, Attachment, MicrophoneSolid
       expect(find.byType(iconoir.Emoji), findsOneWidget);
       expect(find.byType(iconoir.Attachment), findsOneWidget);
-      expect(find.byType(iconoir.Microphone), findsOneWidget);
-      expect(find.byType(iconoir.Send), findsNothing);
+      expect(find.byType(iconoir.MicrophoneSolid), findsOneWidget);
+      expect(find.byType(iconoir.SendDiagonalSolid), findsNothing);
 
-      // When text is entered -> Send should replace Microphone
+      // When text is entered -> SendDiagonalSolid should replace MicrophoneSolid
       await tester.enterText(find.byType(TextField), 'Hello');
       await tester.pump();
 
-      expect(find.byType(iconoir.Send), findsOneWidget);
-      expect(find.byType(iconoir.Microphone), findsNothing);
+      expect(find.byType(iconoir.SendDiagonalSolid), findsOneWidget);
+      expect(find.byType(iconoir.MicrophoneSolid), findsNothing);
     });
 
     testWidgets('ReplyPreviewBar renders Iconoir Quote and Xmark icons', (tester) async {

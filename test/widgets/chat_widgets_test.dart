@@ -191,7 +191,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byType(iconoir.Send));
+      await tester.tap(find.byType(iconoir.SendDiagonalSolid));
       await tester.pumpAndSettle();
 
       expect(sentText, 'Hello    world\n\n\nHow are you?');

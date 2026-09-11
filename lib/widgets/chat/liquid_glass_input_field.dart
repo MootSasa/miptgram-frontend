@@ -538,8 +538,8 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
               child: widget.isSending
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                   : (hasText
-                      ? const iconoir.Send(width: 22, height: 22, color: Colors.white)
-                      : const iconoir.Microphone(width: 22, height: 22, color: Colors.white)),
+                      ? const iconoir.SendDiagonalSolid(width: 22, height: 22, color: Colors.white)
+                      : const iconoir.MicrophoneSolid(width: 22, height: 22, color: Colors.white)),
             ),
           ),
         );

@@ -763,6 +763,130 @@ class AuthService {
         };
       }
     }
+
+    /// Upload wallpaper image to server.
+    /// Returns a map containing the wallpaper URL on success.
+    static Future<Map<String, dynamic>> uploadWallpaper(String filePath) async {
+      try {
+        final token = await getToken();
+        if (token == null) {
+          return {
+            'success': false,
+            'message': 'Not authenticated',
+          };
+        }
+
+        final file = File(filePath);
+        if (!await file.exists()) {
+          return {
+            'success': false,
+            'message': 'File not found',
+          };
+        }
+
+        final fileName = path.basename(filePath);
+        final request = http.MultipartRequest(
+          'POST',
+          Uri.parse('${AppConfig.baseUrl}/api/user/wallpaper'),
+        );
+
+        request.headers['Authorization'] = 'Bearer $token';
+        request.files.add(
+          await http.MultipartFile.fromPath(
+            'wallpaper',
+            filePath,
+            filename: fileName,
+          ),
+        );
+
+        final streamedResponse = await request.send().timeout(
+          const Duration(seconds: 60),
+        );
+
+        final response = await http.Response.fromStream(streamedResponse)
+            .timeout(const Duration(seconds: 30));
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data['success'] == true) {
+            return {
+              'success': true,
+              'wallpaper_url': data['wallpaper_url'],
+              'message': data['message'] ?? 'Wallpaper uploaded successfully',
+            };
+          } else {
+            return {
+              'success': false,
+              'message': data['message'] ?? 'Failed to upload wallpaper',
+            };
+          }
+        } else {
+          final data = jsonDecode(response.body);
+          return {
+            'success': false,
+            'message': _getErrorMessage(response.statusCode, data['message']),
+          };
+        }
+      } catch (e) {
+        return {
+          'success': false,
+          'message': 'Network error: ${e.toString()}',
+        };
+      }
+    }
+
+    /// Delete custom wallpaper from server.
+    static Future<Map<String, dynamic>> deleteWallpaper() async {
+      try {
+        final token = await getToken();
+        if (token == null) {
+          return {'success': false, 'message': 'Not authenticated'};
+        }
+
+        final response = await http.delete(
+          Uri.parse('${AppConfig.baseUrl}/api/user/wallpaper'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+        );
+
+        final data = jsonDecode(response.body);
+        if (response.statusCode == 200 && data['success'] == true) {
+          return {'success': true, 'message': 'Wallpaper deleted'};
+        } else {
+          return {'success': false, 'message': data['message'] ?? 'Failed to delete wallpaper'};
+        }
+      } catch (e) {
+        return {'success': false, 'message': 'Network error: ${e.toString()}'};
+      }
+    }
+
+    /// Get current user appearance settings including wallpaper_url.
+    static Future<Map<String, dynamic>> getAppearance() async {
+      try {
+        final token = await getToken();
+        if (token == null) {
+          return {'success': false, 'message': 'Not authenticated'};
+        }
+
+        final response = await http.get(
+          Uri.parse('${AppConfig.baseUrl}/api/user/appearance'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+        );
+
+        final data = jsonDecode(response.body);
+        if (response.statusCode == 200 && data['success'] == true) {
+          return {'success': true, 'appearance': data['appearance']};
+        }
+        return {'success': false, 'message': data['message'] ?? 'Failed to get appearance'};
+      } catch (e) {
+        return {'success': false, 'message': 'Network error: ${e.toString()}'};
+      }
+    }
   
     /// Updates the user profile with new data.
   /// Returns a map containing success status and message.

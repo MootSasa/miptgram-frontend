@@ -1,3 +1,4 @@
+import 'dart:io';
 import '../../utils/image_utils.dart';
 import 'package:flutter/material.dart';
 import '../../l10n/app_localizations.dart';
@@ -7,6 +8,8 @@ import '../../services/websocket_service.dart';
 import '../auth/login_screen.dart';
 import '../main/main_screen.dart';
 import '../../utils/swipe_back_route.dart';
+
+enum _TokenStatus { valid, offline, expired }
 
 /// Screen for managing multiple accounts.
 /// Allows users to:
@@ -48,15 +51,17 @@ class _AccountsScreenState extends State<AccountsScreen> {
     try {
       await _accountManager.setCurrentAccount(account.userId);
 
-      // Verify the token is still valid
-      final isValid = await _verifyToken(account.token);
+      // Verify the token is still valid (or device is offline)
+      final status = await _verifyToken(account.token);
 
       if (!mounted) return;
 
-      if (isValid) {
-        // Update WebSocket with new user ID and reconnect
-        final wsService = WebSocketService();
-        await wsService.updateUserId(account.userId);
+      if (status != _TokenStatus.expired) {
+        // Either valid or offline: allow switching into account seamlessly
+        try {
+          final wsService = WebSocketService();
+          await wsService.updateUserId(account.userId);
+        } catch (_) {}
 
         if (!mounted) return;
         // Navigate to main screen with new account
@@ -65,7 +70,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
           (route) => false,
         );
       } else {
-        // Token expired, need to re-login
+        // Token explicitly expired / rejected by server
         _showReLoginDialog(account);
       }
     } catch (e) {
@@ -84,13 +89,27 @@ class _AccountsScreenState extends State<AccountsScreen> {
     }
   }
 
-  Future<bool> _verifyToken(String token) async {
+  Future<_TokenStatus> _verifyToken(String token) async {
     try {
-      // Try to get current user info with the token
       final result = await AuthService.getCurrentUser();
-      return result['success'] == true;
+      if (result['success'] == true) {
+        return _TokenStatus.valid;
+      }
+      final msg = (result['message'] as String? ?? '').toLowerCase();
+      if (msg.contains('network error') ||
+          msg.contains('socketexception') ||
+          msg.contains('timed out') ||
+          msg.contains('timeout') ||
+          msg.contains('clientexception') ||
+          msg.contains('failed host lookup') ||
+          msg.contains('connection refused') ||
+          msg.contains('handshake') ||
+          msg.contains('connection closed')) {
+        return _TokenStatus.offline;
+      }
+      return _TokenStatus.expired;
     } catch (e) {
-      return false;
+      return _TokenStatus.offline;
     }
   }
 
@@ -336,15 +355,18 @@ class _AccountTile extends StatelessWidget {
       leading: Stack(
         children: [
           CircleAvatar(
-            key: ValueKey('account_avatar_${account.userId}'),
+            key: ValueKey('account_avatar_${account.userId}_${account.avatarUrl}_${account.localAvatarPath}'),
             radius: 24,
-            backgroundImage: account.avatarUrl != null
-            ? avatarImageProvider(account.avatarUrl)
-            : null,
-            child: account.avatarUrl == null
+            backgroundImage: avatarImageProvider(account.avatarUrl, localFallbackPath: account.localAvatarPath),
+            backgroundColor: const Color(0xFF0088CC),
+            onBackgroundImageError: (e, s) {
+              debugPrint('[_AccountTile] Avatar error for ${account.userId}: $e');
+            },
+            child: (account.avatarUrl == null || account.avatarUrl!.isEmpty) &&
+                    (account.localAvatarPath == null || !File(account.localAvatarPath!).existsSync())
             ? Text(
                 (account.displayName ?? account.username ?? '?')[0].toUpperCase(),
-                style: const TextStyle(fontSize: 24),
+                style: const TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
               )
             : null,
           ),

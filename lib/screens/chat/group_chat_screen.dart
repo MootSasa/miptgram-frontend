@@ -63,6 +63,8 @@ class _GroupChatScreenState extends State<GroupChatScreen>
   final ScrollController _scrollController = ScrollController();
 
   bool _isLoading = true;
+  bool _hasMoreMessages = true;
+  bool _isLoadingMore = false;
   bool _isMuted = false;
   bool _isSending = false;
   String? _currentUserId;
@@ -118,6 +120,17 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     _initWebSocket();
 
     _scrollController.addListener(() {
+      if (!_scrollController.hasClients || _messages.isEmpty) return;
+
+      // Пагинация: когда пользователь проскроллил вверх — загрузить ещё
+      if (_hasMoreMessages && !_isLoadingMore) {
+        final maxScroll = _scrollController.position.maxScrollExtent;
+        final currentScroll = _scrollController.offset;
+        if (maxScroll > 0 && (currentScroll >= maxScroll * 0.75 || (maxScroll - currentScroll) < 600)) {
+          _loadMoreMessages();
+        }
+      }
+
       final offset = _scrollController.offset;
       final delta = offset - _lastScrollOffset;
       _lastScrollOffset = offset;
@@ -579,6 +592,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
         _messages.clear();
         _messages.addAll(
             fixedMessages.map((m) => Message.fromDbMessage(m)).toList());
+        _hasMoreMessages = localMessages.length >= 50;
         for (final m in _messages) {
           if (m.reactions.isNotEmpty) {
             _messageReactions[m.id] = Map.from(m.reactions);
@@ -593,13 +607,16 @@ class _GroupChatScreenState extends State<GroupChatScreen>
 
     // 2. Затем загрузить с сервера (обновление)
     try {
-      final result = await ChatService.getMessages(chatId: widget.chatId);
+      final result =
+          await ChatService.getMessages(chatId: widget.chatId, limit: 50);
 
       if (mounted) {
         setState(() {
           _isLoading = false;
           if (result['success'] == true) {
             final serverMessages = result['messages'] as List<Message>;
+            _hasMoreMessages = result['has_more'] as bool? ?? (serverMessages.length >= 50);
+
             // Сохранить pending/failed сообщения из текущего списка (их нет на сервере)
             final pendingMessages = _messages
                 .where(
@@ -607,17 +624,30 @@ class _GroupChatScreenState extends State<GroupChatScreen>
                 )
                 .toList();
 
+            final Map<String, Message> merged = {};
+            for (final m in _messages) {
+              merged[m.id] = m;
+              if (m.localId != null && m.localId!.isNotEmpty) {
+                merged[m.localId!] = m;
+              }
+            }
+            for (final m in serverMessages) {
+              merged[m.id] = m;
+              if (m.localId != null && m.localId!.isNotEmpty) {
+                merged[m.localId!] = m;
+              }
+            }
+            for (final pending in pendingMessages) {
+              final key = pending.localId ?? pending.id;
+              if (!merged.containsKey(key)) {
+                merged[key] = pending;
+              }
+            }
+
             _messages.clear();
             _messageReactions.clear();
             _myReactions.clear();
-            _messages.addAll(serverMessages);
-
-            // Добавить pending/failed сообщения обратно (их нет на сервере)
-            for (final pending in pendingMessages) {
-              if (!_messages.any((m) => m.localId == pending.localId)) {
-                _messages.add(pending);
-              }
-            }
+            _messages.addAll(merged.values.toSet());
 
             for (final m in _messages) {
               if (m.reactions.isNotEmpty) {
@@ -633,7 +663,9 @@ class _GroupChatScreenState extends State<GroupChatScreen>
               try {
                 final ta = DateTime.parse(a.createdAt);
                 final tb = DateTime.parse(b.createdAt);
-                return tb.compareTo(ta);
+                final cmp = tb.compareTo(ta);
+                if (cmp != 0) return cmp;
+                return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
               } catch (_) {
                 return 0;
               }
@@ -642,19 +674,130 @@ class _GroupChatScreenState extends State<GroupChatScreen>
             // Сохранить в Drift для оффлайн-доступа
             try {
               db.saveMessages(
-                  _messages.map((m) => _messageToCompanion(m)).toList());
+                  serverMessages.map((m) => _messageToCompanion(m)).toList());
             } catch (e) {
               debugPrint('GroupChat: Drift saveMessages error: $e');
             }
           }
         });
-        _scrollToBottom();
+        if (localMessages.isEmpty) {
+          _scrollToBottom();
+        }
       }
     } catch (e) {
       debugPrint('GroupChat: Error loading from server: $e');
       if (mounted && localMessages.isEmpty) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  /// Загрузить старые сообщения (пагинация)
+  Future<void> _loadMoreMessages() async {
+    if (_isLoadingMore || !_hasMoreMessages) return;
+
+    setState(() => _isLoadingMore = true);
+
+    final lastMessage = _messages.isNotEmpty ? _messages.last : null;
+
+    // Сначала попробовать загрузить из Drift
+    final db = AppDatabase();
+    try {
+      final localMessages = await db.getMessages(
+        widget.chatId,
+        beforeCreatedAt: lastMessage?.createdAt,
+        limit: 50,
+      );
+
+      if (localMessages.isNotEmpty) {
+        setState(() {
+          for (final m
+              in localMessages.map((m) => Message.fromDbMessage(m))) {
+            if (!_messages.any((existing) =>
+                existing.id == m.id ||
+                (m.localId != null && existing.localId == m.localId))) {
+              _messages.add(m);
+              if (m.reactions.isNotEmpty) {
+                _messageReactions[m.id] = Map.from(m.reactions);
+              }
+              if (m.myReactions.isNotEmpty) {
+                _myReactions[m.id] = Set.from(m.myReactions);
+              }
+            }
+          }
+          _messages.sort((a, b) {
+            try {
+              final ta = DateTime.parse(a.createdAt);
+              final tb = DateTime.parse(b.createdAt);
+              final cmp = tb.compareTo(ta);
+              if (cmp != 0) return cmp;
+              return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
+            } catch (_) {
+              return 0;
+            }
+          });
+          _isLoadingMore = false;
+        });
+        return;
+      }
+    } catch (e) {
+      debugPrint('GroupChat: Drift loadMore error: $e');
+    }
+
+    // Если в Drift нет — найти самый старый числовой serverId и загрузить с сервера
+    String? beforeServerId;
+    for (int i = _messages.length - 1; i >= 0; i--) {
+      if (int.tryParse(_messages[i].id) != null) {
+        beforeServerId = _messages[i].id;
+        break;
+      }
+    }
+
+    final result = await ChatService.getMessages(
+      chatId: widget.chatId,
+      beforeMessageId: beforeServerId,
+      beforeCreatedAt: lastMessage?.createdAt,
+      limit: 50,
+    );
+
+    if (result['success'] == true && mounted) {
+      final newMessages = result['messages'] as List<Message>;
+      _hasMoreMessages = result['has_more'] as bool? ?? (newMessages.length >= 50);
+
+      try {
+        db.saveMessages(
+            newMessages.map((m) => _messageToCompanion(m)).toList());
+      } catch (e) {
+        debugPrint('GroupChat: Drift saveMessages error: $e');
+      }
+
+      setState(() {
+        for (final m in newMessages) {
+          if (!_messages.any((existing) => existing.id == m.id)) {
+            _messages.add(m);
+            if (m.reactions.isNotEmpty) {
+              _messageReactions[m.id] = Map.from(m.reactions);
+            }
+            if (m.myReactions.isNotEmpty) {
+              _myReactions[m.id] = Set.from(m.myReactions);
+            }
+          }
+        }
+        _messages.sort((a, b) {
+          try {
+            final ta = DateTime.parse(a.createdAt);
+            final tb = DateTime.parse(b.createdAt);
+            final cmp = tb.compareTo(ta);
+            if (cmp != 0) return cmp;
+            return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
+          } catch (_) {
+            return 0;
+          }
+        });
+        _isLoadingMore = false;
+      });
+    } else if (mounted) {
+      setState(() => _isLoadingMore = false);
     }
   }
 
@@ -979,13 +1122,10 @@ class _GroupChatScreenState extends State<GroupChatScreen>
 
     final index = _messages.indexWhere((m) => m.id == messageId);
     if (index == -1) {
-      // In group chats we don't have _hasMoreMessages in the current code, but we should load more
-      // For now, let's stick to what's available or add _hasMoreMessages if it exists in API
-      // Looking at _loadMessages, it doesn't set _hasMoreMessages yet.
-      // But we can call ChatService.getMessages with beforeMessageId.
-      
-      // Let's assume for now we only scroll to what's loaded, or implement simple load more.
-      // Since ChatService.getMessages returns has_more, we should probably track it.
+      if (_hasMoreMessages && retryCount < 5) {
+        await _loadMoreMessages();
+        return _scrollToMessage(messageId, retryCount: retryCount + 1);
+      }
       return;
     }
 
@@ -1315,6 +1455,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
 
     final messageList = ChatMessagesListView(
       isLoading: _isLoading,
+      isLoadingMore: _isLoadingMore,
       itemCount: _messages.length,
       scrollController: _scrollController,
       topPadding: topPadding,

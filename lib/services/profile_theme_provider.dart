@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
 import '../models/name_color_preset.dart';
+import 'account_manager.dart';
 import 'auth_service.dart';
 
 /// Модель палитры фона профиля
@@ -254,14 +255,20 @@ class ProfileColorPresets {
 
 /// Провайдер состояния фона профиля пользователя, цвета имени и стиля полоски цитирования.
 class ProfileThemeProvider extends ChangeNotifier {
-  static const String _prefPresetKey = 'profile_color_preset_id';
-  static const String _prefNameColorKey = 'user_name_color_preset_id';
-  static const String _prefStripStyleKey = 'user_reply_strip_style';
+  static const String _legacyPrefPresetKey = 'profile_color_preset_id';
+  static const String _legacyPrefNameColorKey = 'user_name_color_preset_id';
+  static const String _legacyPrefStripStyleKey = 'user_reply_strip_style';
 
+  static String _prefPresetKey(String uid) => '${uid}_profile_color_preset_id';
+  static String _prefNameColorKey(String uid) => '${uid}_user_name_color_preset_id';
+  static String _prefStripStyleKey(String uid) => '${uid}_user_reply_strip_style';
+
+  String? _currentUserId;
   ProfileColorPreset? _currentPreset = ProfileColorPresets.blue;
   NameColorPreset _currentNameColorPreset = NameColorPresets.red;
   ReplyStripStyle _currentStripStyle = ReplyStripStyle.solid;
 
+  String? get currentUserId => _currentUserId;
   ProfileColorPreset? get currentPreset => _currentPreset;
   bool get hasCustomColor => _currentPreset != null;
   String? get selectedPresetId => _currentPreset?.id;
@@ -273,37 +280,88 @@ class ProfileThemeProvider extends ChangeNotifier {
   Color get activeNameColor => _currentNameColorPreset.primaryColor;
 
   Future<void> init() async {
+    final accountManager = AccountManager();
+    accountManager.removeListener(_onAccountManagerChanged);
+    accountManager.addListener(_onAccountManagerChanged);
+
+    final currentUid = accountManager.currentAccount?.userId;
+    await switchUser(currentUid, force: true);
+  }
+
+  void _onAccountManagerChanged() {
+    final newUid = AccountManager().currentAccount?.userId;
+    if (newUid != _currentUserId) {
+      switchUser(newUid);
+    }
+  }
+
+  /// Переключение на настройки конкретного пользователя
+  Future<void> switchUser(String? userId, {bool force = false}) async {
+    if (!force && _currentUserId == userId) return;
+    _currentUserId = userId;
+
     final prefs = await SharedPreferences.getInstance();
-    final savedId = prefs.getString(_prefPresetKey);
-    if (savedId != null && savedId.isNotEmpty) {
-      _currentPreset = ProfileColorPresets.getById(savedId);
+    if (userId != null && userId.isNotEmpty) {
+      final presetKey = _prefPresetKey(userId);
+      final nameColorKey = _prefNameColorKey(userId);
+      final stripStyleKey = _prefStripStyleKey(userId);
+
+      // Проверяем скоупированный ключ, либо мигрируем со старого общего ключа
+      String? savedId = prefs.getString(presetKey);
+      if (savedId == null && prefs.containsKey(_legacyPrefPresetKey)) {
+        savedId = prefs.getString(_legacyPrefPresetKey);
+        if (savedId != null) await prefs.setString(presetKey, savedId);
+      }
+      _currentPreset = (savedId != null && savedId.isNotEmpty)
+          ? ProfileColorPresets.getById(savedId)
+          : ProfileColorPresets.blue;
+
+      String? savedNameColorId = prefs.getString(nameColorKey);
+      if (savedNameColorId == null && prefs.containsKey(_legacyPrefNameColorKey)) {
+        savedNameColorId = prefs.getString(_legacyPrefNameColorKey);
+        if (savedNameColorId != null) await prefs.setString(nameColorKey, savedNameColorId);
+      }
+      _currentNameColorPreset = (savedNameColorId != null && savedNameColorId.isNotEmpty)
+          ? NameColorPresets.getById(savedNameColorId)
+          : NameColorPresets.red;
+
+      String? savedStyleName = prefs.getString(stripStyleKey);
+      if (savedStyleName == null && prefs.containsKey(_legacyPrefStripStyleKey)) {
+        savedStyleName = prefs.getString(_legacyPrefStripStyleKey);
+        if (savedStyleName != null) await prefs.setString(stripStyleKey, savedStyleName);
+      }
+      _currentStripStyle = (savedStyleName != null && savedStyleName.isNotEmpty)
+          ? ReplyStripStyle.values.firstWhere(
+              (s) => s.name == savedStyleName,
+              orElse: () => ReplyStripStyle.solid,
+            )
+          : ReplyStripStyle.solid;
     } else {
       _currentPreset = ProfileColorPresets.blue;
-    }
-
-    final savedNameColorId = prefs.getString(_prefNameColorKey);
-    if (savedNameColorId != null && savedNameColorId.isNotEmpty) {
-      _currentNameColorPreset = NameColorPresets.getById(savedNameColorId);
-    }
-
-    final savedStyleName = prefs.getString(_prefStripStyleKey);
-    if (savedStyleName != null && savedStyleName.isNotEmpty) {
-      _currentStripStyle = ReplyStripStyle.values.firstWhere(
-        (s) => s.name == savedStyleName,
-        orElse: () => ReplyStripStyle.solid,
-      );
+      _currentNameColorPreset = NameColorPresets.red;
+      _currentStripStyle = ReplyStripStyle.solid;
     }
 
     notifyListeners();
 
-    // Async server fetch for cross-device synchronization
-    _fetchFromServer();
+    // Фоновая синхронизация с сервера для активного пользователя
+    _fetchFromServer(userId);
   }
 
-  Future<void> _fetchFromServer() async {
+  Future<void> _fetchFromServer([String? targetUserId]) async {
+    final userId = targetUserId ?? _currentUserId;
     try {
-      final token = await AuthService.getToken();
+      final accountManager = AccountManager();
+      String? token;
+      if (userId != null) {
+        final matching = accountManager.accounts.where((a) => a.userId == userId);
+        if (matching.isNotEmpty) {
+          token = matching.first.token;
+        }
+      }
+      token ??= await AuthService.getToken();
       if (token == null) return;
+
       final response = await http.get(
         Uri.parse('${AppConfig.baseUrl}/api/user/appearance'),
         headers: {
@@ -320,22 +378,30 @@ class ProfileThemeProvider extends ChangeNotifier {
           final rs = app['reply_strip_style']?.toString();
 
           final prefs = await SharedPreferences.getInstance();
-          if (pcId != null && pcId.isNotEmpty) {
-            _currentPreset = ProfileColorPresets.getById(pcId);
-            await prefs.setString(_prefPresetKey, pcId);
+          final bool isStillActive = (_currentUserId == userId);
+
+          if (userId != null && userId.isNotEmpty) {
+            if (pcId != null && pcId.isNotEmpty) {
+              await prefs.setString(_prefPresetKey(userId), pcId);
+              if (isStillActive) _currentPreset = ProfileColorPresets.getById(pcId);
+            }
+            if (ncId != null && ncId.isNotEmpty) {
+              await prefs.setString(_prefNameColorKey(userId), ncId);
+              if (isStillActive) _currentNameColorPreset = NameColorPresets.getById(ncId);
+            }
+            if (rs != null && rs.isNotEmpty) {
+              await prefs.setString(_prefStripStyleKey(userId), rs);
+              if (isStillActive) {
+                _currentStripStyle = ReplyStripStyle.values.firstWhere(
+                  (s) => s.name == rs,
+                  orElse: () => ReplyStripStyle.solid,
+                );
+              }
+            }
           }
-          if (ncId != null && ncId.isNotEmpty) {
-            _currentNameColorPreset = NameColorPresets.getById(ncId);
-            await prefs.setString(_prefNameColorKey, ncId);
+          if (isStillActive) {
+            notifyListeners();
           }
-          if (rs != null && rs.isNotEmpty) {
-            _currentStripStyle = ReplyStripStyle.values.firstWhere(
-              (s) => s.name == rs,
-              orElse: () => ReplyStripStyle.solid,
-            );
-            await prefs.setString(_prefStripStyleKey, rs);
-          }
-          notifyListeners();
         }
       }
     } catch (e) {
@@ -350,7 +416,15 @@ class ProfileThemeProvider extends ChangeNotifier {
     String? bubbleStyle,
   }) async {
     try {
-      final token = await AuthService.getToken();
+      final userId = _currentUserId;
+      String? token;
+      if (userId != null) {
+        final matching = AccountManager().accounts.where((a) => a.userId == userId);
+        if (matching.isNotEmpty) {
+          token = matching.first.token;
+        }
+      }
+      token ??= await AuthService.getToken();
       if (token == null) return;
 
       final body = <String, dynamic>{};
@@ -377,12 +451,15 @@ class ProfileThemeProvider extends ChangeNotifier {
     if (_currentPreset?.id == preset?.id) return;
     _currentPreset = preset;
     final prefs = await SharedPreferences.getInstance();
-    if (preset != null) {
-      await prefs.setString(_prefPresetKey, preset.id);
-      _syncWithBackend(profileColorPresetId: preset.id);
-    } else {
-      await prefs.remove(_prefPresetKey);
-      _syncWithBackend(profileColorPresetId: 'blue');
+    final uid = _currentUserId;
+    if (uid != null && uid.isNotEmpty) {
+      if (preset != null) {
+        await prefs.setString(_prefPresetKey(uid), preset.id);
+        _syncWithBackend(profileColorPresetId: preset.id);
+      } else {
+        await prefs.remove(_prefPresetKey(uid));
+        _syncWithBackend(profileColorPresetId: 'blue');
+      }
     }
     notifyListeners();
   }
@@ -391,14 +468,23 @@ class ProfileThemeProvider extends ChangeNotifier {
     _currentNameColorPreset = preset;
     _currentStripStyle = style;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefNameColorKey, preset.id);
-    await prefs.setString(_prefStripStyleKey, style.name);
-    _syncWithBackend(nameColorPresetId: preset.id, replyStripStyle: style.name);
+    final uid = _currentUserId;
+    if (uid != null && uid.isNotEmpty) {
+      await prefs.setString(_prefNameColorKey(uid), preset.id);
+      await prefs.setString(_prefStripStyleKey(uid), style.name);
+      _syncWithBackend(nameColorPresetId: preset.id, replyStripStyle: style.name);
+    }
     notifyListeners();
   }
 
   Future<void> resetToDefault() async {
     await setPreset(ProfileColorPresets.blue);
     await setNameColorAndStyle(NameColorPresets.red, ReplyStripStyle.solid);
+  }
+
+  @override
+  void dispose() {
+    AccountManager().removeListener(_onAccountManagerChanged);
+    super.dispose();
   }
 }

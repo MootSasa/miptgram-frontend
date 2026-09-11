@@ -59,6 +59,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
   final ScrollController _scrollController = ScrollController();
 
   bool _isLoading = true;
+  bool _hasMoreMessages = true;
+  bool _isLoadingMore = false;
   bool _isSending = false;
   String? _currentUserId;
   String _channelName = '';
@@ -95,6 +97,17 @@ class _ChannelScreenState extends State<ChannelScreen> {
     _initWebSocket();
 
     _scrollController.addListener(() {
+      if (!_scrollController.hasClients || _messages.isEmpty) return;
+
+      // Пагинация: когда пользователь проскроллил вверх — загрузить ещё
+      if (_hasMoreMessages && !_isLoadingMore) {
+        final maxScroll = _scrollController.position.maxScrollExtent;
+        final currentScroll = _scrollController.offset;
+        if (maxScroll > 0 && (currentScroll >= maxScroll * 0.75 || (maxScroll - currentScroll) < 600)) {
+          _loadMoreMessages();
+        }
+      }
+
       final offset = _scrollController.offset;
       final delta = offset - _lastScrollOffset;
       _lastScrollOffset = offset;
@@ -331,6 +344,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
         _messages.clear();
         _messages.addAll(
             fixedMessages.map((m) => Message.fromDbMessage(m)).toList());
+        _hasMoreMessages = localMessages.length >= 50;
       });
 
       if (_highlightMessageId != null && !_hasScrolledToHighlight) {
@@ -341,13 +355,16 @@ class _ChannelScreenState extends State<ChannelScreen> {
 
     // 2. Затем загрузить с сервера (обновление)
     try {
-      final result = await ChatService.getMessages(chatId: widget.channelId);
+      final result =
+          await ChatService.getMessages(chatId: widget.channelId, limit: 50);
 
       if (mounted) {
         setState(() {
           _isLoading = false;
           if (result['success'] == true) {
             final serverMessages = result['messages'] as List<Message>;
+            _hasMoreMessages = result['has_more'] as bool? ?? (serverMessages.length >= 50);
+
             // Сохранить pending/failed сообщения из текущего списка (их нет на сервере)
             final pendingMessages = _messages
                 .where(
@@ -355,22 +372,37 @@ class _ChannelScreenState extends State<ChannelScreen> {
                 )
                 .toList();
 
-            _messages.clear();
-            _messages.addAll(serverMessages);
-
-            // Добавить pending/failed сообщения обратно (их нет на сервере)
-            for (final pending in pendingMessages) {
-              if (!_messages.any((m) => m.localId == pending.localId)) {
-                _messages.add(pending);
+            final Map<String, Message> merged = {};
+            for (final m in _messages) {
+              merged[m.id] = m;
+              if (m.localId != null && m.localId!.isNotEmpty) {
+                merged[m.localId!] = m;
               }
             }
+            for (final m in serverMessages) {
+              merged[m.id] = m;
+              if (m.localId != null && m.localId!.isNotEmpty) {
+                merged[m.localId!] = m;
+              }
+            }
+            for (final pending in pendingMessages) {
+              final key = pending.localId ?? pending.id;
+              if (!merged.containsKey(key)) {
+                merged[key] = pending;
+              }
+            }
+
+            _messages.clear();
+            _messages.addAll(merged.values.toSet());
 
             // Сортировка по createdAt по убыванию
             _messages.sort((a, b) {
               try {
                 final ta = DateTime.parse(a.createdAt);
                 final tb = DateTime.parse(b.createdAt);
-                return tb.compareTo(ta);
+                final cmp = tb.compareTo(ta);
+                if (cmp != 0) return cmp;
+                return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
               } catch (_) {
                 return 0;
               }
@@ -379,7 +411,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
             // Сохранить в Drift для оффлайн-доступа
             try {
               db.saveMessages(
-                  _messages.map((m) => _messageToCompanion(m)).toList());
+                  serverMessages.map((m) => _messageToCompanion(m)).toList());
             } catch (e) {
               debugPrint('Channel: Drift saveMessages error: $e');
             }
@@ -399,6 +431,103 @@ class _ChannelScreenState extends State<ChannelScreen> {
       if (mounted && localMessages.isEmpty) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  /// Загрузить старые сообщения (пагинация)
+  Future<void> _loadMoreMessages() async {
+    if (_isLoadingMore || !_hasMoreMessages) return;
+
+    setState(() => _isLoadingMore = true);
+
+    final lastMessage = _messages.isNotEmpty ? _messages.last : null;
+
+    // Сначала попробовать загрузить из Drift
+    final db = AppDatabase();
+    try {
+      final localMessages = await db.getMessages(
+        widget.channelId,
+        beforeCreatedAt: lastMessage?.createdAt,
+        limit: 50,
+      );
+
+      if (localMessages.isNotEmpty) {
+        setState(() {
+          for (final m
+              in localMessages.map((m) => Message.fromDbMessage(m))) {
+            if (!_messages.any((existing) =>
+                existing.id == m.id ||
+                (m.localId != null && existing.localId == m.localId))) {
+              _messages.add(m);
+            }
+          }
+          _messages.sort((a, b) {
+            try {
+              final ta = DateTime.parse(a.createdAt);
+              final tb = DateTime.parse(b.createdAt);
+              final cmp = tb.compareTo(ta);
+              if (cmp != 0) return cmp;
+              return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
+            } catch (_) {
+              return 0;
+            }
+          });
+          _isLoadingMore = false;
+        });
+        return;
+      }
+    } catch (e) {
+      debugPrint('Channel: Drift loadMore error: $e');
+    }
+
+    // Если в Drift нет — найти самый старый числовой serverId и загрузить с сервера
+    String? beforeServerId;
+    for (int i = _messages.length - 1; i >= 0; i--) {
+      if (int.tryParse(_messages[i].id) != null) {
+        beforeServerId = _messages[i].id;
+        break;
+      }
+    }
+
+    final result = await ChatService.getMessages(
+      chatId: widget.channelId,
+      beforeMessageId: beforeServerId,
+      beforeCreatedAt: lastMessage?.createdAt,
+      limit: 50,
+    );
+
+    if (result['success'] == true && mounted) {
+      final newMessages = result['messages'] as List<Message>;
+      _hasMoreMessages = result['has_more'] as bool? ?? (newMessages.length >= 50);
+
+      try {
+        db.saveMessages(
+            newMessages.map((m) => _messageToCompanion(m)).toList());
+      } catch (e) {
+        debugPrint('Channel: Drift saveMessages error: $e');
+      }
+
+      setState(() {
+        for (final m in newMessages) {
+          if (!_messages.any((existing) => existing.id == m.id)) {
+            _messages.add(m);
+          }
+        }
+        _messages.sort((a, b) {
+          try {
+            final ta = DateTime.parse(a.createdAt);
+            final tb = DateTime.parse(b.createdAt);
+            final cmp = tb.compareTo(ta);
+            if (cmp != 0) return cmp;
+            return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
+          } catch (_) {
+            return 0;
+          }
+        });
+        _isLoadingMore = false;
+      });
+    } else if (mounted) {
+      setState(() => _isLoadingMore = false);
     }
   }
 
@@ -450,8 +579,10 @@ class _ChannelScreenState extends State<ChannelScreen> {
 
     final index = _messages.indexWhere((m) => m.id == messageId);
     if (index == -1) {
-      // Channels currently don't have _loadMoreMessages implementation in the file
-      // but we could add it if needed. For now, just scroll if in list.
+      if (_hasMoreMessages && retryCount < 5) {
+        await _loadMoreMessages();
+        return _scrollToMessage(messageId, retryCount: retryCount + 1);
+      }
       return;
     }
 
@@ -899,6 +1030,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
       ),
       body: ChatMessagesListView(
         isLoading: _isLoading,
+        isLoadingMore: _isLoadingMore,
         itemCount: _messages.length,
         scrollController: _scrollController,
         topPadding: topPadding,

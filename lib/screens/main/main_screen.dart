@@ -532,48 +532,52 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   // Local storage service
   final LocalStorageService _localStorage = LocalStorageService();
 
-  Future<void> _loadChats() async {
-    setState(() => _isLoadingChats = true);
-
-    // 1. Сначала загрузить из Drift (мгновенно, offline-first)
-    final db = AppDatabase();
-    bool loadedFromLocal = false;
-    try {
-      final localChats = await db.getChats();
-      if (localChats.isNotEmpty && mounted) {
-        setState(() {
-          _chats = localChats.map(_dbChatToChat).toList();
-          _isLoadingChats = false;
-        });
-        _sortChats();
-        loadedFromLocal = true;
-        debugPrint(
-            'MainScreen: Loaded ${localChats.length} chats from Drift');
-      }
-    } catch (e) {
-      debugPrint('MainScreen: Error loading from Drift: $e');
+  Future<void> _loadChats({bool silent = false}) async {
+    final bool isInitialLoad = _chats.isEmpty;
+    if (isInitialLoad && !silent) {
+      setState(() => _isLoadingChats = true);
     }
 
-    // 2. Fallback: SharedPreferences если Drift пуст
-    if (!loadedFromLocal) {
+    final db = AppDatabase();
+    bool loadedFromLocal = false;
+
+    // 1. При холодном старте (когда _chats ещё пуст) мгновенно загрузить из локального кэша
+    if (isInitialLoad) {
       try {
-        final prefsChats = await _localStorage.loadChats();
-        if (prefsChats.isNotEmpty && mounted) {
+        final localChats = await db.getChats();
+        if (localChats.isNotEmpty && mounted) {
           setState(() {
-            _chats = prefsChats;
+            _chats = localChats.map(_dbChatToChat).toList();
             _isLoadingChats = false;
           });
           _sortChats();
           loadedFromLocal = true;
-          debugPrint(
-              'MainScreen: Loaded ${prefsChats.length} chats from SharedPreferences');
+          debugPrint('MainScreen: Loaded ${localChats.length} chats from Drift');
         }
       } catch (e) {
-        debugPrint('MainScreen: Error loading from SharedPreferences: $e');
+        debugPrint('MainScreen: Error loading from Drift: $e');
+      }
+
+      // 2. Fallback: SharedPreferences если Drift пуст
+      if (!loadedFromLocal) {
+        try {
+          final prefsChats = await _localStorage.loadChats();
+          if (prefsChats.isNotEmpty && mounted) {
+            setState(() {
+              _chats = prefsChats;
+              _isLoadingChats = false;
+            });
+            _sortChats();
+            loadedFromLocal = true;
+            debugPrint('MainScreen: Loaded ${prefsChats.length} chats from SharedPreferences');
+          }
+        } catch (e) {
+          debugPrint('MainScreen: Error loading from SharedPreferences: $e');
+        }
       }
     }
 
-    // 3. Загрузить с сервера (обновление)
+    // 3. Фоновая загрузка с сервера (бесшовное обновление)
     try {
       final result = await ChatService.getChats();
 
@@ -610,11 +614,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       }
     } catch (e) {
       debugPrint('MainScreen: Error loading from server: $e');
-      // Сервер недоступен — оставляем локальные данные если есть
+      // Сервер недоступен — оставляем текущие данные
       if (mounted) {
         setState(() => _isLoadingChats = false);
-        // Если нет даже локальных данных, попробовать SharedPreferences
-        if (!loadedFromLocal) {
+        if (_chats.isEmpty && !loadedFromLocal) {
           try {
             final prefsChats = await _localStorage.loadChats();
             if (prefsChats.isNotEmpty) {
@@ -622,8 +625,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 _chats = prefsChats;
               });
               _sortChats();
-              debugPrint(
-                  'MainScreen: Fallback — loaded ${prefsChats.length} chats from SharedPreferences');
+              debugPrint('MainScreen: Fallback — loaded ${prefsChats.length} chats from SharedPreferences');
             }
           } catch (_) {}
         }
@@ -1026,16 +1028,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: _loadChats,
-      child: ListView.builder(
-        padding: EdgeInsets.only(top: topPadding, bottom: 120),
-        itemCount: filteredChats.length,
-        itemBuilder: (context, index) {
-          final chat = filteredChats[index];
-          return _buildChatListItem(chat);
-        },
+    return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(
+        parent: BouncingScrollPhysics(),
       ),
+      padding: EdgeInsets.only(top: topPadding, bottom: 120),
+      itemCount: filteredChats.length,
+      itemBuilder: (context, index) {
+        final chat = filteredChats[index];
+        return _buildChatListItem(chat);
+      },
     );
   }
 

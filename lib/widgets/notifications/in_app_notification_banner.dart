@@ -234,6 +234,7 @@ class _InAppNotificationBannerState extends State<InAppNotificationBanner>
           radius: 20,
           backgroundColor: const Color(0xFF0088CC),
           backgroundImage: avatarImageProvider(widget.data.avatarUrl),
+          onBackgroundImageError: (_, __) {},
           child: widget.data.avatarUrl == null
               ? Text(
                   widget.data.chatName.isNotEmpty

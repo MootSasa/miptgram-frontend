@@ -946,7 +946,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       final currentScroll = _scrollController.offset;
       // В reverse=true: верх = maxScrollExtent, низ = 0
       // Когда scrollOffset приближается к maxScrollExtent — загрузить старые
-      if (currentScroll >= maxScroll * 0.8) {
+      if (maxScroll > 0 && (currentScroll >= maxScroll * 0.75 || (maxScroll - currentScroll) < 600)) {
         _loadMoreMessages();
       }
     }
@@ -1126,6 +1126,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         _messages.clear();
         _messages.addAll(
             fixedMessages.map((m) => Message.fromDbMessage(m)).toList());
+        _hasMoreMessages = localMessages.length >= 50;
         for (final m in _messages) {
           if (m.reactions.isNotEmpty) {
             _messageReactions[m.id] = Map.from(m.reactions);
@@ -1146,7 +1147,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         _isLoading = false;
         if (result['success'] == true) {
           final serverMessages = result['messages'] as List<Message>;
-          _hasMoreMessages = result['has_more'] as bool? ?? false;
+          _hasMoreMessages = result['has_more'] as bool? ?? (serverMessages.length >= 50);
 
           // Сохранить pending/failed сообщения из текущего списка (их нет на сервере)
           final pendingMessages = _messages
@@ -1155,17 +1156,31 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               )
               .toList();
 
+          // Merge server messages without truncating older messages already loaded into _messages
+          final Map<String, Message> merged = {};
+          for (final m in _messages) {
+            merged[m.id] = m;
+            if (m.localId != null && m.localId!.isNotEmpty) {
+              merged[m.localId!] = m;
+            }
+          }
+          for (final m in serverMessages) {
+            merged[m.id] = m;
+            if (m.localId != null && m.localId!.isNotEmpty) {
+              merged[m.localId!] = m;
+            }
+          }
+          for (final pending in pendingMessages) {
+            final key = pending.localId ?? pending.id;
+            if (!merged.containsKey(key)) {
+              merged[key] = pending;
+            }
+          }
+
           _messages.clear();
           _messageReactions.clear();
           _myReactions.clear();
-          _messages.addAll(serverMessages);
-
-          // Добавить pending/failed сообщения обратно (их нет на сервере)
-          for (final pending in pendingMessages) {
-            if (!_messages.any((m) => m.localId == pending.localId)) {
-              _messages.add(pending);
-            }
-          }
+          _messages.addAll(merged.values.toSet());
 
           for (final m in _messages) {
             if (m.reactions.isNotEmpty) {
@@ -1182,7 +1197,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             try {
               final ta = DateTime.parse(a.createdAt);
               final tb = DateTime.parse(b.createdAt);
-              return tb.compareTo(ta); // descending
+              final cmp = tb.compareTo(ta); // descending
+              if (cmp != 0) return cmp;
+              return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
             } catch (_) {
               return 0;
             }
@@ -1191,7 +1208,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           // Сохранить в Drift для оффлайн-доступа
           try {
             db.saveMessages(
-                _messages.map((m) => _messageToCompanion(m)).toList());
+                serverMessages.map((m) => _messageToCompanion(m)).toList());
           } catch (e) {
             debugPrint('Drift saveMessages error: $e');
           }
@@ -1241,6 +1258,17 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               }
             }
           }
+          _messages.sort((a, b) {
+            try {
+              final ta = DateTime.parse(a.createdAt);
+              final tb = DateTime.parse(b.createdAt);
+              final cmp = tb.compareTo(ta);
+              if (cmp != 0) return cmp;
+              return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
+            } catch (_) {
+              return 0;
+            }
+          });
           _isLoadingMore = false;
         });
         return;
@@ -1249,16 +1277,25 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       debugPrint('Drift loadMore error: $e');
     }
 
-    // Если в Drift нет — загрузить с сервера
+    // Если в Drift нет — найти самый старый числовой serverId и загрузить с сервера
+    String? beforeServerId;
+    for (int i = _messages.length - 1; i >= 0; i--) {
+      if (int.tryParse(_messages[i].id) != null) {
+        beforeServerId = _messages[i].id;
+        break;
+      }
+    }
+
     final result = await ChatService.getMessages(
       chatId: widget.chatId,
-      beforeMessageId: lastMessage?.id,
+      beforeMessageId: beforeServerId,
+      beforeCreatedAt: lastMessage?.createdAt,
       limit: 50,
     );
 
     if (result['success'] == true && mounted) {
       final newMessages = result['messages'] as List<Message>;
-      _hasMoreMessages = result['has_more'] as bool? ?? false;
+      _hasMoreMessages = result['has_more'] as bool? ?? (newMessages.length >= 50);
 
       // Сохранить в Drift
       try {
@@ -1281,6 +1318,17 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             }
           }
         }
+        _messages.sort((a, b) {
+          try {
+            final ta = DateTime.parse(a.createdAt);
+            final tb = DateTime.parse(b.createdAt);
+            final cmp = tb.compareTo(ta);
+            if (cmp != 0) return cmp;
+            return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
+          } catch (_) {
+            return 0;
+          }
+        });
         _isLoadingMore = false;
       });
     } else if (mounted) {

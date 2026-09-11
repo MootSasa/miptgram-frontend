@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import 'package:share_plus/share_plus.dart';
@@ -128,8 +129,17 @@ class _AvatarGalleryViewerState extends State<AvatarGalleryViewer> {
         return file;
       }
 
+      // Проверка локального кэша CachedNetworkImage/DefaultCacheManager
+      final validUrl = getValidAvatarUrl(url) ?? url;
+      try {
+        final cached = await DefaultCacheManager().getFileFromCache(validUrl);
+        if (cached != null && await cached.file.exists()) {
+          return cached.file;
+        }
+      } catch (_) {}
+
       // Скачивание сетевого файла
-      final response = await http.get(Uri.parse(url));
+      final response = await http.get(Uri.parse(validUrl));
       if (response.statusCode == 200) {
         final tempDir = await getTemporaryDirectory();
         final file = File('${tempDir.path}/avatar_temp_${DateTime.now().millisecondsSinceEpoch}.jpg');

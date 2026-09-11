@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../config/app_config.dart';
 
 /// Validates and returns a valid avatar URL or local file path, or null if invalid
 ///
-/// This function checks if the URL is a valid HTTP/HTTPS URL, data: URL, or local file path
-/// to prevent "No host specified in URI" errors when using NetworkImage
+/// This function checks if the URL is a valid HTTP/HTTPS URL, data: URL, relative URL,
+/// or local file path to prevent errors when loading images.
 String? getValidAvatarUrl(String? url) {
   if (url == null || url.isEmpty) return null;
   // data: URLs are valid (base64 encoded avatars)
@@ -16,9 +18,16 @@ String? getValidAvatarUrl(String? url) {
   if (url.startsWith('file://')) {
     final file = File(Uri.parse(url).toFilePath());
     if (file.existsSync()) return url;
-  } else if (url.startsWith('/') || url.contains(':\\') || url.contains(':/')) {
+  } else if (url.contains(':\\') || url.contains(':/')) {
     final file = File(url);
     if (file.existsSync()) return url;
+  } else if (url.startsWith('/')) {
+    final file = File(url);
+    if (file.existsSync()) return url;
+    // Relative URL on backend (e.g. /avatars/xyz.jpg or /api/...)
+    final base = AppConfig.baseUrl;
+    final cleanBase = base.endsWith('/') ? base.substring(0, base.length - 1) : base;
+    return '$cleanBase$url';
   }
   
   try {
@@ -41,10 +50,22 @@ String? getValidAvatarUrl(String? url) {
 }
 
 /// Creates an ImageProvider from an avatar URL or local file path.
-/// Supports network URLs (http/https), local file paths, and data: URLs (base64).
-/// Returns null if the URL is invalid.
-ImageProvider? avatarImageProvider(String? url) {
-  if (url == null || url.isEmpty) return null;
+/// Supports network URLs (http/https via CachedNetworkImageProvider with offline disk cache),
+/// local file paths, and data: URLs (base64).
+/// If the URL is invalid or empty, falls back to [localFallbackPath] if provided.
+ImageProvider? avatarImageProvider(String? url, {String? localFallbackPath}) {
+  if ((url == null || url.isEmpty) && (localFallbackPath == null || localFallbackPath.isEmpty)) {
+    return null;
+  }
+
+  // If URL is missing, try fallback local path
+  if (url == null || url.isEmpty) {
+    if (localFallbackPath != null) {
+      final f = File(localFallbackPath);
+      if (f.existsSync()) return FileImage(f);
+    }
+    return null;
+  }
 
   // Handle data: URLs (base64 encoded avatars stored in DB)
   if (url.startsWith('data:')) {
@@ -72,10 +93,22 @@ ImageProvider? avatarImageProvider(String? url) {
     return FileImage(localFile);
   }
 
-  // Regular network URL
+  // Network URL or relative backend path
   final validUrl = getValidAvatarUrl(url);
-  if (validUrl == null) return null;
-  return NetworkImage(validUrl);
+  if (validUrl == null || (!validUrl.startsWith('http://') && !validUrl.startsWith('https://'))) {
+    if (localFallbackPath != null) {
+      final f = File(localFallbackPath);
+      if (f.existsSync()) return FileImage(f);
+    }
+    return null;
+  }
+
+  return CachedNetworkImageProvider(
+    validUrl,
+    errorListener: (e) {
+      debugPrint('[avatarImageProvider] Failed to load avatar ($validUrl): $e');
+    },
+  );
 }
 
 /// Creates a CircleAvatar with proper error handling for avatar URLs and local file paths
@@ -86,16 +119,28 @@ Widget buildAvatar({
   required String name,
   double radius = 20,
   Color backgroundColor = const Color(0xFF0088CC),
+  String? localFallbackPath,
+  Key? key,
 }) {
-  final provider = avatarImageProvider(avatarUrl);
+  final provider = avatarImageProvider(avatarUrl, localFallbackPath: localFallbackPath);
   return CircleAvatar(
+    key: key,
     radius: radius,
     backgroundColor: backgroundColor,
     backgroundImage: provider,
+    onBackgroundImageError: provider != null
+        ? (exception, stackTrace) {
+            debugPrint('[buildAvatar] Failed to render avatar ($avatarUrl): $exception');
+          }
+        : null,
     child: provider == null
         ? Text(
             name.isNotEmpty ? name[0].toUpperCase() : '?',
-            style: const TextStyle(color: Colors.white),
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: radius * 0.9,
+              fontWeight: FontWeight.bold,
+            ),
           )
         : null,
   );

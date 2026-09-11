@@ -16,6 +16,7 @@ class ChatMessagesListView extends StatelessWidget {
   final Widget? typingIndicator;
   final bool reverse;
   final bool enableTopShaderMask;
+  final bool isLoadingMore;
 
   const ChatMessagesListView({
     Key? key,
@@ -31,6 +32,7 @@ class ChatMessagesListView extends StatelessWidget {
     this.typingIndicator,
     this.reverse = true,
     this.enableTopShaderMask = true,
+    this.isLoadingMore = false,
   }) : super(key: key);
 
   @override
@@ -90,10 +92,17 @@ class ChatMessagesListView extends StatelessWidget {
       itemBuilder: itemBuilder,
     );
 
-    final content = typingIndicator != null
+    final content = (typingIndicator != null || isLoadingMore)
         ? Column(
             children: [
-              typingIndicator!,
+              if (isLoadingMore)
+                const Padding(
+                  padding: EdgeInsets.all(8.0),
+                  child: Center(
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              if (typingIndicator != null) typingIndicator!,
               Expanded(child: listView),
             ],
           )

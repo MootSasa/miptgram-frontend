@@ -4,6 +4,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:url_launcher/url_launcher.dart';
+import '../../models/name_color_preset.dart';
 import '../../services/chat_service.dart';
 import '../../services/glass_toast_service.dart';
 import '../../utils/emoji_utils.dart';
@@ -22,8 +23,16 @@ class CodeElementBuilder extends MarkdownElementBuilder {
   final BuildContext context;
   final bool isDark;
   final bool isMe;
+  final NameColorPreset? preset;
+  final ReplyStripStyle? stripStyle;
 
-  CodeElementBuilder(this.context, this.isDark, this.isMe);
+  CodeElementBuilder(
+    this.context,
+    this.isDark,
+    this.isMe, {
+    this.preset,
+    this.stripStyle,
+  });
 
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
@@ -78,6 +87,8 @@ class CodeElementBuilder extends MarkdownElementBuilder {
       language: language,
       isDark: isDark,
       isMe: isMe,
+      preset: preset,
+      stripStyle: stripStyle,
     );
   }
 }
@@ -132,8 +143,16 @@ class BlockquoteElementBuilder extends MarkdownElementBuilder {
   final BuildContext context;
   final bool isDark;
   final bool isMe;
+  final NameColorPreset? preset;
+  final ReplyStripStyle? stripStyle;
 
-  BlockquoteElementBuilder(this.context, this.isDark, this.isMe);
+  BlockquoteElementBuilder(
+    this.context,
+    this.isDark,
+    this.isMe, {
+    this.preset,
+    this.stripStyle,
+  });
 
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
@@ -153,6 +172,8 @@ class BlockquoteElementBuilder extends MarkdownElementBuilder {
       initialExpanded: false,
       isDark: isDark,
       isMe: isMe,
+      preset: preset,
+      stripStyle: stripStyle,
     );
   }
 }
@@ -462,6 +483,8 @@ class TextMessageWidget extends StatelessWidget {
   final TextStyle? style;
   final bool isMe;
   final List<MessageEntity>? entities;
+  final NameColorPreset? nameColorPreset;
+  final ReplyStripStyle? replyStripStyle;
 
   const TextMessageWidget({
     Key? key,
@@ -469,6 +492,8 @@ class TextMessageWidget extends StatelessWidget {
     this.style,
     this.isMe = false,
     this.entities,
+    this.nameColorPreset,
+    this.replyStripStyle,
   }) : super(key: key);
 
   /// Preserves consecutive spaces and multiple enters inside message text,
@@ -611,8 +636,20 @@ class TextMessageWidget extends StatelessWidget {
         blockquotePadding: EdgeInsets.zero,
       ),
       builders: {
-        'code': CodeElementBuilder(context, isDark, isMe),
-        'blockquote': BlockquoteElementBuilder(context, isDark, isMe),
+        'code': CodeElementBuilder(
+          context,
+          isDark,
+          isMe,
+          preset: nameColorPreset,
+          stripStyle: replyStripStyle,
+        ),
+        'blockquote': BlockquoteElementBuilder(
+          context,
+          isDark,
+          isMe,
+          preset: nameColorPreset,
+          stripStyle: replyStripStyle,
+        ),
         'latex': MathElementBuilder(),
         'checkbox': CheckboxElementBuilder(),
         'emoji': EmojiElementBuilder(fontSize: style?.fontSize ?? _kMessageFontSize),

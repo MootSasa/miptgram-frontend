@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
+import '../../models/name_color_preset.dart';
 import '../../services/profile_theme_provider.dart';
 import '../../utils/haptic_utils.dart';
 import '../profile/reply_strip_painter.dart';
@@ -17,6 +18,8 @@ class CollapsibleBlockquoteWidget extends StatefulWidget {
   final bool initialExpanded;
   final bool isDark;
   final bool isMe;
+  final NameColorPreset? preset;
+  final ReplyStripStyle? stripStyle;
 
   const CollapsibleBlockquoteWidget({
     Key? key,
@@ -26,6 +29,8 @@ class CollapsibleBlockquoteWidget extends StatefulWidget {
     this.initialExpanded = false,
     required this.isDark,
     required this.isMe,
+    this.preset,
+    this.stripStyle,
   }) : super(key: key);
 
   @override
@@ -53,11 +58,11 @@ class _CollapsibleBlockquoteWidgetState
   @override
   Widget build(BuildContext context) {
     final profileTheme = context.watch<ProfileThemeProvider>();
-    final preset = profileTheme.currentNameColorPreset;
-    final stripStyle = profileTheme.currentStripStyle;
+    final effectivePreset = widget.preset ?? profileTheme.currentNameColorPreset;
+    final effectiveStripStyle = widget.stripStyle ?? profileTheme.currentStripStyle;
 
-    final cardBgColor = preset.getOpaqueCardBackgroundColor(widget.isDark);
-    final primaryColor = preset.primaryColor;
+    final cardBgColor = effectivePreset.getOpaqueCardBackgroundColor(widget.isDark);
+    final primaryColor = effectivePreset.primaryColor;
 
     final quoteTextStyle = TextStyle(
       fontSize: 14,
@@ -70,8 +75,9 @@ class _CollapsibleBlockquoteWidgetState
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        // Container has horizontal padding 8+8=16, ReplyStrip 3.5, space 8, quote icon padding 14 -> 41.5 total
         final double maxContentWidth = constraints.hasBoundedWidth
-            ? (constraints.maxWidth - 27.5).clamp(10.0, double.infinity)
+            ? (constraints.maxWidth - 41.5).clamp(10.0, double.infinity)
             : double.infinity;
 
         final textPainter = TextPainter(
@@ -83,14 +89,19 @@ class _CollapsibleBlockquoteWidgetState
         // Only show toggle button if quote exceeds 3 lines
         final bool showToggle = textPainter.didExceedMaxLines;
 
-        return Container(
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          decoration: BoxDecoration(
-            color: cardBgColor,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Stack(
+        return MetaData(
+          metaData: 'block_element',
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: constraints.hasBoundedWidth ? constraints.maxWidth : double.infinity,
+            ),
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: cardBgColor,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Stack(
             children: [
               Positioned(
                 top: 0,
@@ -107,70 +118,75 @@ class _CollapsibleBlockquoteWidgetState
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     ReplyStripWidget(
-                      preset: preset,
-                      style: stripStyle,
+                      preset: effectivePreset,
+                      style: effectiveStripStyle,
                       width: 3.5,
                       borderRadius: 2,
                     ),
                     const SizedBox(width: 8),
                     Flexible(
                       fit: FlexFit.loose,
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 14.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            AnimatedSize(
-                              duration: const Duration(milliseconds: 200),
-                              curve: Curves.easeInOut,
-                              alignment: Alignment.topLeft,
-                              child: widget.child ??
-                                  Text(
-                                    widget.text,
-                                    maxLines: (showToggle && !_isExpanded) ? 3 : null,
-                                    overflow: (showToggle && !_isExpanded)
-                                        ? TextOverflow.ellipsis
-                                        : TextOverflow.clip,
-                                    style: quoteTextStyle,
-                                  ),
-                            ),
-                            if (showToggle) ...[
-                              const SizedBox(height: 4),
-                              InkWell(
-                                onTap: _toggleExpand,
-                                borderRadius: BorderRadius.circular(4),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        _isExpanded
-                                            ? context.l10n.translate('format_collapsed_state')
-                                            : context.l10n.translate('format_expand'),
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          color: primaryColor,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: maxContentWidth),
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 14.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              AnimatedSize(
+                                duration: const Duration(milliseconds: 250),
+                                curve: Curves.easeInOutCubic,
+                                alignment: Alignment.topLeft,
+                                clipBehavior: Clip.hardEdge,
+                                child: widget.child ??
+                                    Text(
+                                      widget.text,
+                                      maxLines: (showToggle && !_isExpanded) ? 3 : null,
+                                      overflow: (showToggle && !_isExpanded)
+                                          ? TextOverflow.ellipsis
+                                          : TextOverflow.clip,
+                                      style: quoteTextStyle,
+                                    ),
+                              ),
+                              if (showToggle) ...[
+                                const SizedBox(height: 4),
+                                InkWell(
+                                  onTap: _toggleExpand,
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          _isExpanded
+                                              ? context.l10n.translate('format_collapsed_state')
+                                              : context.l10n.translate('format_expand'),
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: primaryColor,
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      AnimatedRotation(
-                                        turns: _isExpanded ? 0.5 : 0.0,
-                                        duration: const Duration(milliseconds: 200),
-                                        child: iconoir.NavArrowDown(
-                                          width: 14,
-                                          height: 14,
-                                          color: primaryColor,
+                                        const SizedBox(width: 4),
+                                        AnimatedRotation(
+                                          turns: _isExpanded ? 0.5 : 0.0,
+                                          duration: const Duration(milliseconds: 250),
+                                          curve: Curves.easeInOutCubic,
+                                          child: iconoir.NavArrowDown(
+                                            width: 14,
+                                            height: 14,
+                                            color: primaryColor,
+                                          ),
                                         ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ),
-                              ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
                       ),
                     ),
@@ -179,8 +195,9 @@ class _CollapsibleBlockquoteWidgetState
               ),
             ],
           ),
-        );
-      },
-    );
+        ),
+      );
+    },
+  );
   }
 }

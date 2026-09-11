@@ -6,7 +6,9 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
+import '../../services/profile_theme_provider.dart';
 import '../../utils/emoji_utils.dart';
 import '../../utils/entity_parser.dart';
 import '../message/spoiler_text_widget.dart';
@@ -397,6 +399,12 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
       selectionColor: selectionColor,
     );
 
+    final profileTheme = context.watch<ProfileThemeProvider?>();
+    final userPreset = profileTheme?.currentNameColorPreset;
+    final quoteAccentColor = userPreset?.primaryColor ?? _kMintAccent;
+    final quoteCardColor = userPreset?.getOpaqueCardBackgroundColor(isDark) ??
+        (isDark ? const Color(0x22FFFFFF) : const Color(0x15000000));
+
     return Theme(
       data: theme.copyWith(textSelectionTheme: textSelectionTheme),
       child: Padding(
@@ -416,10 +424,8 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
                       ? InputQuotePainter(
                           fieldKey: _fieldKey,
                           controller: richCtrl,
-                          accentColor: _kMintAccent,
-                          cardColor: isDark
-                              ? const Color(0x22FFFFFF)
-                              : const Color(0x15000000),
+                          accentColor: quoteAccentColor,
+                          cardColor: quoteCardColor,
                         )
                       : null,
                   foregroundPainter: hasSpoilers && richCtrl != null
@@ -945,10 +951,46 @@ class TelegramTextSelectionToolbar extends StatefulWidget {
 
 class _TelegramTextSelectionToolbarState
     extends State<TelegramTextSelectionToolbar> {
+  static bool _persistedExpanded = false;
+  static int _lastSelectionStart = -1;
+  static int _lastSelectionEnd = -1;
+
   bool _isExpanded = false;
 
   static const Color _kDarkBg = Color(0xFF1E2225);
   static const Color _kMintAccent = Color(0xFF7BE5DA);
+
+  @override
+  void initState() {
+    super.initState();
+    final sel = widget.controller.selection;
+    if (sel.isValid && !sel.isCollapsed && sel.start == _lastSelectionStart && sel.end == _lastSelectionEnd) {
+      _isExpanded = _persistedExpanded;
+    } else {
+      _persistedExpanded = false;
+      _isExpanded = false;
+      _lastSelectionStart = sel.isValid ? sel.start : -1;
+      _lastSelectionEnd = sel.isValid ? sel.end : -1;
+    }
+  }
+
+  void _expand() {
+    final sel = widget.controller.selection;
+    _lastSelectionStart = sel.start;
+    _lastSelectionEnd = sel.end;
+    _persistedExpanded = true;
+    setState(() => _isExpanded = true);
+  }
+
+  void _collapse() {
+    _persistedExpanded = false;
+    setState(() => _isExpanded = false);
+  }
+
+  void _hideToolbar() {
+    _persistedExpanded = false;
+    widget.onHideToolbar();
+  }
 
   void _executeCut() {
     final cutItem = widget.buttonItems
@@ -1069,17 +1111,15 @@ class _TelegramTextSelectionToolbarState
         children: [
           _buildPillButton('Вырезать', () {
             _executeCut();
-            widget.onHideToolbar();
+            _hideToolbar();
           }),
           _buildPillButton('Цитировать', () {
             TextFormattingUtils.applyFormatting(widget.controller, 'quote');
-            widget.onHideToolbar();
+            _hideToolbar();
           }),
           InkWell(
             borderRadius: BorderRadius.circular(12.0),
-            onTap: () {
-              setState(() => _isExpanded = true);
-            },
+            onTap: _expand,
             child: const Padding(
               padding: EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
               child: Icon(Icons.more_vert, color: _kMintAccent, size: 22),
@@ -1130,7 +1170,7 @@ class _TelegramTextSelectionToolbarState
                     textStyle: const TextStyle(fontWeight: FontWeight.w500),
                     onTap: () {
                       _executeCopy();
-                      widget.onHideToolbar();
+                      _hideToolbar();
                     },
                   ),
                   _buildMenuItem(
@@ -1139,7 +1179,7 @@ class _TelegramTextSelectionToolbarState
                     textStyle: const TextStyle(fontWeight: FontWeight.w500),
                     onTap: () {
                       _executePaste();
-                      widget.onHideToolbar();
+                      _hideToolbar();
                     },
                   ),
                   _buildMenuItem(
@@ -1148,7 +1188,7 @@ class _TelegramTextSelectionToolbarState
                     textStyle: const TextStyle(fontWeight: FontWeight.normal),
                     onTap: () {
                       TextFormattingUtils.applyFormatting(widget.controller, 'clear');
-                      widget.onHideToolbar();
+                      _hideToolbar();
                     },
                   ),
                   _buildMenuItem(
@@ -1157,7 +1197,7 @@ class _TelegramTextSelectionToolbarState
                     textStyle: const TextStyle(fontWeight: FontWeight.bold),
                     onTap: () {
                       TextFormattingUtils.applyFormatting(widget.controller, 'bold');
-                      widget.onHideToolbar();
+                      _hideToolbar();
                     },
                   ),
                   _buildMenuItem(
@@ -1166,7 +1206,7 @@ class _TelegramTextSelectionToolbarState
                     textStyle: const TextStyle(fontStyle: FontStyle.italic),
                     onTap: () {
                       TextFormattingUtils.applyFormatting(widget.controller, 'italic');
-                      widget.onHideToolbar();
+                      _hideToolbar();
                     },
                   ),
                   _buildMenuItem(
@@ -1175,7 +1215,7 @@ class _TelegramTextSelectionToolbarState
                     textStyle: const TextStyle(fontFamily: 'monospace'),
                     onTap: () {
                       TextFormattingUtils.applyFormatting(widget.controller, 'code');
-                      widget.onHideToolbar();
+                      _hideToolbar();
                     },
                   ),
                   _buildMenuItem(
@@ -1183,7 +1223,7 @@ class _TelegramTextSelectionToolbarState
                     label: 'Создать код',
                     textStyle: const TextStyle(fontWeight: FontWeight.w500),
                     onTap: () {
-                      widget.onHideToolbar();
+                      _hideToolbar();
                       TextFormattingUtils.showCodeDialog(context, widget.controller);
                     },
                   ),
@@ -1196,7 +1236,7 @@ class _TelegramTextSelectionToolbarState
                     ),
                     onTap: () {
                       TextFormattingUtils.applyFormatting(widget.controller, 'strikethrough');
-                      widget.onHideToolbar();
+                      _hideToolbar();
                     },
                   ),
                   _buildMenuItem(
@@ -1208,7 +1248,7 @@ class _TelegramTextSelectionToolbarState
                     ),
                     onTap: () {
                       TextFormattingUtils.applyFormatting(widget.controller, 'underline');
-                      widget.onHideToolbar();
+                      _hideToolbar();
                     },
                   ),
                   _buildMenuItem(
@@ -1217,7 +1257,7 @@ class _TelegramTextSelectionToolbarState
                     textStyle: const TextStyle(fontWeight: FontWeight.w500),
                     onTap: () {
                       TextFormattingUtils.applyFormatting(widget.controller, 'spoiler');
-                      widget.onHideToolbar();
+                      _hideToolbar();
                     },
                   ),
                   _buildMenuItem(
@@ -1225,7 +1265,7 @@ class _TelegramTextSelectionToolbarState
                     label: 'Добавить ссылку',
                     textStyle: const TextStyle(fontWeight: FontWeight.w500),
                     onTap: () {
-                      widget.onHideToolbar();
+                      _hideToolbar();
                       TextFormattingUtils.showLinkDialog(context, widget.controller);
                     },
                   ),
@@ -1235,9 +1275,7 @@ class _TelegramTextSelectionToolbarState
           ),
           const Divider(height: 1, thickness: 0.5, color: Colors.white12),
           InkWell(
-            onTap: () {
-              setState(() => _isExpanded = false);
-            },
+            onTap: _collapse,
             child: const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 11.0),
               child: Row(

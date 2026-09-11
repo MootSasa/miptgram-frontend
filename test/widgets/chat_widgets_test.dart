@@ -3,18 +3,53 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:miptgram/services/liquid_glass_provider.dart';
 import 'package:miptgram/services/chat_service.dart';
+import 'package:miptgram/l10n/app_localizations.dart';
+import 'package:miptgram/models/name_color_preset.dart';
+import 'package:miptgram/services/profile_theme_provider.dart';
 import 'package:miptgram/widgets/chat/chat_scaffold.dart';
 import 'package:miptgram/widgets/chat/chat_input_bar.dart';
 import 'package:miptgram/widgets/chat/chat_messages_list_view.dart';
 import 'package:miptgram/widgets/chat/liquid_glass_input_field.dart';
+import 'package:miptgram/widgets/message/code_block_widget.dart';
+import 'package:miptgram/widgets/message/collapsible_blockquote_widget.dart';
+import 'package:miptgram/widgets/message/message_bubble.dart';
 import 'package:miptgram/widgets/message/text_message_widget.dart';
+import 'package:miptgram/widgets/profile/reply_strip_painter.dart';
+
+class _TestAppLocalizations extends AppLocalizations {
+  _TestAppLocalizations(super.locale);
+  @override
+  String translate(String key) => key;
+}
+
+class _TestAppLocalizationsDelegate
+    extends LocalizationsDelegate<AppLocalizations> {
+  const _TestAppLocalizationsDelegate();
+
+  @override
+  bool isSupported(Locale locale) => true;
+
+  @override
+  Future<AppLocalizations> load(Locale locale) async {
+    return _TestAppLocalizations(locale);
+  }
+
+  @override
+  bool shouldReload(_TestAppLocalizationsDelegate old) => false;
+}
 
 Widget createTestApp(Widget child) {
   return MultiProvider(
     providers: [
       ChangeNotifierProvider(create: (_) => LiquidGlassProvider()),
+      ChangeNotifierProvider(create: (_) => ProfileThemeProvider()),
     ],
     child: MaterialApp(
+      localizationsDelegates: const [
+        _TestAppLocalizationsDelegate(),
+        DefaultMaterialLocalizations.delegate,
+        DefaultWidgetsLocalizations.delegate,
+      ],
       home: Scaffold(
         body: child,
       ),
@@ -220,6 +255,42 @@ void main() {
       expect(find.text('Назад'), findsNothing);
     });
 
+    testWidgets('Preserves expanded state when toolbar is rebuilt with same selection', (WidgetTester tester) async {
+      final controller = TextEditingController(text: 'Sample text to select');
+      controller.selection = const TextSelection(baseOffset: 0, extentOffset: 6);
+
+      Widget buildToolbar() {
+        return createTestApp(
+          TelegramTextSelectionToolbar(
+            anchors: const TextSelectionToolbarAnchors(primaryAnchor: Offset(100, 100)),
+            buttonItems: const [],
+            controller: controller,
+            onHideToolbar: () {},
+          ),
+        );
+      }
+
+      await tester.pumpWidget(buildToolbar());
+      await tester.pumpAndSettle();
+
+      // Compact initial state
+      expect(find.byIcon(Icons.more_vert), findsOneWidget);
+
+      // Tap 3-dots
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+
+      // Now expanded
+      expect(find.text('Назад'), findsOneWidget);
+
+      // Rebuild widget tree with same selection (simulating background message arriving)
+      await tester.pumpWidget(buildToolbar());
+      await tester.pumpAndSettle();
+
+      // Still expanded!
+      expect(find.text('Назад'), findsOneWidget);
+    });
+
     testWidgets(
         'showLinkDialog in edit mode displays Редактировать ссылку and Удалить ссылку',
         (WidgetTester tester) async {
@@ -360,6 +431,93 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.byType(TextMessageWidget), findsOneWidget);
+    });
+  });
+
+  group('CollapsibleBlockquoteWidget and CodeBlockWidget Tests', () {
+    testWidgets('CollapsibleBlockquoteWidget renders with custom sender preset and strip style', (WidgetTester tester) async {
+      const preset = NameColorPresets.violet;
+      const stripStyle = ReplyStripStyle.candyCane;
+
+      await tester.pumpWidget(
+        createTestApp(
+          const CollapsibleBlockquoteWidget(
+            text: 'Hello from quote',
+            isDark: false,
+            isMe: false,
+            preset: preset,
+            stripStyle: stripStyle,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CollapsibleBlockquoteWidget), findsOneWidget);
+      expect(find.byType(ReplyStripWidget), findsOneWidget);
+
+      final stripFinder = find.byType(ReplyStripWidget);
+      final strip = tester.widget<ReplyStripWidget>(stripFinder);
+      expect(strip.preset, preset);
+      expect(strip.style, stripStyle);
+    });
+
+    testWidgets('CodeBlockWidget renders with custom sender preset and strip style', (WidgetTester tester) async {
+      const preset = NameColorPresets.green;
+      const stripStyle = ReplyStripStyle.dualColor;
+
+      await tester.pumpWidget(
+        createTestApp(
+          const CodeBlockWidget(
+            code: 'void main() {}',
+            language: 'dart',
+            isDark: false,
+            isMe: false,
+            preset: preset,
+            stripStyle: stripStyle,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CodeBlockWidget), findsOneWidget);
+      expect(find.byType(ReplyStripWidget), findsOneWidget);
+
+      final stripFinder = find.byType(ReplyStripWidget);
+      final strip = tester.widget<ReplyStripWidget>(stripFinder);
+      expect(strip.preset, preset);
+      expect(strip.style, stripStyle);
+    });
+  });
+
+  group('MessageBubble Block Element Layout Tests', () {
+    testWidgets('MessageBubble with quote sets hasBlockElement to prevent metadata overlap', (WidgetTester tester) async {
+      final message = Message(
+        id: 'msg_1',
+        chatId: 'chat_1',
+        senderId: 'user_2',
+        senderName: 'Alice',
+        content: '> First line\n> Second line',
+        messageType: 'text',
+        isEdited: false,
+        createdAt: DateTime.now().toIso8601String(),
+        senderNameColorId: 'name_violet',
+        senderReplyStripStyle: 'candyCane',
+      );
+
+      await tester.pumpWidget(
+        createTestApp(
+          MessageBubble(
+            message: message,
+            isMe: false,
+            currentUserId: 'me_123',
+            formatTime: (_) => '12:00',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MessageBubble), findsOneWidget);
+      expect(find.byType(CollapsibleBlockquoteWidget), findsOneWidget);
     });
   });
 }

@@ -2,8 +2,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
+import 'package:provider/provider.dart';
 import '../../config/app_config.dart';
+import '../../models/name_color_preset.dart';
 import '../../services/chat_service.dart';
+import '../../services/profile_theme_provider.dart';
 import '../../utils/emoji_utils.dart';
 import '../../utils/haptic_utils.dart';
 import '../chat/message_reply_info.dart';
@@ -265,14 +268,32 @@ class RenderBubbleLayout extends RenderBox
     RenderParagraph? firstParagraph;
     RenderParagraph? lastParagraph;
     int paragraphCount = 0;
+    bool lastParagraphIsBlock = false;
+
+    bool isInsideBlock(RenderObject obj) {
+      RenderObject? curr = obj;
+      while (curr != null && curr != root) {
+        if (curr is RenderMetaData && curr.metaData == 'block_element') {
+          return true;
+        }
+        curr = curr.parent;
+      }
+      return false;
+    }
 
     void visitor(RenderObject child) {
       if (child is RenderParagraph) {
         final text = child.text.toPlainText();
         if (text.trim().isNotEmpty) {
-          firstParagraph ??= child;
-          lastParagraph = child;
-          paragraphCount++;
+          if (isInsideBlock(child)) {
+            lastParagraphIsBlock = true;
+            lastParagraph = null;
+          } else {
+            lastParagraphIsBlock = false;
+            firstParagraph ??= child;
+            lastParagraph = child;
+            paragraphCount++;
+          }
         }
       }
       child.visitChildren(visitor);
@@ -281,7 +302,7 @@ class RenderBubbleLayout extends RenderBox
     visitor(root);
 
     final targetParagraph = lastParagraph;
-    if (targetParagraph == null) {
+    if (lastParagraphIsBlock || targetParagraph == null) {
       return const _BubbleContentMetrics(
         hasText: false,
         isSingleLine: false,
@@ -717,11 +738,34 @@ class MessageBubble extends StatelessWidget {
     final String trimmedContent = message.content.trim();
     final List<String> contentLines = trimmedContent.split('\n');
     final String lastLine = contentLines.isNotEmpty ? contentLines.last.trim() : '';
-    final bool contentEndsWithQuote = lastLine.startsWith('>') || lastLine.startsWith('**>');
+    final bool contentEndsWithQuote = lastLine.startsWith('>') ||
+        lastLine.startsWith('**>') ||
+        trimmedContent.startsWith('>') ||
+        trimmedContent.startsWith('**>');
     final bool entityEndsWithQuote = message.entities.any((e) =>
-        (e.type == 'blockquote') && (e.offset + e.length >= trimmedContent.length - 1));
+        (e.type == 'blockquote' || e.type == 'quote') &&
+        (e.offset + e.length >= trimmedContent.length - 2));
     final bool entityEndsWithPre = message.entities.any((e) =>
-        (e.type == 'pre') && (e.offset + e.length >= trimmedContent.length - 1));
+        (e.type == 'pre' || e.type == 'code') &&
+        (e.offset + e.length >= trimmedContent.length - 2));
+
+    final profileTheme = context.watch<ProfileThemeProvider?>();
+    final NameColorPreset effectivePreset;
+    final ReplyStripStyle effectiveStripStyle;
+    if (isMe) {
+      effectivePreset = profileTheme?.currentNameColorPreset ?? NameColorPresets.defaults.first;
+      effectiveStripStyle = profileTheme?.currentStripStyle ?? ReplyStripStyle.solid;
+    } else if (message.senderNameColorId != null && message.senderNameColorId!.isNotEmpty) {
+      effectivePreset = NameColorPresets.getById(message.senderNameColorId!);
+      effectiveStripStyle = ReplyStripStyle.values.firstWhere(
+        (s) => s.name == message.senderReplyStripStyle,
+        orElse: () => ReplyStripStyle.solid,
+      );
+    } else {
+      final presetIndex = message.senderId.hashCode.abs() % NameColorPresets.defaults.length;
+      effectivePreset = NameColorPresets.defaults[presetIndex];
+      effectiveStripStyle = ReplyStripStyle.solid;
+    }
 
     final previewOpts = message.linkPreviewOptions;
     final bool previewDisabled = previewOpts?.isDisabled ?? false;
@@ -890,7 +934,7 @@ class MessageBubble extends StatelessWidget {
       final style = TextStyle(
         fontSize: 13,
         fontWeight: FontWeight.bold,
-        color: Theme.of(context).colorScheme.primary,
+        color: effectivePreset.primaryColor,
       );
       final TextPainter senderNameTp = TextPainter(
         text: TextSpan(text: senderName!, style: style),
@@ -929,6 +973,8 @@ class MessageBubble extends StatelessWidget {
         style: textStyle,
         isMe: isMe,
         entities: message.entities,
+        nameColorPreset: effectivePreset,
+        replyStripStyle: effectiveStripStyle,
       );
 
       if (!hasMedia) {
@@ -991,6 +1037,8 @@ class MessageBubble extends StatelessWidget {
           style: textStyle,
           isMe: isMe,
           entities: message.entities,
+          nameColorPreset: effectivePreset,
+          replyStripStyle: effectiveStripStyle,
         );
 
         final bool invertMedia = message.invertMedia;
@@ -1057,7 +1105,7 @@ class MessageBubble extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.primary,
+                    color: effectivePreset.primaryColor,
                   ),
                 ),
               ),
@@ -1089,21 +1137,27 @@ class MessageBubble extends StatelessWidget {
         color: backgroundColor,
         borderRadius: BorderRadius.circular(kMessageBorderRadius),
       ),
-      child: hasMedia
-          ? mediaContentWidget!
-          : MessageBubbleLayout(
-              content: textBodyWidget,
-              metadata: metadataWidget,
-              text: message.content,
-              textStyle: textStyle,
-              hasBlockElement: endsWithBlock,
-              isBigEmoji: isBigEmoji,
-              replyWidget: replyWidget,
-              replyWidth: replyWidthEstimate,
-              senderNameWidget: senderNameWidget,
-              senderNameWidth: senderNameWidthEstimate,
-              metadataWidth: metadataWidthEstimate,
-            ),
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOutCubic,
+        alignment: isMe ? Alignment.topRight : Alignment.topLeft,
+        clipBehavior: Clip.none,
+        child: hasMedia
+            ? mediaContentWidget!
+            : MessageBubbleLayout(
+                content: textBodyWidget,
+                metadata: metadataWidget,
+                text: message.content,
+                textStyle: textStyle,
+                hasBlockElement: endsWithBlock,
+                isBigEmoji: isBigEmoji,
+                replyWidget: replyWidget,
+                replyWidth: replyWidthEstimate,
+                senderNameWidget: senderNameWidget,
+                senderNameWidth: senderNameWidthEstimate,
+                metadataWidth: metadataWidthEstimate,
+              ),
+      ),
     );
 
     Widget result = Align(

@@ -339,7 +339,7 @@ class AppDatabase extends _$AppDatabase {
     } else {
       stmt.where((t) => t.chatId.equals(chatId));
     }
-    stmt.orderBy([(t) => OrderingTerm.desc(t.createdAt)]);
+    stmt.orderBy([(t) => OrderingTerm.desc(t.createdAt), (t) => OrderingTerm.desc(t.localId)]);
     stmt.limit(limit);
     return stmt.get();
   }

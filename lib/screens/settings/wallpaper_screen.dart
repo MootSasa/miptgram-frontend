@@ -69,7 +69,8 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
 
       // Generate a unique filename for the wallpaper
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final wallpaperFile = File('${wallpaperDir.path}/chat_wallpaper_$timestamp.png');
+      final uid = provider.currentUserId ?? 'user';
+      final wallpaperFile = File('${wallpaperDir.path}/chat_wallpaper_${uid}_$timestamp.png');
 
       // Write the new wallpaper
       await wallpaperFile.writeAsBytes(_imageBytes!);

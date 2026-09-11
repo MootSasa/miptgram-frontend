@@ -862,6 +862,7 @@ class ChatService {
     int limit = 50,
     int offset = 0,
     String? beforeMessageId,
+    String? beforeCreatedAt,
   }) async {
     try {
       final token = await AuthService.getToken();
@@ -874,9 +875,12 @@ class ChatService {
       }
 
       var url = '${AppConfig.baseUrl}/api/chats/$chatId/messages?limit=$limit';
-      if (beforeMessageId != null) {
+      if (beforeMessageId != null && beforeMessageId.isNotEmpty) {
         url += '&before_message_id=$beforeMessageId';
-      } else if (offset > 0) {
+      }
+      if (beforeCreatedAt != null && beforeCreatedAt.isNotEmpty) {
+        url += '&before_created_at=${Uri.encodeComponent(beforeCreatedAt)}';
+      } else if (beforeMessageId == null && offset > 0) {
         url += '&offset=$offset';
       }
 
@@ -899,7 +903,7 @@ class ChatService {
         return {
           'success': true,
           'messages': messages,
-          'has_more': data['has_more'] ?? false,
+          'has_more': data['has_more'] ?? (messages.length >= limit),
         };
       } else {
         return {

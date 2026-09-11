@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:provider/provider.dart';
 import 'dart:async';
 import '../../services/chat_service.dart';
@@ -1085,7 +1086,11 @@ class _ChannelScreenState extends State<ChannelScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.visibility, size: 10, color: Colors.white.withOpacity(0.8)),
+                          iconoir.Eye(
+                            width: 10,
+                            height: 10,
+                            color: Colors.white.withValues(alpha: 0.8),
+                          ),
                           const SizedBox(width: 4),
                           Text(
                             '0',
@@ -1170,8 +1175,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                 getValidAvatarUrl(message.senderAvatarUrl)!)
                             : null,
                     child: getValidAvatarUrl(message.senderAvatarUrl) == null
-                        ? const Icon(Icons.campaign,
-                            color: Colors.white, size: 16)
+                        ? const iconoir.Megaphone(
+                            color: Colors.white, width: 16, height: 16)
                         : null,
                   ),
                   const SizedBox(width: 8),
@@ -1216,7 +1221,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.attach_file),
+                              const iconoir.Attachment(width: 20, height: 20),
                               const SizedBox(width: 8),
                               Text(message.fileName ?? 'File'),
                             ],
@@ -1230,8 +1235,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
                 builder: (context, constraints) {
                   final textStyle = Theme.of(context).textTheme.bodyMedium;
                   // Conservative estimate for metadata width (Views + Time + Icons + Padding)
-                  final double metadataWidth = 85.0;
-                  final double safetyMargin = 12.0;
+                  const double metadataWidth = 85.0;
+                  const double safetyMargin = 12.0;
                   final double maxContentWidth = constraints.maxWidth;
 
                   final TextPainter textPainter = TextPainter(
@@ -1254,7 +1259,11 @@ class _ChannelScreenState extends State<ChannelScreen> {
                   Widget metadataRow = Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.visibility, size: 14, color: Colors.grey[500]),
+                      iconoir.Eye(
+                        width: 14,
+                        height: 14,
+                        color: Colors.grey[500]!,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         '0', // Placeholder views
@@ -1282,8 +1291,11 @@ class _ChannelScreenState extends State<ChannelScreen> {
                         else if (message.sendStatus == 2) // failed
                           GestureDetector(
                             onTap: () => _retryMessage(message),
-                            child: const Icon(Icons.error_outline,
-                                size: 14, color: Colors.red),
+                            child: const iconoir.WarningTriangle(
+                              width: 14,
+                              height: 14,
+                              color: Colors.red,
+                            ),
                           )
                         else
                           MessageStatusWidget(

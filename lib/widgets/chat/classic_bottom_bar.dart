@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 
 import '../../utils/haptic_utils.dart';
@@ -7,13 +8,15 @@ import '../../utils/haptic_utils.dart';
 class ClassicBottomBarTab {
   const ClassicBottomBarTab({
     required this.label,
-    required this.icon,
+    this.icon = Icons.circle,
     this.selectedIcon,
+    this.iconBuilder,
   });
 
   final String label;
   final IconData icon;
   final IconData? selectedIcon;
+  final Widget Function(Color color, double size)? iconBuilder;
 }
 
 /// Классический нижний бар, визуально повторяющий стеклянный бар,
@@ -53,10 +56,22 @@ class ClassicBottomBar extends StatefulWidget {
 }
 
 class _ClassicBottomBarState extends State<ClassicBottomBar> {
-  static const _tabs = [
-    ClassicBottomBarTab(label: 'Настройки', icon: Icons.settings),
-    ClassicBottomBarTab(label: 'Чаты', icon: Icons.chat),
-    ClassicBottomBarTab(label: 'Поиск', icon: Icons.search),
+  static final _tabs = [
+    ClassicBottomBarTab(
+      label: 'Настройки',
+      icon: Icons.settings,
+      iconBuilder: (color, size) => iconoir.Settings(color: color, width: size, height: size),
+    ),
+    ClassicBottomBarTab(
+      label: 'Чаты',
+      icon: Icons.chat,
+      iconBuilder: (color, size) => iconoir.ChatBubble(color: color, width: size, height: size),
+    ),
+    ClassicBottomBarTab(
+      label: 'Поиск',
+      icon: Icons.search,
+      iconBuilder: (color, size) => iconoir.Search(color: color, width: size, height: size),
+    ),
   ];
 
   @override
@@ -196,9 +211,9 @@ class _ClassicBottomBarState extends State<ClassicBottomBar> {
                         border: Border.all(color: addButtonColor, width: 0.2),
                       ),
                       child: Center(
-                        child: Icon(
-                          Icons.add,
-                          size: 28,
+                        child: iconoir.Plus(
+                          width: 28,
+                          height: 28,
                           color: isDark ? Colors.white70 : Colors.black54,
                         ),
                       ),
@@ -259,11 +274,13 @@ class _ClassicBottomBarTabButton extends StatelessWidget {
               AnimatedScale(
                 scale: selected ? 1.1 : 1.0,
                 duration: const Duration(milliseconds: 150),
-                child: Icon(
-                  selected ? (tab.selectedIcon ?? tab.icon) : tab.icon,
-                  color: iconColor,
-                  size: 24,
-                ),
+                child: tab.iconBuilder != null
+                    ? tab.iconBuilder!(iconColor, 24)
+                    : Icon(
+                        selected ? (tab.selectedIcon ?? tab.icon) : tab.icon,
+                        color: iconColor,
+                        size: 24,
+                      ),
               ),
               const SizedBox(height: 4),
               Text(

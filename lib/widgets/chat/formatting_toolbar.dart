@@ -212,7 +212,11 @@ class FormattingToolbar extends StatelessWidget {
           ),
           if (onClose != null)
             IconButton(
-              icon: Icon(Icons.close, size: 18, color: iconColor.withValues(alpha: 0.6)),
+              icon: iconoir.Xmark(
+                width: 18,
+                height: 18,
+                color: iconColor.withValues(alpha: 0.6),
+              ),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
               onPressed: () {

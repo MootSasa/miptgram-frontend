@@ -57,6 +57,7 @@ class LiquidGlassInputField extends StatefulWidget {
   final VoidCallback? onVoice;
   final bool isSending;
   final IconData attachIcon;
+  final Widget? attachIconWidget;
   final bool hasAttachments;
 
   const LiquidGlassInputField({
@@ -73,6 +74,7 @@ class LiquidGlassInputField extends StatefulWidget {
     this.onVoice,
     this.isSending = false,
     this.attachIcon = Icons.attach_file,
+    this.attachIconWidget,
     this.hasAttachments = false,
   }) : super(key: key);
 
@@ -331,9 +333,9 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
                     width: _kEmojiButtonSize,
                     height: _kEmojiButtonSize,
                     alignment: Alignment.center,
-                    child: Icon(
-                      Icons.emoji_emotions_outlined,
-                      size: _kEmojiIconSize,
+                    child: iconoir.Emoji(
+                      width: _kEmojiIconSize,
+                      height: _kEmojiIconSize,
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                     ),
                   ),
@@ -354,11 +356,24 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
                     width: _kActionButtonSize,
                     height: _kActionButtonSize,
                     alignment: Alignment.center,
-                    child: Icon(
-                      widget.hasAttachments ? Icons.add_circle : widget.attachIcon,
-                      size: _kActionIconSize,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                    ),
+                    child: widget.attachIconWidget ??
+                        (widget.hasAttachments
+                            ? iconoir.PlusCircle(
+                                width: _kActionIconSize,
+                                height: _kActionIconSize,
+                                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                              )
+                            : (widget.attachIcon != Icons.attach_file
+                                ? Icon(
+                                    widget.attachIcon,
+                                    size: _kActionIconSize,
+                                    color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                                  )
+                                : iconoir.Attachment(
+                                    width: _kActionIconSize,
+                                    height: _kActionIconSize,
+                                    color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                                  ))),
                   ),
                 )
               : const SizedBox.shrink(),
@@ -522,7 +537,9 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
               alignment: Alignment.center,
               child: widget.isSending
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : Icon(hasText ? Icons.send : Icons.mic, size: 22, color: Colors.white),
+                  : (hasText
+                      ? const iconoir.Send(width: 22, height: 22, color: Colors.white)
+                      : const iconoir.Microphone(width: 22, height: 22, color: Colors.white)),
             ),
           ),
         );
@@ -1122,7 +1139,7 @@ class _TelegramTextSelectionToolbarState
             onTap: _expand,
             child: const Padding(
               padding: EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
-              child: Icon(Icons.more_vert, color: _kMintAccent, size: 22),
+              child: iconoir.MoreVert(color: _kMintAccent, width: 22, height: 22),
             ),
           ),
         ],
@@ -1280,7 +1297,7 @@ class _TelegramTextSelectionToolbarState
               padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 11.0),
               child: Row(
                 children: [
-                  Icon(Icons.arrow_back, color: _kMintAccent, size: 18),
+                  iconoir.NavArrowLeft(color: _kMintAccent, width: 18, height: 18),
                   SizedBox(width: 12),
                   Text(
                     'Назад',

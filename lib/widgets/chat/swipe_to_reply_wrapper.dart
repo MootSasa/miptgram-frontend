@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 
 import '../../utils/haptic_utils.dart';
 
@@ -154,9 +155,9 @@ class _SwipeToReplyWrapperState extends State<SwipeToReplyWrapper>
                           color: theme.colorScheme.primary.withValues(alpha: 0.15),
                           shape: BoxShape.circle,
                         ),
-                        child: Icon(
-                          Icons.reply,
-                          size: 20,
+                        child: iconoir.Reply(
+                          width: 20,
+                          height: 20,
                           color: theme.colorScheme.primary,
                         ),
                       ),

@@ -2499,13 +2499,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
   /// Show attachment picker bottom sheet
   void _showAttachmentPicker() {
+    final theme = Theme.of(context);
+    final iconColor = theme.colorScheme.onSurface;
+
     showModalBottomSheet(
       context: context,
       builder: (context) => SafeArea(
         child: Wrap(
           children: [
             ListTile(
-              leading: const Icon(Icons.photo_camera),
+              leading: iconoir.Camera(color: iconColor, width: 24, height: 24),
               title: const Text('Camera'),
               onTap: () {
                 Navigator.pop(context);
@@ -2513,7 +2516,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library),
+              leading: iconoir.MediaImage(color: iconColor, width: 24, height: 24),
               title: const Text('Photo from Gallery'),
               onTap: () {
                 Navigator.pop(context);
@@ -2521,7 +2524,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.videocam),
+              leading: iconoir.VideoCamera(color: iconColor, width: 24, height: 24),
               title: const Text('Video'),
               onTap: () {
                 Navigator.pop(context);
@@ -2529,7 +2532,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.insert_drive_file),
+              leading: iconoir.Page(color: iconColor, width: 24, height: 24),
               title: const Text('Document'),
               onTap: () {
                 Navigator.pop(context);
@@ -2537,7 +2540,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.location_on),
+              leading: iconoir.MapPin(color: iconColor, width: 24, height: 24),
               title: const Text('Location'),
               onTap: () {
                 Navigator.pop(context);
@@ -2545,7 +2548,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.contact_mail),
+              leading: iconoir.User(color: iconColor, width: 24, height: 24),
               title: const Text('Contact'),
               onTap: () {
                 Navigator.pop(context);
@@ -2909,8 +2912,15 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       onQuote: () => _startQuote(message, message.content, 0, message.content.length),
       onPin: () {
         // TODO: Pin message
-        GlassToastService()
-            .show(context, 'Сообщение закреплено', icon: Icons.push_pin);
+        GlassToastService().show(
+          context,
+          'Сообщение закреплено',
+          iconWidget: iconoir.Pin(
+            width: 20,
+            height: 20,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
+        );
       },
       onEdit: () {
         setState(() {

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import 'package:provider/provider.dart';
 import '../../services/liquid_glass_provider.dart';
@@ -150,7 +151,11 @@ class FloatingGlassAppBar extends StatelessWidget {
         const SizedBox(width: 4),
         _buildCircularButton(
           context,
-          icon: Icons.arrow_back_ios_new,
+          iconWidget: iconoir.NavArrowLeft(
+            width: _kCircularIconSize,
+            height: _kCircularIconSize,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
           onTap: onBack,
           iconSize: _kCircularIconSize,
         ),
@@ -227,15 +232,23 @@ class FloatingGlassAppBar extends StatelessWidget {
     );
   }
 
-  Widget _buildCircularButton(BuildContext context,
-      {required IconData icon, required VoidCallback onTap, double iconSize = 20}) {
+  Widget _buildCircularButton(
+    BuildContext context, {
+    IconData? icon,
+    Widget? iconWidget,
+    required VoidCallback onTap,
+    double iconSize = 20,
+  }) {
     return IconButton(
       onPressed: onTap,
-      icon: Icon(
-        icon,
-        size: iconSize,
-        color: Theme.of(context).colorScheme.onSurface,
-      ),
+      icon: iconWidget ??
+          (icon != null
+              ? Icon(
+                  icon,
+                  size: iconSize,
+                  color: Theme.of(context).colorScheme.onSurface,
+                )
+              : const SizedBox.shrink()),
       splashRadius: 24,
     );
   }
@@ -525,23 +538,60 @@ class _GlassChatMenuState extends State<GlassChatMenu> with SingleTickerProvider
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _menuItem(Icons.person_outline, l10n.translate('chat_menu_profile'), widget.onViewProfile),
-          _menuItem(Icons.call_outlined, l10n.translate('chat_menu_voice_call'), widget.onVoiceCall),
-          _menuItem(Icons.videocam_outlined, l10n.translate('chat_menu_video_call'), widget.onVideoCall),
-          _menuItem(Icons.search, l10n.translate('chat_menu_search_messages'), widget.onSearch),
           _menuItem(
-            widget.isMuted ? Icons.notifications_off_outlined : Icons.notifications_none_outlined,
+            l10n.translate('chat_menu_profile'),
+            widget.onViewProfile,
+            iconBuilder: (c) => iconoir.User(color: c, width: 22, height: 22),
+          ),
+          _menuItem(
+            l10n.translate('chat_menu_voice_call'),
+            widget.onVoiceCall,
+            iconBuilder: (c) => iconoir.Phone(color: c, width: 22, height: 22),
+          ),
+          _menuItem(
+            l10n.translate('chat_menu_video_call'),
+            widget.onVideoCall,
+            iconBuilder: (c) => iconoir.VideoCamera(color: c, width: 22, height: 22),
+          ),
+          _menuItem(
+            l10n.translate('chat_menu_search_messages'),
+            widget.onSearch,
+            iconBuilder: (c) => iconoir.Search(color: c, width: 22, height: 22),
+          ),
+          _menuItem(
             widget.isMuted ? l10n.translate('chat_menu_unmute') : l10n.translate('chat_menu_mute'),
             widget.onToggleMute,
+            iconBuilder: (c) => widget.isMuted
+                ? iconoir.BellOff(color: c, width: 22, height: 22)
+                : iconoir.Bell(color: c, width: 22, height: 22),
           ),
-          _menuItem(Icons.delete_outline, l10n.translate('chat_menu_clear_history'), widget.onClearHistory, isDestructive: true),
-          _menuItem(Icons.report_gmailerrorred, l10n.translate('chat_menu_report'), widget.onReport, isDestructive: true),
+          _menuItem(
+            l10n.translate('chat_menu_clear_history'),
+            widget.onClearHistory,
+            iconBuilder: (c) => iconoir.Trash(color: c, width: 22, height: 22),
+            isDestructive: true,
+          ),
+          _menuItem(
+            l10n.translate('chat_menu_report'),
+            widget.onReport,
+            iconBuilder: (c) => iconoir.WarningTriangle(color: c, width: 22, height: 22),
+            isDestructive: true,
+          ),
         ],
       ),
     );
   }
 
-  Widget _menuItem(IconData icon, String label, VoidCallback onTap, {bool isDestructive = false}) {
+  Widget _menuItem(
+    String label,
+    VoidCallback onTap, {
+    IconData? icon,
+    Widget Function(Color color)? iconBuilder,
+    bool isDestructive = false,
+  }) {
+    final theme = Theme.of(widget.chatContext);
+    final color = isDestructive ? Colors.redAccent : theme.colorScheme.onSurface;
+
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -549,7 +599,17 @@ class _GlassChatMenuState extends State<GlassChatMenu> with SingleTickerProvider
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 22, color: isDestructive ? Colors.redAccent : null),
+            SizedBox(
+              width: 22,
+              height: 22,
+              child: Center(
+                child: iconBuilder != null
+                    ? iconBuilder(color)
+                    : (icon != null
+                        ? Icon(icon, size: 22, color: color)
+                        : const SizedBox.shrink()),
+              ),
+            ),
             const SizedBox(width: 12),
             Flexible(
               child: Text(

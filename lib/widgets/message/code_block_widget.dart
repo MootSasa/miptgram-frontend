@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:flutter_highlight/flutter_highlight.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import 'package:flutter_highlight/themes/atom-one-light.dart';
@@ -182,7 +183,11 @@ class CodeBlockWidget extends StatelessWidget {
                               GlassToastService().show(
                                 context, 
                                 'Код скопирован в буфер обмена',
-                                icon: Icons.copy_all_rounded,
+                                iconWidget: iconoir.Copy(
+                                  width: 18,
+                                  height: 18,
+                                  color: Theme.of(context).colorScheme.onSurface,
+                                ),
                               );
                             },
                             child: Container(
@@ -198,9 +203,9 @@ class CodeBlockWidget extends StatelessWidget {
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Icon(
-                                      Icons.copy,
-                                      size: 14,
+                                    iconoir.Copy(
+                                      width: 14,
+                                      height: 14,
                                       color: isDark ? Colors.grey[400] : Colors.grey[600],
                                     ),
                                     const SizedBox(width: 6),

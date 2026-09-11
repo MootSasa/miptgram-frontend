@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:provider/provider.dart';
 import 'package:miptgram/services/liquid_glass_provider.dart';
 import 'package:miptgram/services/chat_service.dart';
@@ -190,7 +191,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(Icons.send));
+      await tester.tap(find.byType(iconoir.Send));
       await tester.pumpAndSettle();
 
       expect(sentText, 'Hello    world\n\n\nHow are you?');
@@ -224,11 +225,11 @@ void main() {
       // State 1: Horizontal compact pill
       expect(find.text('Вырезать'), findsOneWidget);
       expect(find.text('Цитировать'), findsOneWidget);
-      expect(find.byIcon(Icons.more_vert), findsOneWidget);
+      expect(find.byType(iconoir.MoreVert), findsOneWidget);
       expect(find.text('Назад'), findsNothing);
 
       // Tap overflow button
-      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.tap(find.byType(iconoir.MoreVert));
       await tester.pumpAndSettle();
 
       // State 2: Expanded vertical menu with the 11 formatting options
@@ -274,10 +275,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // Compact initial state
-      expect(find.byIcon(Icons.more_vert), findsOneWidget);
+      expect(find.byType(iconoir.MoreVert), findsOneWidget);
 
       // Tap 3-dots
-      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.tap(find.byType(iconoir.MoreVert));
       await tester.pumpAndSettle();
 
       // Now expanded

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import '../../l10n/app_localizations.dart';
 
 /// Меню чата (три точки)
@@ -37,9 +38,14 @@ class ChatMenuWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
 
     return PopupMenuButton<String>(
-      icon: const Icon(Icons.more_vert),
+      icon: iconoir.MoreVert(
+        color: theme.colorScheme.onSurface,
+        width: 22,
+        height: 22,
+      ),
       onSelected: (value) => _handleSelection(value, context),
       itemBuilder: (context) => [
         PopupMenuItem(value: 'profile', child: Text(l10n.translate('chat_menu_view_profile'))),
@@ -110,12 +116,18 @@ class _ChatSearchBarState extends State<ChatSearchBar> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final iconColor = theme.colorScheme.onSurface;
+
     return Container(
       height: 56,
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Row(
         children: [
-          IconButton(icon: const Icon(Icons.arrow_back), onPressed: widget.onClose),
+          IconButton(
+            icon: iconoir.NavArrowLeft(color: iconColor, width: 22, height: 22),
+            onPressed: widget.onClose,
+          ),
           Expanded(
             child: TextField(
               controller: _controller,
@@ -130,8 +142,14 @@ class _ChatSearchBarState extends State<ChatSearchBar> {
           if (widget.totalCount > 0)
             Text('${widget.currentIndex + 1}/${widget.totalCount}',
                 style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-          IconButton(icon: const Icon(Icons.keyboard_arrow_up), onPressed: widget.onPrevious),
-          IconButton(icon: const Icon(Icons.keyboard_arrow_down), onPressed: widget.onNext),
+          IconButton(
+            icon: iconoir.NavArrowUp(color: iconColor, width: 20, height: 20),
+            onPressed: widget.onPrevious,
+          ),
+          IconButton(
+            icon: iconoir.NavArrowDown(color: iconColor, width: 20, height: 20),
+            onPressed: widget.onNext,
+          ),
         ],
       ),
     );

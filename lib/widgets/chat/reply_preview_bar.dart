@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
@@ -47,25 +48,25 @@ class ReplyPreviewBar extends StatelessWidget {
   }
 
   /// Get icon for message type
-  IconData _messageTypeIcon(String messageType) {
+  Widget _buildMessageTypeIcon(String messageType, Color color, double size) {
     switch (messageType) {
       case 'image':
       case 'photo':
-        return Icons.photo;
+        return iconoir.MediaImage(width: size, height: size, color: color);
       case 'video':
-        return Icons.videocam;
+        return iconoir.VideoCamera(width: size, height: size, color: color);
       case 'audio':
       case 'voice':
-        return Icons.mic;
+        return iconoir.Microphone(width: size, height: size, color: color);
       case 'file':
       case 'document':
-        return Icons.insert_drive_file;
+        return iconoir.Page(width: size, height: size, color: color);
       case 'sticker':
-        return Icons.emoji_emotions;
+        return iconoir.Emoji(width: size, height: size, color: color);
       case 'poll':
-        return Icons.poll;
+        return iconoir.StatsReport(width: size, height: size, color: color);
       default:
-        return Icons.chat_bubble;
+        return iconoir.ChatBubble(width: size, height: size, color: color);
     }
   }
 
@@ -235,11 +236,17 @@ class ReplyPreviewBar extends StatelessWidget {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
-                              isQuote ? Icons.format_quote : Icons.reply,
-                              size: 14,
-                              color: accentColor,
-                            ),
+                            isQuote
+                                ? iconoir.Quote(
+                                    width: 14,
+                                    height: 14,
+                                    color: accentColor,
+                                  )
+                                : iconoir.Reply(
+                                    width: 14,
+                                    height: 14,
+                                    color: accentColor,
+                                  ),
                             const SizedBox(width: 4),
                             Text(
                               isQuote ? 'Цитата' : 'Ответ',
@@ -271,10 +278,10 @@ class ReplyPreviewBar extends StatelessWidget {
                             if (replyToMessage.messageType != 'text')
                               Padding(
                                 padding: const EdgeInsets.only(right: 4),
-                                child: Icon(
-                                  _messageTypeIcon(replyToMessage.messageType),
-                                  size: 14,
-                                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                                child: _buildMessageTypeIcon(
+                                  replyToMessage.messageType,
+                                  theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                                  14,
                                 ),
                               ),
                             Flexible(
@@ -302,9 +309,9 @@ class ReplyPreviewBar extends StatelessWidget {
           const SizedBox(width: 8),
           // Close button
           IconButton(
-            icon: Icon(
-              Icons.close,
-              size: 18,
+            icon: iconoir.Xmark(
+              width: 18,
+              height: 18,
               color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
             ),
             onPressed: onClose,

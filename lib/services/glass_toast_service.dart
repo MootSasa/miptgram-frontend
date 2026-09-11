@@ -14,14 +14,21 @@ class GlassToastService {
   OverlayEntry? _overlayEntry;
   Timer? _timer;
 
-  /// Shows a glass toast with the given [message] and [icon].
-  void show(BuildContext context, String message, {IconData? icon, Duration duration = const Duration(seconds: 3)}) {
+  /// Shows a glass toast with the given [message], [icon], or [iconWidget].
+  void show(
+    BuildContext context,
+    String message, {
+    IconData? icon,
+    Widget? iconWidget,
+    Duration duration = const Duration(seconds: 3),
+  }) {
     _hide();
 
     _overlayEntry = OverlayEntry(
       builder: (context) => _GlassToastWidget(
         message: message,
         icon: icon,
+        iconWidget: iconWidget,
         onDismiss: _hide,
       ),
     );
@@ -43,11 +50,13 @@ class GlassToastService {
 class _GlassToastWidget extends StatefulWidget {
   final String message;
   final IconData? icon;
+  final Widget? iconWidget;
   final VoidCallback onDismiss;
 
   const _GlassToastWidget({
     required this.message,
     this.icon,
+    this.iconWidget,
     required this.onDismiss,
   });
 
@@ -169,7 +178,10 @@ class _GlassToastWidgetState extends State<_GlassToastWidget> with SingleTickerP
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (widget.icon != null) ...[
+          if (widget.iconWidget != null) ...[
+            widget.iconWidget!,
+            const SizedBox(width: 12),
+          ] else if (widget.icon != null) ...[
             Icon(widget.icon, color: theme.colorScheme.onSurface, size: 20),
             const SizedBox(width: 12),
           ],

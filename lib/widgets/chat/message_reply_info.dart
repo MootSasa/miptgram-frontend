@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/name_color_preset.dart';
@@ -81,23 +82,25 @@ class MessageReplyInfo extends StatelessWidget {
         .trim();
   }
 
-  IconData _messageTypeIcon(String messageType) {
+  Widget _buildMessageTypeIcon(String messageType, Color color, double size) {
     switch (messageType) {
       case 'image':
       case 'photo':
-        return Icons.photo;
+        return iconoir.MediaImage(width: size, height: size, color: color);
       case 'video':
-        return Icons.videocam;
+        return iconoir.VideoCamera(width: size, height: size, color: color);
       case 'audio':
       case 'voice':
-        return Icons.mic;
+        return iconoir.Microphone(width: size, height: size, color: color);
       case 'file':
       case 'document':
-        return Icons.insert_drive_file;
+        return iconoir.Page(width: size, height: size, color: color);
       case 'sticker':
-        return Icons.emoji_emotions;
+        return iconoir.Emoji(width: size, height: size, color: color);
+      case 'poll':
+        return iconoir.StatsReport(width: size, height: size, color: color);
       default:
-        return Icons.chat_bubble;
+        return iconoir.ChatBubble(width: size, height: size, color: color);
     }
   }
 
@@ -266,11 +269,7 @@ class MessageReplyInfo extends StatelessWidget {
                             if (!isDeleted && replyInfo != null && replyInfo!.messageType != 'text')
                               Padding(
                                 padding: const EdgeInsets.only(right: 4),
-                                child: Icon(
-                                  _messageTypeIcon(replyInfo!.messageType),
-                                  size: 12,
-                                  color: textColor,
-                                ),
+                                child: _buildMessageTypeIcon(replyInfo!.messageType, textColor, 12),
                               ),
                             Flexible(
                               child: RichText(
@@ -297,4 +296,3 @@ class MessageReplyInfo extends StatelessWidget {
     );
   }
 }
-

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import '../../utils/emoji_utils.dart';
 import '../../utils/haptic_utils.dart';
 import '../../l10n/app_localizations.dart';
@@ -175,21 +176,64 @@ class _MessageContextMenuState extends State<MessageContextMenu> with SingleTick
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildActionItem(Icons.reply, context.l10n.translate('chat_action_reply'), widget.onReply, theme, enabled: !isSending),
+          _buildActionItem(
+            (c) => iconoir.Reply(color: c, width: 20, height: 20),
+            context.l10n.translate('chat_action_reply'),
+            widget.onReply,
+            theme,
+            enabled: !isSending,
+          ),
           if (widget.onQuote != null)
-            _buildActionItem(Icons.format_quote_rounded, context.l10n.translate('format_quote'), widget.onQuote!, theme, enabled: !isSending),
-          _buildActionItem(Icons.copy, context.l10n.translate('chat_action_copy'), widget.onCopy, theme, enabled: !isSending),
-          _buildActionItem(Icons.push_pin, context.l10n.translate('chat_action_pin'), widget.onPin, theme, enabled: !isSending),
+            _buildActionItem(
+              (c) => iconoir.Quote(color: c, width: 20, height: 20),
+              context.l10n.translate('format_quote'),
+              widget.onQuote!,
+              theme,
+              enabled: !isSending,
+            ),
+          _buildActionItem(
+            (c) => iconoir.Copy(color: c, width: 20, height: 20),
+            context.l10n.translate('chat_action_copy'),
+            widget.onCopy,
+            theme,
+            enabled: !isSending,
+          ),
+          _buildActionItem(
+            (c) => iconoir.Pin(color: c, width: 20, height: 20),
+            context.l10n.translate('chat_action_pin'),
+            widget.onPin,
+            theme,
+            enabled: !isSending,
+          ),
           if (widget.isMe) 
-            _buildActionItem(Icons.edit, context.l10n.translate('chat_edit_message'), widget.onEdit, theme, enabled: !isSending),
+            _buildActionItem(
+              (c) => iconoir.EditPencil(color: c, width: 20, height: 20),
+              context.l10n.translate('chat_edit_message'),
+              widget.onEdit,
+              theme,
+              enabled: !isSending,
+            ),
           const Divider(height: 1),
-          _buildActionItem(Icons.delete, context.l10n.translate('chat_action_delete'), widget.onDelete, theme, isDestructive: true),
+          _buildActionItem(
+            (c) => iconoir.Trash(color: c, width: 20, height: 20),
+            context.l10n.translate('chat_action_delete'),
+            widget.onDelete,
+            theme,
+            isDestructive: true,
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildActionItem(IconData icon, String label, VoidCallback onTap, ThemeData theme, {bool isDestructive = false, bool enabled = true}) {
+  Widget _buildActionItem(
+    Widget Function(Color color) iconBuilder,
+    String label,
+    VoidCallback onTap,
+    ThemeData theme, {
+    bool isDestructive = false,
+    bool enabled = true,
+  }) {
     final color = isDestructive ? Colors.red : (enabled ? theme.colorScheme.onSurface : theme.disabledColor);
     return InkWell(
       onTap: enabled ? () {
@@ -202,7 +246,11 @@ class _MessageContextMenuState extends State<MessageContextMenu> with SingleTick
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
-            Icon(icon, size: 20, color: color),
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: Center(child: iconBuilder(color)),
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(label, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: color)),

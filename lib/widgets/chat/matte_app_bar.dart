@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 
 /// AppBar с матовым блюр-эффектом (без Liquid Glass).
 ///
@@ -84,7 +85,11 @@ class MatteAppBar extends StatelessWidget
                                     leading!
                                   else
                                     IconButton(
-                                      icon: const Icon(Icons.arrow_back),
+                                      icon: iconoir.NavArrowLeft(
+                                        color: Theme.of(context).colorScheme.onSurface,
+                                        width: 24,
+                                        height: 24,
+                                      ),
                                       onPressed: () => Navigator.maybePop(context),
                                     ),
                                   const Spacer(),
@@ -100,7 +105,11 @@ class MatteAppBar extends StatelessWidget
                                 leading!
                               else
                                 IconButton(
-                                  icon: const Icon(Icons.arrow_back),
+                                  icon: iconoir.NavArrowLeft(
+                                    color: Theme.of(context).colorScheme.onSurface,
+                                    width: 24,
+                                    height: 24,
+                                  ),
                                   onPressed: () => Navigator.maybePop(context),
                                 ),
                               Expanded(child: title),

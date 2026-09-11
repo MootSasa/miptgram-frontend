@@ -162,7 +162,7 @@ class _LinkPreviewInputBarState extends State<LinkPreviewInputBar> {
               if (widget.detectedUrls.length > 1) ...[
                 PopupMenuButton<String>(
                   tooltip: 'Выбрать ссылку',
-                  icon: Icon(Icons.arrow_drop_down, color: primaryColor, size: 20),
+                  icon: iconoir.NavArrowDown(color: primaryColor, width: 20, height: 20),
                   onSelected: (url) {
                     HapticUtils.tap();
                     widget.onOptionsChanged(widget.options.copyWith(url: url));
@@ -182,9 +182,9 @@ class _LinkPreviewInputBarState extends State<LinkPreviewInputBar> {
                 ),
               ],
               IconButton(
-                icon: Icon(
-                  Icons.close,
-                  size: 18,
+                icon: iconoir.Xmark(
+                  width: 18,
+                  height: 18,
                   color: isDark ? Colors.white60 : Colors.black54,
                 ),
                 padding: EdgeInsets.zero,

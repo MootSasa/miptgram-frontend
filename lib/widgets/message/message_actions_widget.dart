@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 
 /// Enum representing the possible actions that can be performed on a message.
 enum MessageAction {
@@ -28,58 +29,61 @@ class MessageActionsWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final iconColor = theme.colorScheme.onSurface;
+
     return PopupMenuButton<MessageAction>(
-      icon: const Icon(Icons.more_vert),
+      icon: iconoir.MoreVert(color: iconColor, width: 22, height: 22),
       tooltip: 'Message actions',
       onSelected: onAction,
       itemBuilder: (context) => [
-        const PopupMenuItem<MessageAction>(
+        PopupMenuItem<MessageAction>(
           value: MessageAction.edit,
           child: ListTile(
-            leading: Icon(Icons.edit),
-            title: Text('Edit'),
+            leading: iconoir.EditPencil(color: iconColor, width: 20, height: 20),
+            title: const Text('Edit'),
           ),
         ),
         const PopupMenuItem<MessageAction>(
           value: MessageAction.delete,
           child: ListTile(
-            leading: Icon(Icons.delete),
+            leading: iconoir.Trash(color: Colors.redAccent, width: 20, height: 20),
             title: Text('Delete'),
           ),
         ),
-        const PopupMenuItem<MessageAction>(
+        PopupMenuItem<MessageAction>(
           value: MessageAction.forward,
           child: ListTile(
-            leading: Icon(Icons.forward),
-            title: Text('Forward'),
+            leading: iconoir.Forward(color: iconColor, width: 20, height: 20),
+            title: const Text('Forward'),
           ),
         ),
-        const PopupMenuItem<MessageAction>(
+        PopupMenuItem<MessageAction>(
           value: MessageAction.reply,
           child: ListTile(
-            leading: Icon(Icons.reply),
-            title: Text('Reply'),
+            leading: iconoir.Reply(color: iconColor, width: 20, height: 20),
+            title: const Text('Reply'),
           ),
         ),
-        const PopupMenuItem<MessageAction>(
+        PopupMenuItem<MessageAction>(
           value: MessageAction.react,
           child: ListTile(
-            leading: Icon(Icons.mood),
-            title: Text('React'),
+            leading: iconoir.Emoji(color: iconColor, width: 20, height: 20),
+            title: const Text('React'),
           ),
         ),
-        const PopupMenuItem<MessageAction>(
+        PopupMenuItem<MessageAction>(
           value: MessageAction.pin,
           child: ListTile(
-            leading: Icon(Icons.push_pin),
-            title: Text('Pin'),
+            leading: iconoir.Pin(color: iconColor, width: 20, height: 20),
+            title: const Text('Pin'),
           ),
         ),
-        const PopupMenuItem<MessageAction>(
+        PopupMenuItem<MessageAction>(
           value: MessageAction.save,
           child: ListTile(
-            leading: Icon(Icons.save),
-            title: Text('Save'),
+            leading: iconoir.FloppyDisk(color: iconColor, width: 20, height: 20),
+            title: const Text('Save'),
           ),
         ),
       ],

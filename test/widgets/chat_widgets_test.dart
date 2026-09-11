@@ -536,6 +536,92 @@ void main() {
       expect(strip.preset, preset);
       expect(strip.style, stripStyle);
     });
+
+    testWidgets('CollapsibleBlockquoteWidget adapts its width to content instead of expanding infinitely', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        createTestApp(
+          Align(
+            alignment: Alignment.topLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 320),
+              child: const CollapsibleBlockquoteWidget(
+                text: 'Short',
+                isDark: false,
+                isMe: false,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final shortQuoteBox = tester.renderObject<RenderBox>(find.byType(CollapsibleBlockquoteWidget));
+      // Short quote width must be compact, significantly less than max width (320)
+      expect(shortQuoteBox.size.width, lessThan(120.0));
+
+      await tester.pumpWidget(
+        createTestApp(
+          Align(
+            alignment: Alignment.topLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 320),
+              child: const CollapsibleBlockquoteWidget(
+                text: 'A very long quote line that definitely needs more horizontal space to display properly.',
+                isDark: false,
+                isMe: false,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final longQuoteBox = tester.renderObject<RenderBox>(find.byType(CollapsibleBlockquoteWidget));
+      expect(longQuoteBox.size.width, greaterThan(250.0));
+    });
+
+    testWidgets('CodeBlockWidget adapts its width to content instead of expanding infinitely', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        createTestApp(
+          Align(
+            alignment: Alignment.topLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 320),
+              child: const CodeBlockWidget(
+                code: 'x = 1',
+                isDark: false,
+                isMe: false,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final shortCodeBox = tester.renderObject<RenderBox>(find.byType(CodeBlockWidget));
+      // Short code width must be compact, significantly less than max width (320)
+      expect(shortCodeBox.size.width, lessThan(240.0));
+
+      await tester.pumpWidget(
+        createTestApp(
+          Align(
+            alignment: Alignment.topLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 320),
+              child: const CodeBlockWidget(
+                code: 'void main() { print("A long line of code that takes a lot of horizontal room"); }',
+                isDark: false,
+                isMe: false,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final longCodeBox = tester.renderObject<RenderBox>(find.byType(CodeBlockWidget));
+      expect(longCodeBox.size.width, greaterThan(250.0));
+    });
   });
 
   group('MessageBubble Block Element Layout Tests', () {

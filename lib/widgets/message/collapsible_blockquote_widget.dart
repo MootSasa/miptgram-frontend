@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
@@ -124,10 +125,18 @@ class _CollapsibleBlockquoteWidgetState
         final double collapsedHeight = collapsedPainter.height;
         final double fullHeight = fullPainter.height;
 
+        final double naturalTextWidth = showToggle
+            ? math.max(collapsedPainter.width, fullPainter.width)
+            : fullPainter.width;
+
+        final double minCardWidth = showToggle ? 140.0 : 60.0;
+        final double targetCardWidth = (naturalTextWidth + 45.5)
+            .clamp(minCardWidth, availableWidth);
+
         return MetaData(
           metaData: 'block_element',
           child: Container(
-            width: double.infinity,
+            width: targetCardWidth,
             margin: const EdgeInsets.symmetric(vertical: 4),
             decoration: BoxDecoration(
               color: cardBgColor,

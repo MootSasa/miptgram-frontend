@@ -694,7 +694,7 @@ class MessageBubble extends StatelessWidget {
       _hasMedia && (message.isRound || message.messageType == 'round');
 
   bool get _hasCaption {
-    if (!_hasMedia) return false;
+    if (!_hasMedia || _isRoundVideo) return false;
     final trimmed = message.content.trim();
     if (trimmed.isEmpty) return false;
     if (trimmed == message.fileName) return false;
@@ -1032,7 +1032,9 @@ class MessageBubble extends StatelessWidget {
       final Widget mediaWidget = _buildMediaWidget(context, mediaWidth, resolvedFileUrl);
 
       Widget innerContent;
-      if (hasCaption) {
+      if (_isRoundVideo) {
+        innerContent = mediaWidget;
+      } else if (hasCaption) {
         final Widget captionWidget = TextMessageWidget(
           text: message.content,
           style: textStyle,
@@ -1062,8 +1064,6 @@ class MessageBubble extends StatelessWidget {
                   metadataWidget,
                 ],
         );
-      } else if (_isRoundVideo) {
-        innerContent = mediaWidget;
       } else if (_isImage || _isVideo) {
         innerContent = Stack(
           alignment: Alignment.bottomRight,

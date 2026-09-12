@@ -3,6 +3,7 @@ import '../../utils/emoji_utils.dart';
 import '../../utils/date_time_utils.dart';
 import '../../l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'round_video_thumbnail.dart';
 
 class ChatListItem extends StatelessWidget {
   final String chatName;
@@ -12,6 +13,7 @@ class ChatListItem extends StatelessWidget {
   final bool isOnline;
   final bool isGroup;
   final bool isRoundVideo;
+  final String? videoUrl;
   final int unreadCount;
   final VoidCallback onTap;
 
@@ -24,6 +26,7 @@ class ChatListItem extends StatelessWidget {
     required this.isOnline,
     required this.isGroup,
     this.isRoundVideo = false,
+    this.videoUrl,
     this.unreadCount = 0,
     required this.onTap,
   }) : super(key: key);
@@ -109,22 +112,9 @@ class ChatListItem extends StatelessWidget {
       subtitle: Row(
         children: [
           if (isRoundVideo) ...[
-            Container(
-              width: 17,
-              height: 17,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.primary,
-                  width: 1.5,
-                ),
-              ),
-              child: Icon(
-                Icons.play_arrow_rounded,
-                size: 11,
-                color: Theme.of(context).colorScheme.primary,
-              ),
+            RoundVideoThumbnail(
+              videoUrl: videoUrl,
+              size: 18,
             ),
             const SizedBox(width: 6),
           ],

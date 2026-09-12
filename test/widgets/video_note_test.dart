@@ -7,6 +7,7 @@ import 'package:miptgram/widgets/chat/liquid_glass_input_field.dart';
 import 'package:miptgram/widgets/chat/round_video_recording_overlay.dart';
 import 'package:miptgram/widgets/message/message_bubble.dart';
 import 'package:miptgram/widgets/message/video_message_widget.dart';
+import 'package:miptgram/widgets/chat/round_video_thumbnail.dart';
 import 'package:miptgram/l10n/app_localizations.dart';
 
 class _TestAppLocalizations extends AppLocalizations {
@@ -226,6 +227,65 @@ void main() {
         (c) => c.decoration is BoxDecoration && (c.decoration as BoxDecoration).color == Colors.transparent,
       );
       expect(bubbleContainer, isNotNull);
+    });
+
+    testWidgets('Suppresses caption text for round video messages even if content is set',
+        (WidgetTester tester) async {
+      final roundMessage = Message(
+        id: 'msg-round-2',
+        chatId: 'chat-1',
+        senderId: 'user-1',
+        content: 'Видеосообщение',
+        messageType: 'video',
+        fileUrl: 'https://example.com/video_note.mp4',
+        fileName: 'video_note.mp4',
+        isRound: true,
+        isEdited: false,
+        senderName: 'Alice',
+        createdAt: '2026-09-12T10:00:00Z',
+      );
+
+      await tester.pumpWidget(
+        createTestApp(
+          MessageBubble(
+            message: roundMessage,
+            isMe: false,
+            currentUserId: 'user-2',
+            formatTime: (_) => '10:00',
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // VideoMessageWidget must be rendered
+      expect(find.byType(VideoMessageWidget), findsOneWidget);
+
+      // In-chat caption text "Видеосообщение" must NOT be rendered
+      expect(find.text('Видеосообщение'), findsNothing);
+    });
+  });
+
+  group('RoundVideoThumbnail Tests', () {
+    testWidgets('Renders ClipOval with ImageFiltered blur and play icon',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        createTestApp(
+          const RoundVideoThumbnail(
+            videoUrl: 'https://example.com/video_note.mp4',
+            size: 18.0,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Renders circular clip
+      expect(find.byType(ClipOval), findsOneWidget);
+
+      // Renders ImageFiltered for blur effect
+      expect(find.byType(ImageFiltered), findsOneWidget);
+
+      // Renders centered play icon
+      expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
     });
   });
 

@@ -150,7 +150,10 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget> {
 
   void _onVideoUpdate() {
     if (!mounted) return;
-    setState(() {}); // Rebuild for progress ring and countdown
+    // Only trigger widget rebuilds when playing with sound (for the progress ring and countdown).
+    // Muted looping playback is rendered directly to the hardware texture with 0 widget rebuilds.
+    if (!_isPlayingWithSound) return;
+    setState(() {});
   }
 
   @override
@@ -208,9 +211,10 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget> {
       progress = 0.0;
     }
 
-    return GestureDetector(
-      onTap: _handleTap,
-      child: Container(
+    return RepaintBoundary(
+      child: GestureDetector(
+        onTap: _handleTap,
+        child: Container(
         width: effectiveDiameter,
         height: effectiveDiameter,
         decoration: BoxDecoration(
@@ -385,7 +389,8 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget> {
           ],
         ),
       ),
-    );
+    ),
+  );
   }
 }
 

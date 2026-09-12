@@ -38,6 +38,7 @@ import '../../utils/swipe_back_route.dart';
 import '../../utils/date_time_utils.dart';
 import '../../services/update_service.dart';
 import '../settings/widgets/update_dialog.dart';
+import '../../widgets/chat/round_video_thumbnail.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({Key? key}) : super(key: key);
@@ -1229,22 +1230,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 17,
-            height: 17,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: primary.withValues(alpha: 0.15),
-              border: Border.all(
-                color: primary,
-                width: 1.5,
-              ),
-            ),
-            child: Icon(
-              Icons.play_arrow_rounded,
-              size: 11,
-              color: primary,
-            ),
+          RoundVideoThumbnail(
+            videoUrl: chat.lastMessageFileUrl,
+            size: 18,
           ),
           const SizedBox(width: 6),
           Flexible(

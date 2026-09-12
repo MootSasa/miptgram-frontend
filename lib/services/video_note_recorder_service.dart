@@ -159,6 +159,46 @@ class VideoNoteRecorderService with ChangeNotifier {
     }
   }
 
+  RTCPeerConnection? _loopbackPc1;
+  RTCPeerConnection? _loopbackPc2;
+
+  Future<void> _activateAudioEngine() async {
+    if (kIsWeb || _stream == null) return;
+    final audioTracks = _stream!.getAudioTracks();
+    if (audioTracks.isEmpty) return;
+
+    try {
+      _loopbackPc1 = await createPeerConnection({'sdpSemantics': 'unified-plan'});
+      _loopbackPc2 = await createPeerConnection({'sdpSemantics': 'unified-plan'});
+
+      await _loopbackPc1!.addTrack(audioTracks.first, _stream!);
+
+      final offer = await _loopbackPc1!.createOffer();
+      await _loopbackPc1!.setLocalDescription(offer);
+      await _loopbackPc2!.setRemoteDescription(offer);
+
+      final answer = await _loopbackPc2!.createAnswer();
+      await _loopbackPc2!.setLocalDescription(answer);
+      await _loopbackPc1!.setRemoteDescription(answer);
+      debugPrint('[VideoNoteRecorderService] WebRTC Audio Engine activated via loopback');
+    } catch (e) {
+      debugPrint('[VideoNoteRecorderService] Audio engine activation note: $e');
+    }
+  }
+
+  Future<void> _deactivateAudioEngine() async {
+    try {
+      await _loopbackPc1?.close();
+      await _loopbackPc1?.dispose();
+    } catch (_) {}
+    try {
+      await _loopbackPc2?.close();
+      await _loopbackPc2?.dispose();
+    } catch (_) {}
+    _loopbackPc1 = null;
+    _loopbackPc2 = null;
+  }
+
   /// Start recording video note to a local file (no 60s limit)
   Future<bool> startRecording() async {
     if (!_isInitialized || _stream == null) {
@@ -177,9 +217,11 @@ class VideoNoteRecorderService with ChangeNotifier {
       final videoTrack = videoTracks.isNotEmpty ? videoTracks.first : null;
 
       if (!kIsWeb) {
+        await _activateAudioEngine();
         await _recorder!.start(
           _currentFilePath!,
           videoTrack: videoTrack,
+          audioChannel: RecorderAudioChannel.INPUT,
         );
       } else {
         _recorder!.startWeb(
@@ -264,10 +306,28 @@ class VideoNoteRecorderService with ChangeNotifier {
 
     File? resultFile;
     try {
+      final path = _currentFilePath;
+
+      // Capture a thumbnail frame while the video stream is still active
+      if (!kIsWeb && path != null && _stream != null) {
+        final videoTracks = _stream!.getVideoTracks();
+        if (videoTracks.isNotEmpty) {
+          try {
+            final frameBuffer = await videoTracks.first.captureFrame();
+            final thumbFile = File('$path.thumb.jpg');
+            await thumbFile.writeAsBytes(frameBuffer.asUint8List(), flush: true);
+            debugPrint(
+                '[VideoNoteRecorderService] Saved video note thumbnail: ${thumbFile.path}');
+          } catch (thumbErr) {
+            debugPrint(
+                '[VideoNoteRecorderService] Thumbnail frame capture notice: $thumbErr');
+          }
+        }
+      }
+
       await _recorder?.stop();
       _recorder = null;
 
-      final path = _currentFilePath;
       _currentFilePath = null;
 
       if (path != null) {
@@ -315,6 +375,10 @@ class VideoNoteRecorderService with ChangeNotifier {
         if (await file.exists()) {
           await file.delete();
         }
+        final thumbFile = File('${_currentFilePath!}.thumb.jpg');
+        if (await thumbFile.exists()) {
+          await thumbFile.delete();
+        }
       }
     } catch (e) {
       debugPrint('VideoNoteRecorderService: Error during cancel: $e');
@@ -329,6 +393,8 @@ class VideoNoteRecorderService with ChangeNotifier {
   Future<void> _cleanupStream() async {
     _timer?.cancel();
     _timer = null;
+
+    await _deactivateAudioEngine();
 
     try {
       if (_renderer != null) {

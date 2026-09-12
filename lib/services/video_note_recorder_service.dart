@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:record/record.dart';
 
 /// Cross-platform service for recording Telegram-style circular video notes.
 /// Uses [flutter_webrtc] for universal platform compatibility (Android, iOS, Windows, macOS, Linux, Web).
@@ -159,45 +161,8 @@ class VideoNoteRecorderService with ChangeNotifier {
     }
   }
 
-  RTCPeerConnection? _loopbackPc1;
-  RTCPeerConnection? _loopbackPc2;
-
-  Future<void> _activateAudioEngine() async {
-    if (kIsWeb || _stream == null) return;
-    final audioTracks = _stream!.getAudioTracks();
-    if (audioTracks.isEmpty) return;
-
-    try {
-      _loopbackPc1 = await createPeerConnection({'sdpSemantics': 'unified-plan'});
-      _loopbackPc2 = await createPeerConnection({'sdpSemantics': 'unified-plan'});
-
-      await _loopbackPc1!.addTrack(audioTracks.first, _stream!);
-
-      final offer = await _loopbackPc1!.createOffer();
-      await _loopbackPc1!.setLocalDescription(offer);
-      await _loopbackPc2!.setRemoteDescription(offer);
-
-      final answer = await _loopbackPc2!.createAnswer();
-      await _loopbackPc2!.setLocalDescription(answer);
-      await _loopbackPc1!.setRemoteDescription(answer);
-      debugPrint('[VideoNoteRecorderService] WebRTC Audio Engine activated via loopback');
-    } catch (e) {
-      debugPrint('[VideoNoteRecorderService] Audio engine activation note: $e');
-    }
-  }
-
-  Future<void> _deactivateAudioEngine() async {
-    try {
-      await _loopbackPc1?.close();
-      await _loopbackPc1?.dispose();
-    } catch (_) {}
-    try {
-      await _loopbackPc2?.close();
-      await _loopbackPc2?.dispose();
-    } catch (_) {}
-    _loopbackPc1 = null;
-    _loopbackPc2 = null;
-  }
+  AudioRecorder? _audioRecorder;
+  String? _audioFilePath;
 
   /// Start recording video note to a local file (no 60s limit)
   Future<bool> startRecording() async {
@@ -212,16 +177,32 @@ class VideoNoteRecorderService with ChangeNotifier {
       _currentFilePath =
           '${tempDir.path}/video_note_${DateTime.now().millisecondsSinceEpoch}.$extension';
 
+      // 1. Start parallel audio recording with package:record for clean AAC microphone recording
+      try {
+        _audioRecorder = AudioRecorder();
+        _audioFilePath =
+            '${tempDir.path}/audio_note_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        await _audioRecorder!.start(
+          const RecordConfig(
+            encoder: AudioEncoder.aacLc,
+            bitRate: 96000,
+            sampleRate: 44100,
+          ),
+          path: _audioFilePath!,
+        );
+      } catch (audioErr) {
+        debugPrint('VideoNoteRecorderService: Audio recording start note: $audioErr');
+      }
+
+      // 2. Start video recording with flutter_webrtc in stable video-only mode
       _recorder = MediaRecorder();
       final videoTracks = _stream!.getVideoTracks();
       final videoTrack = videoTracks.isNotEmpty ? videoTracks.first : null;
 
       if (!kIsWeb) {
-        await _activateAudioEngine();
         await _recorder!.start(
           _currentFilePath!,
           videoTrack: videoTrack,
-          audioChannel: RecorderAudioChannel.INPUT,
         );
       } else {
         _recorder!.startWeb(
@@ -307,28 +288,25 @@ class VideoNoteRecorderService with ChangeNotifier {
     File? resultFile;
     try {
       final path = _currentFilePath;
+      _currentFilePath = null;
 
-      // Capture a thumbnail frame while the video stream is still active
-      if (!kIsWeb && path != null && _stream != null) {
-        final videoTracks = _stream!.getVideoTracks();
-        if (videoTracks.isNotEmpty) {
-          try {
-            final frameBuffer = await videoTracks.first.captureFrame();
-            final thumbFile = File('$path.thumb.jpg');
-            await thumbFile.writeAsBytes(frameBuffer.asUint8List(), flush: true);
-            debugPrint(
-                '[VideoNoteRecorderService] Saved video note thumbnail: ${thumbFile.path}');
-          } catch (thumbErr) {
-            debugPrint(
-                '[VideoNoteRecorderService] Thumbnail frame capture notice: $thumbErr');
-          }
-        }
-      }
-
+      // 1. Stop video recording
       await _recorder?.stop();
       _recorder = null;
 
-      _currentFilePath = null;
+      // 2. Stop audio recording
+      String? recordedAudioPath;
+      if (_audioRecorder != null) {
+        try {
+          recordedAudioPath = await _audioRecorder!.stop();
+        } catch (e) {
+          debugPrint('VideoNoteRecorderService: Audio stop error: $e');
+        }
+        try {
+          _audioRecorder?.dispose();
+        } catch (_) {}
+        _audioRecorder = null;
+      }
 
       if (path != null) {
         final file = File(path);
@@ -346,6 +324,41 @@ class VideoNoteRecorderService with ChangeNotifier {
         if (resultFile == null && await file.exists() && await file.length() > 0) {
           resultFile = file;
         }
+
+        // 3. Mux audio into video file on Android
+        if (!kIsWeb &&
+            defaultTargetPlatform == TargetPlatform.android &&
+            resultFile != null &&
+            recordedAudioPath != null) {
+          final audioFile = File(recordedAudioPath);
+          if (await audioFile.exists() && await audioFile.length() > 0) {
+            final muxedPath = '${path}_muxed.mp4';
+            try {
+              const muxChannel = MethodChannel('com.example.app/media_muxer');
+              final success = await muxChannel.invokeMethod<bool>('mux', {
+                'videoPath': path,
+                'audioPath': recordedAudioPath,
+                'outputPath': muxedPath,
+              });
+              if (success == true) {
+                final muxedFile = File(muxedPath);
+                if (await muxedFile.exists() && await muxedFile.length() > 0) {
+                  await resultFile.delete();
+                  await muxedFile.rename(path);
+                  resultFile = File(path);
+                  debugPrint(
+                      'VideoNoteRecorderService: Successfully muxed audio into video: $path');
+                }
+              }
+            } catch (muxErr) {
+              debugPrint('VideoNoteRecorderService: Native muxer note: $muxErr');
+            }
+            try {
+              if (await audioFile.exists()) await audioFile.delete();
+            } catch (_) {}
+          }
+        }
+
         if (resultFile == null) {
           debugPrint('VideoNoteRecorderService: File at $path is missing or empty');
         }
@@ -370,20 +383,32 @@ class VideoNoteRecorderService with ChangeNotifier {
       await _recorder?.stop();
       _recorder = null;
 
+      if (_audioRecorder != null) {
+        try {
+          await _audioRecorder!.stop();
+          _audioRecorder!.dispose();
+        } catch (_) {}
+        _audioRecorder = null;
+      }
+
+      if (_audioFilePath != null) {
+        final audioFile = File(_audioFilePath!);
+        if (await audioFile.exists()) {
+          await audioFile.delete();
+        }
+      }
+
       if (_currentFilePath != null) {
         final file = File(_currentFilePath!);
         if (await file.exists()) {
           await file.delete();
-        }
-        final thumbFile = File('${_currentFilePath!}.thumb.jpg');
-        if (await thumbFile.exists()) {
-          await thumbFile.delete();
         }
       }
     } catch (e) {
       debugPrint('VideoNoteRecorderService: Error during cancel: $e');
     } finally {
       _currentFilePath = null;
+      _audioFilePath = null;
       _elapsed = Duration.zero;
       await _cleanupStream();
       notifyListeners();
@@ -394,7 +419,13 @@ class VideoNoteRecorderService with ChangeNotifier {
     _timer?.cancel();
     _timer = null;
 
-    await _deactivateAudioEngine();
+    if (_audioRecorder != null) {
+      try {
+        await _audioRecorder!.stop();
+        _audioRecorder!.dispose();
+      } catch (_) {}
+      _audioRecorder = null;
+    }
 
     try {
       if (_renderer != null) {

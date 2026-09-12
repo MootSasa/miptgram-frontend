@@ -1,6 +1,7 @@
 import '../../utils/image_utils.dart';
 import '../../utils/emoji_utils.dart';
 import '../../utils/date_time_utils.dart';
+import '../../l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 
 class ChatListItem extends StatelessWidget {
@@ -130,7 +131,13 @@ class ChatListItem extends StatelessWidget {
           Expanded(
             child: isRoundVideo
                 ? Text(
-                    lastMessage.isNotEmpty ? lastMessage : 'Видеосообщение',
+                    (lastMessage.isNotEmpty &&
+                            lastMessage != 'Видеосообщение' &&
+                            lastMessage != 'Video message')
+                        ? lastMessage
+                        : (AppLocalizations.of(context)
+                                ?.translate('chat_video_note') ??
+                            'Video message'),
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.primary,
                       fontSize: 14,

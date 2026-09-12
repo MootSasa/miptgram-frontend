@@ -709,5 +709,19 @@
   "chat_video_note_stop": "Stop",
   "chat_video_note_tap_switch": "Tap to switch to video",
   "chat_video_note_tap_voice": "Tap to switch to voice",
-  "chat_video_note_permission_denied": "Camera or microphone access denied"
+  "chat_video_note_permission_denied": "Camera or microphone access denied",
+  "chat_action_link": "Link",
+  "chat_upload_error": "File upload error",
+  "share": "Share",
+  "invite_link_title": "Invite Link",
+  "invite_join_prompt": "Join chat via invite link?",
+  "joining_chat": "Joining chat...",
+  "join": "Join",
+  "channel_not_found": "Channel not found",
+  "system_read_only_banner": "This is a read-only system chat",
+  "ok": "OK",
+  "storage_download_path": "Download path",
+  "storage_download_path_default": "Default (Downloads folder)",
+  "storage_download_path_set": "Download path updated",
+  "settings_saved": "Settings saved"
 }

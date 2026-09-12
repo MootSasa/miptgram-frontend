@@ -2468,6 +2468,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   Future<void> _sendRoundVideoMessage(File file) async {
+    final videoNoteLabel =
+        AppLocalizations.of(context)?.translate('chat_video_note') ??
+            'Video message';
     if (!await file.exists() || await file.length() == 0) {
       debugPrint('Video file is empty or does not exist');
       return;
@@ -2484,7 +2487,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         pendingMsg = await syncService.createPendingMessage(
           chatId: widget.chatId,
           senderId: _currentUserId ?? '',
-          content: 'Видеосообщение',
+          content: videoNoteLabel,
           messageType: 'video',
           fileUrl: file.path,
           fileName: fileName,
@@ -2517,7 +2520,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       // 3. Send message via ChatService
       final result = await ChatService.sendMessage(
         chatId: widget.chatId,
-        content: 'Видеосообщение',
+        content: videoNoteLabel,
         messageType: 'video',
         localId: pendingLocalId,
         fileUrl: uploadResult.url,

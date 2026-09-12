@@ -1250,7 +1250,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           Flexible(
             child: Text(
               AppLocalizations.of(context)?.translate('chat_video_note') ??
-                  'Видеосообщение',
+                  'Video message',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(

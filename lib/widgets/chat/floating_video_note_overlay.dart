@@ -59,128 +59,133 @@ class _FloatingVideoNoteOverlayState extends State<FloatingVideoNoteOverlay> {
         ? (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
         : 0.0;
 
-    return Positioned(
-      left: currentPos.dx.clamp(8.0, screenSize.width - _kSize - 8.0),
-      top: currentPos.dy.clamp(topPadding, screenSize.height - _kSize - bottomPadding),
-      child: GestureDetector(
-        onPanUpdate: (details) {
-          final newX = (currentPos.dx + details.delta.dx)
-              .clamp(8.0, screenSize.width - _kSize - 8.0);
-          final newY = (currentPos.dy + details.delta.dy)
-              .clamp(topPadding, screenSize.height - _kSize - bottomPadding);
-          _service.updateFloatingPosition(Offset(newX, newY));
-        },
-        onTap: () {
-          _service.requestScrollToActive();
-        },
-        child: Material(
-          type: MaterialType.transparency,
-          child: Container(
-            width: _kSize,
-            height: _kSize,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.35),
-                  blurRadius: 14,
-                  spreadRadius: 2,
-                  offset: const Offset(0, 4),
+    return Stack(
+      fit: StackFit.loose,
+      children: [
+        Positioned(
+          left: currentPos.dx.clamp(8.0, screenSize.width - _kSize - 8.0),
+          top: currentPos.dy.clamp(topPadding, screenSize.height - _kSize - bottomPadding),
+          child: GestureDetector(
+            onPanUpdate: (details) {
+              final newX = (currentPos.dx + details.delta.dx)
+                  .clamp(8.0, screenSize.width - _kSize - 8.0);
+              final newY = (currentPos.dy + details.delta.dy)
+                  .clamp(topPadding, screenSize.height - _kSize - bottomPadding);
+              _service.updateFloatingPosition(Offset(newX, newY));
+            },
+            onTap: () {
+              _service.requestScrollToActive();
+            },
+            child: Material(
+              type: MaterialType.transparency,
+              child: Container(
+                width: _kSize,
+                height: _kSize,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.35),
+                      blurRadius: 14,
+                      spreadRadius: 2,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                // 1. Circular Video Player
-                ClipOval(
-                  child: SizedBox(
-                    width: _kSize,
-                    height: _kSize,
-                    child: FittedBox(
-                      fit: BoxFit.cover,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // 1. Circular Video Player
+                    ClipOval(
                       child: SizedBox(
-                        width: controller.value.size.width > 0
-                            ? controller.value.size.width
-                            : _kSize,
-                        height: controller.value.size.height > 0
-                            ? controller.value.size.height
-                            : _kSize,
-                        child: VideoPlayer(controller),
-                      ),
-                    ),
-                  ),
-                ),
-
-                // 2. Smooth Circular Progress Ring
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: TweenAnimationBuilder<double>(
-                      tween: Tween<double>(begin: 0.0, end: targetProgress),
-                      duration: const Duration(milliseconds: 250),
-                      curve: Curves.linear,
-                      builder: (context, smoothProgress, _) {
-                        return CustomPaint(
-                          painter: _FloatingProgressPainter(
-                            progress: smoothProgress,
-                            color: Colors.white,
-                            strokeWidth: 2.5,
+                        width: _kSize,
+                        height: _kSize,
+                        child: FittedBox(
+                          fit: BoxFit.cover,
+                          child: SizedBox(
+                            width: controller.value.size.width > 0
+                                ? controller.value.size.width
+                                : _kSize,
+                            height: controller.value.size.height > 0
+                                ? controller.value.size.height
+                                : _kSize,
+                            child: VideoPlayer(controller),
                           ),
-                        );
-                      },
+                        ),
+                      ),
                     ),
-                  ),
-                ),
 
-                // 3. Subtle Outer Glass Border
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.3),
-                          width: 1.2,
+                    // 2. Smooth Circular Progress Ring
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: TweenAnimationBuilder<double>(
+                          tween: Tween<double>(begin: 0.0, end: targetProgress),
+                          duration: const Duration(milliseconds: 250),
+                          curve: Curves.linear,
+                          builder: (context, smoothProgress, _) {
+                            return CustomPaint(
+                              painter: _FloatingProgressPainter(
+                                progress: smoothProgress,
+                                color: Colors.white,
+                                strokeWidth: 2.5,
+                              ),
+                            );
+                          },
                         ),
                       ),
                     ),
-                  ),
-                ),
 
-                // 4. Close Button in Top Corner
-                Positioned(
-                  top: 2,
-                  right: 2,
-                  child: GestureDetector(
-                    onTap: () {
-                      _service.stopActivePlayback();
-                    },
-                    child: Container(
-                      width: 26,
-                      height: 26,
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.65),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.3),
-                          width: 1.0,
-                        ),
-                      ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.close,
-                          size: 14,
-                          color: Colors.white,
+                    // 3. Subtle Outer Glass Border
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.3),
+                              width: 1.2,
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
+
+                    // 4. Close Button in Top Corner
+                    Positioned(
+                      top: 2,
+                      right: 2,
+                      child: GestureDetector(
+                        onTap: () {
+                          _service.stopActivePlayback();
+                        },
+                        child: Container(
+                          width: 26,
+                          height: 26,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.65),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.3),
+                              width: 1.0,
+                            ),
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.close,
+                              size: 14,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
-      ),
+      ],
     );
   }
 }

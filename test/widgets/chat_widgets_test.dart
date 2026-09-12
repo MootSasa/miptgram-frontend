@@ -16,6 +16,7 @@ import 'package:miptgram/widgets/message/collapsible_blockquote_widget.dart';
 import 'package:miptgram/widgets/message/message_bubble.dart';
 import 'package:miptgram/widgets/message/text_message_widget.dart';
 import 'package:miptgram/widgets/profile/reply_strip_painter.dart';
+import 'package:miptgram/widgets/chat/floating_video_note_overlay.dart';
 
 class _TestAppLocalizations extends AppLocalizations {
   _TestAppLocalizations(super.locale);
@@ -76,6 +77,64 @@ void main() {
       expect(find.text('Test AppBar'), findsOneWidget);
       expect(find.text('Test FAB'), findsOneWidget);
       expect(find.text('Test Body Content'), findsOneWidget);
+    });
+  });
+
+  group('Chat Stack Layout with Floating Video Note Tests', () {
+    testWidgets(
+        'Chat stack preserves full screen width for messages and input when overlay is present',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        createTestApp(
+          Column(
+            children: [
+              Expanded(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Positioned.fill(
+                      child: Container(
+                        key: const ValueKey('message_list_layer'),
+                        color: Colors.blue,
+                        child: const Text('Messages Layer'),
+                      ),
+                    ),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        key: const ValueKey('input_bar_layer'),
+                        height: 50,
+                        color: Colors.green,
+                        child: const Text('Input Bar Layer'),
+                      ),
+                    ),
+                    const Positioned.fill(
+                      child: FloatingVideoNoteOverlay(),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Messages Layer'), findsOneWidget);
+      expect(find.text('Input Bar Layer'), findsOneWidget);
+
+      final messageListSize =
+          tester.getSize(find.byKey(const ValueKey('message_list_layer')));
+      final inputBarSize =
+          tester.getSize(find.byKey(const ValueKey('input_bar_layer')));
+
+      // Width MUST be full screen width (800 in default tester environment), NOT 0!
+      expect(messageListSize.width, equals(800.0));
+      expect(inputBarSize.width, equals(800.0));
+      expect(messageListSize.height, greaterThan(0));
+      expect(inputBarSize.height, equals(50.0));
     });
   });
 

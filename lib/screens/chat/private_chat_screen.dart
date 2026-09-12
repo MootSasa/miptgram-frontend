@@ -2079,6 +2079,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         children: [
           Expanded(
             child: Stack(
+              fit: StackFit.expand,
               children: [
                 // Background wallpaper
                 if (wallpaperPath != null)
@@ -2191,7 +2192,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                     ),
                   ),
                 // Плавающий кружочек видеосообщения (PiP), если активный кружок ушел из поля зрения
-                const FloatingVideoNoteOverlay(),
+                const Positioned.fill(
+                  child: FloatingVideoNoteOverlay(),
+                ),
               ],
             ),
           ),

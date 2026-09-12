@@ -1613,6 +1613,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     );
 
     return Stack(
+      fit: StackFit.expand,
       children: [
         Positioned.fill(child: messageList),
         Positioned(
@@ -1659,7 +1660,9 @@ class _GroupChatScreenState extends State<GroupChatScreen>
             ),
           ),
         // Плавающий кружочек видеосообщения (PiP), если активный кружок ушел из поля зрения
-        const FloatingVideoNoteOverlay(),
+        const Positioned.fill(
+          child: FloatingVideoNoteOverlay(),
+        ),
       ],
     );
   }

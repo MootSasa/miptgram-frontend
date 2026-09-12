@@ -289,10 +289,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             newUnreadCount = isFromMe ? chat.unreadCount : chat.unreadCount + 1;
           }
 
+          final msgType = messageData?['message_type'] as String?;
+          final isRound = messageData?['is_round'] == true || msgType == 'round';
+          final fileUrl = messageData?['file_url'] as String?;
           final updatedChat = chat.copyWith(
             lastMessage: messageData?['content'] as String? ?? chat.lastMessage,
             lastMessageTime:
                 messageData?['created_at'] as String? ?? chat.lastMessageTime,
+            lastMessageType: msgType ?? chat.lastMessageType,
+            lastMessageIsRound: isRound || chat.lastMessageIsRound,
+            lastMessageFileUrl: fileUrl ?? chat.lastMessageFileUrl,
             updatedAt: messageData?['created_at'] as String? ?? chat.updatedAt,
             unreadCount: newUnreadCount,
           );
@@ -467,6 +473,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           _chats[chatIndex] = chat.copyWith(
             lastMessage: lastMsg?.content ?? '',
             lastMessageTime: lastMsg?.createdAt ?? '',
+            lastMessageType: lastMsg?.messageType ?? chat.lastMessageType,
+            lastMessageIsRound: lastMsg?.isRound ?? chat.lastMessageIsRound,
+            lastMessageFileUrl: lastMsg?.fileUrl ?? chat.lastMessageFileUrl,
             updatedAt: lastMsg?.createdAt ?? chat.updatedAt,
           );
         });
@@ -1184,17 +1193,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             ),
           ],
         ),
-        subtitle: chat.lastMessage != null
-            ? Text(
-                chat.lastMessage!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: hasUnread ? Colors.grey[800] : Colors.grey[600],
-                  fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal,
-                ),
-              )
-            : null,
+        subtitle: _buildChatSubtitle(chat, hasUnread),
         trailing: _isSelectMode
             ? (isSelected
                 ? const Icon(Icons.check_circle, color: Color(0xFF0088CC))
@@ -1214,6 +1213,61 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     ),
                 ],
               ),
+      ),
+    );
+  }
+
+  Widget? _buildChatSubtitle(Chat chat, bool hasUnread) {
+    if (chat.isLastMessageRoundVideo) {
+      final primary = Theme.of(context).colorScheme.primary;
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 17,
+            height: 17,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: primary.withValues(alpha: 0.15),
+              border: Border.all(
+                color: primary,
+                width: 1.5,
+              ),
+            ),
+            child: Icon(
+              Icons.play_arrow_rounded,
+              size: 11,
+              color: primary,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              context.l10n.translate('chat_video_note'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: primary,
+                fontWeight: FontWeight.w500,
+                fontSize: 14,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (chat.lastMessage == null) {
+      return null;
+    }
+
+    return Text(
+      chat.lastMessage!,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: hasUnread ? Colors.grey[800] : Colors.grey[600],
+        fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal,
       ),
     );
   }
@@ -1485,7 +1539,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               otherUserId: chat.otherUserId,
             ),
           ),
-        ).then((_) {});
+        ).then((_) {
+          if (mounted) _refreshChatLastMessage(chat.id);
+        });
         break;
       case 'saved':
         // Open saved chat as a special chat with yourself
@@ -1498,7 +1554,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               otherUserAvatar: null,
             ),
           ),
-        ).then((_) {});
+        ).then((_) {
+          if (mounted) _refreshChatLastMessage(chat.id);
+        });
         break;
       case 'system':
         Navigator.push(
@@ -1511,7 +1569,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   : context.l10n.translate('system_notifications_title'),
             ),
           ),
-        ).then((_) {});
+        ).then((_) {
+          if (mounted) _refreshChatLastMessage(chat.id);
+        });
         break;
       case 'group':
         Navigator.push(
@@ -1523,7 +1583,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               groupAvatar: chat.avatarUrl,
             ),
           ),
-        ).then((_) {});
+        ).then((_) {
+          if (mounted) _refreshChatLastMessage(chat.id);
+        });
         break;
       case 'channel':
         Navigator.push(
@@ -1535,7 +1597,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               channelAvatar: chat.avatarUrl,
             ),
           ),
-        ).then((_) {});
+        ).then((_) {
+          if (mounted) _refreshChatLastMessage(chat.id);
+        });
         break;
     }
   }

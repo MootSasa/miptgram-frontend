@@ -14,6 +14,9 @@ class Chat {
   final String? avatarUrl;
   final String? lastMessage;
   final String? lastMessageTime;
+  final String? lastMessageType;
+  final bool lastMessageIsRound;
+  final String? lastMessageFileUrl;
   final String updatedAt;
   final int unreadCount;
   final bool isOnline; // Online status for private chats
@@ -28,6 +31,9 @@ class Chat {
     this.avatarUrl,
     this.lastMessage,
     this.lastMessageTime,
+    this.lastMessageType,
+    this.lastMessageIsRound = false,
+    this.lastMessageFileUrl,
     required this.updatedAt,
     this.unreadCount = 0,
     this.isOnline = false,
@@ -36,7 +42,21 @@ class Chat {
     this.otherUserId,
   });
 
+  /// True if the last message in this chat is a round video note («кружочек»)
+  bool get isLastMessageRoundVideo =>
+      lastMessageIsRound ||
+      lastMessageType == 'round' ||
+      (lastMessage != null &&
+          (lastMessage!.contains('video_note_') ||
+              lastMessage == 'Видеосообщение' ||
+              lastMessage == 'Video message'));
+
   factory Chat.fromJson(Map<String, dynamic> json) {
+    final msgType = json['last_message_type']?.toString();
+    final isRound = json['last_message_is_round'] == true ||
+        msgType == 'round' ||
+        (json['is_round'] == true);
+
     return Chat(
       id: json['id']?.toString() ?? json['chat_id']?.toString() ?? '',
       chatType: json['chat_type']?.toString() ?? 'private',
@@ -44,6 +64,10 @@ class Chat {
       avatarUrl: json['avatar_url']?.toString(),
       lastMessage: json['last_message']?.toString(),
       lastMessageTime: json['last_message_time']?.toString(),
+      lastMessageType: msgType,
+      lastMessageIsRound: isRound,
+      lastMessageFileUrl: json['last_message_file_url']?.toString() ??
+          json['file_url']?.toString(),
       updatedAt: json['updated_at']?.toString() ?? '',
       unreadCount: json['unread_count'] ?? 0,
       isOnline: json['is_online'] ?? false,
@@ -60,6 +84,9 @@ class Chat {
     String? avatarUrl,
     String? lastMessage,
     String? lastMessageTime,
+    String? lastMessageType,
+    bool? lastMessageIsRound,
+    String? lastMessageFileUrl,
     String? updatedAt,
     int? unreadCount,
     bool? isOnline,
@@ -74,6 +101,9 @@ class Chat {
       avatarUrl: avatarUrl ?? this.avatarUrl,
       lastMessage: lastMessage ?? this.lastMessage,
       lastMessageTime: lastMessageTime ?? this.lastMessageTime,
+      lastMessageType: lastMessageType ?? this.lastMessageType,
+      lastMessageIsRound: lastMessageIsRound ?? this.lastMessageIsRound,
+      lastMessageFileUrl: lastMessageFileUrl ?? this.lastMessageFileUrl,
       updatedAt: updatedAt ?? this.updatedAt,
       unreadCount: unreadCount ?? this.unreadCount,
       isOnline: isOnline ?? this.isOnline,

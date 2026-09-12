@@ -1809,6 +1809,10 @@ class _GroupChatScreenState extends State<GroupChatScreen>
   }
 
   Future<void> _sendRoundVideoMessage(File file) async {
+    if (!await file.exists() || await file.length() == 0) {
+      debugPrint('Video file is empty or does not exist');
+      return;
+    }
     try {
       final uploadResult = await _fileService.uploadFile(file);
 

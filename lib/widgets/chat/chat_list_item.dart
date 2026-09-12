@@ -10,6 +10,7 @@ class ChatListItem extends StatelessWidget {
   final String avatarUrl;
   final bool isOnline;
   final bool isGroup;
+  final bool isRoundVideo;
   final int unreadCount;
   final VoidCallback onTap;
 
@@ -21,6 +22,7 @@ class ChatListItem extends StatelessWidget {
     required this.avatarUrl,
     required this.isOnline,
     required this.isGroup,
+    this.isRoundVideo = false,
     this.unreadCount = 0,
     required this.onTap,
   }) : super(key: key);
@@ -105,19 +107,50 @@ class ChatListItem extends StatelessWidget {
       ),
       subtitle: Row(
         children: [
-          Expanded(
-            child: RichText(
-              text: EmojiUtils.buildEmojiTextSpan(
-                lastMessage,
-                style: TextStyle(
-                  color: hasUnread ? Colors.grey[800] : Colors.grey[600],
-                  fontSize: 14,
-                  fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal,
+          if (isRoundVideo) ...[
+            Container(
+              width: 17,
+              height: 17,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.primary,
+                  width: 1.5,
                 ),
               ),
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
+              child: Icon(
+                Icons.play_arrow_rounded,
+                size: 11,
+                color: Theme.of(context).colorScheme.primary,
+              ),
             ),
+            const SizedBox(width: 6),
+          ],
+          Expanded(
+            child: isRoundVideo
+                ? Text(
+                    lastMessage.isNotEmpty ? lastMessage : 'Видеосообщение',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  )
+                : RichText(
+                    text: EmojiUtils.buildEmojiTextSpan(
+                      lastMessage,
+                      style: TextStyle(
+                        color: hasUnread ? Colors.grey[800] : Colors.grey[600],
+                        fontSize: 14,
+                        fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal,
+                      ),
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
           ),
           const SizedBox(width: 8),
           Text(

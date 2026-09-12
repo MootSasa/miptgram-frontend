@@ -180,7 +180,6 @@ class VideoNoteRecorderService with ChangeNotifier {
         await _recorder!.start(
           _currentFilePath!,
           videoTrack: videoTrack,
-          audioChannel: RecorderAudioChannel.INPUT,
         );
       } else {
         _recorder!.startWeb(
@@ -263,6 +262,7 @@ class VideoNoteRecorderService with ChangeNotifier {
     _timer = null;
     _isRecording = false;
 
+    File? resultFile;
     try {
       await _recorder?.stop();
       _recorder = null;
@@ -278,23 +278,26 @@ class VideoNoteRecorderService with ChangeNotifier {
           if (await file.exists() && await file.length() > 0) {
             debugPrint(
                 'VideoNoteRecorderService: Video note recorded: ${file.path} (${await file.length()} bytes)');
-            notifyListeners();
-            return file;
+            resultFile = file;
+            break;
           }
           await Future.delayed(const Duration(milliseconds: 100));
         }
-        if (await file.exists() && await file.length() > 0) {
-          notifyListeners();
-          return file;
+        if (resultFile == null && await file.exists() && await file.length() > 0) {
+          resultFile = file;
         }
-        debugPrint('VideoNoteRecorderService: File at $path is missing or empty');
+        if (resultFile == null) {
+          debugPrint('VideoNoteRecorderService: File at $path is missing or empty');
+        }
       }
     } catch (e) {
       debugPrint('VideoNoteRecorderService: Failed to stop recording: $e');
+    } finally {
+      await _cleanupStream();
+      notifyListeners();
     }
 
-    notifyListeners();
-    return null;
+    return resultFile;
   }
 
   /// Cancel recording and discard the recorded file (e.g. slide to cancel)
@@ -318,19 +321,32 @@ class VideoNoteRecorderService with ChangeNotifier {
     } finally {
       _currentFilePath = null;
       _elapsed = Duration.zero;
+      await _cleanupStream();
       notifyListeners();
     }
   }
 
-  void _cleanupStream() {
+  Future<void> _cleanupStream() async {
     _timer?.cancel();
     _timer = null;
 
+    try {
+      if (_renderer != null) {
+        _renderer!.srcObject = null;
+      }
+    } catch (e) {
+      debugPrint('VideoNoteRecorderService: Error clearing renderer srcObject: $e');
+    }
+
     if (_stream != null) {
       for (final track in _stream!.getTracks()) {
-        track.stop();
+        try {
+          track.stop();
+        } catch (_) {}
       }
-      _stream!.dispose();
+      try {
+        await _stream!.dispose();
+      } catch (_) {}
       _stream = null;
     }
 

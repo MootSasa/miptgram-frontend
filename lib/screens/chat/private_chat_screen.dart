@@ -2468,6 +2468,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   Future<void> _sendRoundVideoMessage(File file) async {
+    if (!await file.exists() || await file.length() == 0) {
+      debugPrint('Video file is empty or does not exist');
+      return;
+    }
     try {
       setState(() => _isUploading = true);
       final uploadResult = await _fileService.uploadFile(

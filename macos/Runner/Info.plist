@@ -28,5 +28,9 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Miptgram needs camera access to record video messages and take photos</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Miptgram needs microphone access for voice messages, video messages, and calls</string>
 </dict>
 </plist>

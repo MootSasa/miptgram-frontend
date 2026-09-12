@@ -69,6 +69,17 @@ void main() {
       expect(service.isFrontCamera, isTrue);
       expect(service.elapsed, Duration.zero);
       expect(service.renderer, isNull);
+      expect(service.errorMessage, isNull);
+    });
+
+    test('Permission helpers on non-mobile test runner return expected defaults', () async {
+      final service = VideoNoteRecorderService();
+      // In flutter test environment (Linux/desktop), hasPermissions returns true by default
+      final hasPerm = await service.hasPermissions();
+      expect(hasPerm, isTrue);
+
+      final permDenied = await service.isPermanentlyDenied();
+      expect(permDenied, isFalse);
     });
   });
 

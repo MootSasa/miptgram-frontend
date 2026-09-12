@@ -28,6 +28,65 @@ class VideoNoteRecorderService with ChangeNotifier {
   String? get errorMessage => _errorMessage;
   String? get currentFilePath => _currentFilePath;
 
+  /// Checks whether both camera and microphone permissions are currently granted.
+  Future<bool> hasPermissions() async {
+    if (kIsWeb) return true;
+    if (defaultTargetPlatform != TargetPlatform.android &&
+        defaultTargetPlatform != TargetPlatform.iOS) {
+      return true;
+    }
+    try {
+      final cam = await Permission.camera.status;
+      final mic = await Permission.microphone.status;
+      return (cam.isGranted || cam.isLimited) &&
+          (mic.isGranted || mic.isLimited);
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Checks whether either camera or microphone permission is permanently denied.
+  Future<bool> isPermanentlyDenied() async {
+    if (kIsWeb) return false;
+    if (defaultTargetPlatform != TargetPlatform.android &&
+        defaultTargetPlatform != TargetPlatform.iOS) {
+      return false;
+    }
+    try {
+      final cam = await Permission.camera.status;
+      final mic = await Permission.microphone.status;
+      return cam.isPermanentlyDenied || mic.isPermanentlyDenied;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Requests camera and microphone permissions together in a single native request dialog batch.
+  Future<bool> requestPermissions() async {
+    if (kIsWeb) return true;
+    if (defaultTargetPlatform != TargetPlatform.android &&
+        defaultTargetPlatform != TargetPlatform.iOS) {
+      return true;
+    }
+
+    try {
+      final statuses = await [
+        Permission.camera,
+        Permission.microphone,
+      ].request();
+
+      final cam = statuses[Permission.camera];
+      final mic = statuses[Permission.microphone];
+
+      final camOk = cam?.isGranted == true || cam?.isLimited == true;
+      final micOk = mic?.isGranted == true || mic?.isLimited == true;
+
+      return camOk && micOk;
+    } catch (_) {
+      return true;
+    }
+  }
+
   /// Request permissions and initialize live camera preview stream
   Future<bool> initialize() async {
     if (_isInitialized && _renderer != null && _stream != null) {
@@ -37,18 +96,11 @@ class VideoNoteRecorderService with ChangeNotifier {
     try {
       _errorMessage = null;
 
-      // Check / request permissions on mobile / desktop platforms
-      if (!kIsWeb) {
-        final cameraStatus = await Permission.camera.request();
-        final micStatus = await Permission.microphone.request();
-        if (cameraStatus.isDenied ||
-            cameraStatus.isPermanentlyDenied ||
-            micStatus.isDenied ||
-            micStatus.isPermanentlyDenied) {
-          _errorMessage = 'permission_denied';
-          notifyListeners();
-          return false;
-        }
+      final ok = await requestPermissions();
+      if (!ok) {
+        _errorMessage = 'permission_denied';
+        notifyListeners();
+        return false;
       }
 
       _renderer = RTCVideoRenderer();
@@ -61,7 +113,14 @@ class VideoNoteRecorderService with ChangeNotifier {
       return true;
     } catch (e) {
       debugPrint('VideoNoteRecorderService: Failed to initialize: $e');
-      _errorMessage = e.toString();
+      final errorStr = e.toString().toLowerCase();
+      if (errorStr.contains('permission') ||
+          errorStr.contains('notallowed') ||
+          errorStr.contains('denied')) {
+        _errorMessage = 'permission_denied';
+      } else {
+        _errorMessage = e.toString();
+      }
       _cleanupStream();
       notifyListeners();
       return false;
@@ -124,7 +183,14 @@ class VideoNoteRecorderService with ChangeNotifier {
     } catch (e) {
       debugPrint('VideoNoteRecorderService: Failed to start recording: $e');
       _isRecording = false;
-      _errorMessage = e.toString();
+      final errorStr = e.toString().toLowerCase();
+      if (errorStr.contains('permission') ||
+          errorStr.contains('notallowed') ||
+          errorStr.contains('denied')) {
+        _errorMessage = 'permission_denied';
+      } else {
+        _errorMessage = e.toString();
+      }
       notifyListeners();
       return false;
     }

@@ -45,6 +45,7 @@ import 'channel_screen.dart';
 import '../../utils/date_time_utils.dart';
 import '../../services/video_note_recorder_service.dart';
 import '../../widgets/chat/round_video_recording_overlay.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class PrivateChatScreen extends StatefulWidget {
   final String chatId;
@@ -2347,16 +2348,80 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   Future<void> _onStartVideoRecord() async {
+    final hasPerms = await _videoRecorderService.hasPermissions();
+    if (!hasPerms) {
+      final permanentlyDenied =
+          await _videoRecorderService.isPermanentlyDenied();
+      if (permanentlyDenied) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                context.l10n.translate('chat_video_note_permission_denied'),
+              ),
+              action: SnackBarAction(
+                label: context.l10n.translate('settings_title'),
+                onPressed: () => openAppSettings(),
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      final granted = await _videoRecorderService.requestPermissions();
+      if (!granted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                context.l10n.translate('chat_video_note_permission_denied'),
+              ),
+              action: SnackBarAction(
+                label: context.l10n.translate('settings_title'),
+                onPressed: () => openAppSettings(),
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              context.l10n.translate('chat_video_note_hold_hint'),
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
     HapticFeedback.heavyImpact();
     setState(() => _isVideoRecording = true);
     final ok = await _videoRecorderService.startRecording();
     if (!ok && mounted) {
       setState(() => _isVideoRecording = false);
+      final isPermDenied =
+          _videoRecorderService.errorMessage == 'permission_denied';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            context.l10n.translate('chat_video_note_permission_denied'),
+            isPermDenied
+                ? context.l10n.translate('chat_video_note_permission_denied')
+                : (_videoRecorderService.errorMessage ??
+                    context.l10n
+                        .translate('chat_video_note_permission_denied')),
           ),
+          action: isPermDenied
+              ? SnackBarAction(
+                  label: context.l10n.translate('settings_title'),
+                  onPressed: () => openAppSettings(),
+                )
+              : null,
         ),
       );
     }

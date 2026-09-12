@@ -43,6 +43,8 @@ import '../../utils/entity_parser.dart';
 import 'group_chat_screen.dart';
 import 'channel_screen.dart';
 import '../../utils/date_time_utils.dart';
+import '../../services/video_note_recorder_service.dart';
+import '../../widgets/chat/round_video_recording_overlay.dart';
 
 class PrivateChatScreen extends StatefulWidget {
   final String chatId;
@@ -148,6 +150,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   final Map<String, GlobalKey> _messageKeys = {};
   final GlobalKey _inputKey = GlobalKey();
   double _inputHeight = 90.0;
+
+  // Video Note («Кружочки») state
+  final VideoNoteRecorderService _videoRecorderService = VideoNoteRecorderService();
+  final GlobalKey _videoOverlayKey = GlobalKey();
+  bool _isVideoRecording = false;
 
   // Пагинация
   bool _hasMoreMessages = true;
@@ -1370,6 +1377,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               'my_reactions': msg.myReactions.toList(),
             }))
           : const Value.absent(),
+      isRound: Value(msg.isRound),
       // isForward: Value(msg.isForward),
       // forwardFromId: Value(msg.forwardFromId),
       // forwardFromName: Value(msg.forwardFromName),
@@ -2157,6 +2165,17 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                     ),
                   ),
                 ),
+                // Полноэкранный Telegram-оверлей записи видеосообщения («кружочка»)
+                if (_isVideoRecording)
+                  Positioned.fill(
+                    child: RoundVideoRecordingOverlay(
+                      key: _videoOverlayKey,
+                      recorderService: _videoRecorderService,
+                      onCancel: _onVideoRecordingCancelled,
+                      onSend: _onVideoRecordingSend,
+                      onTooShort: _onVideoRecordingTooShort,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -2318,9 +2337,194 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       },
       onAttach: _showAttachmentPicker,
       onEmoji: _onEmojiToggle,
+      onStartVideoRecord: _onStartVideoRecord,
+      onVideoRecordMove: _onVideoRecordMove,
+      onVideoRecordEnd: _onVideoRecordEnd,
+      onVideoRecordCancel: _onVideoRecordCancel,
       currentUserId: _currentUserId,
       isSending: _isSending,
     );
+  }
+
+  Future<void> _onStartVideoRecord() async {
+    HapticFeedback.heavyImpact();
+    setState(() => _isVideoRecording = true);
+    final ok = await _videoRecorderService.startRecording();
+    if (!ok && mounted) {
+      setState(() => _isVideoRecording = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.l10n.translate('chat_video_note_permission_denied'),
+          ),
+        ),
+      );
+    }
+  }
+
+  void _onVideoRecordMove(Offset offset) {
+    if (!_isVideoRecording) return;
+    final state = _videoOverlayKey.currentState as dynamic;
+    state?.updatePointerOffset(offset.dx, offset.dy);
+  }
+
+  void _onVideoRecordEnd() {
+    if (!_isVideoRecording) return;
+    final state = _videoOverlayKey.currentState as dynamic;
+    state?.handlePointerUp();
+  }
+
+  void _onVideoRecordCancel() {
+    if (!_isVideoRecording) return;
+    _videoRecorderService.cancelRecording();
+    setState(() => _isVideoRecording = false);
+  }
+
+  void _onVideoRecordingCancelled() {
+    setState(() => _isVideoRecording = false);
+  }
+
+  void _onVideoRecordingTooShort() {
+    setState(() => _isVideoRecording = false);
+    HapticFeedback.selectionClick();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          context.l10n.translate('chat_video_note_too_short'),
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _onVideoRecordingSend(File file) async {
+    setState(() => _isVideoRecording = false);
+    await _sendRoundVideoMessage(file);
+  }
+
+  Future<void> _sendRoundVideoMessage(File file) async {
+    try {
+      setState(() => _isUploading = true);
+      final uploadResult = await _fileService.uploadFile(
+        file,
+        onProgress: (progress) {
+          if (mounted) setState(() => _uploadProgress = progress);
+        },
+      );
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+          _uploadProgress = 0.0;
+        });
+      }
+
+      final syncService = SyncService();
+      String? pendingLocalId;
+      DbMessage? pendingMsg;
+      try {
+        pendingMsg = await syncService.createPendingMessage(
+          chatId: widget.chatId,
+          senderId: _currentUserId ?? '',
+          content: uploadResult.fileName,
+          messageType: 'round',
+          fileUrl: uploadResult.url,
+          fileName: uploadResult.fileName,
+          isRound: true,
+        );
+      } catch (e) {
+        debugPrint('SyncService createPendingMessage error: $e');
+      }
+
+      if (pendingMsg != null) {
+        pendingLocalId = pendingMsg.localId;
+        final message = Message.fromDbMessage(pendingMsg);
+        if (mounted) {
+          setState(() {
+            _messages.insert(0, message);
+          });
+          _scrollToBottom();
+        }
+
+        try {
+          final result = await ChatService.sendMessage(
+            chatId: widget.chatId,
+            content: uploadResult.fileName,
+            messageType: 'round',
+            localId: pendingLocalId,
+            fileUrl: uploadResult.url,
+            fileName: uploadResult.fileName,
+            isRound: true,
+          );
+
+          if (result['success'] == true) {
+            final sentMessage = result['message'];
+            final serverId = sentMessage is Message ? sentMessage.id : null;
+            if (serverId != null && serverId.isNotEmpty) {
+              await syncService.confirmMessageSent(pendingLocalId, serverId);
+              if (mounted) {
+                setState(() {
+                  final idx =
+                      _messages.indexWhere((m) => m.localId == pendingLocalId);
+                  if (idx != -1) {
+                    if (sentMessage is Message) {
+                      _messages[idx] = sentMessage.copyWith(
+                        localId: pendingLocalId,
+                        sendStatus: 1,
+                        isRound: true,
+                      );
+                    } else {
+                      _messages[idx] = _messages[idx].copyWith(
+                        id: serverId,
+                        sendStatus: 1,
+                        isRound: true,
+                      );
+                    }
+                  }
+                });
+              }
+            }
+          } else {
+            await syncService.markMessageFailed(pendingLocalId);
+            if (mounted) {
+              setState(() {
+                final idx =
+                    _messages.indexWhere((m) => m.localId == pendingLocalId);
+                if (idx != -1) {
+                  _messages[idx] = _messages[idx].copyWith(sendStatus: 2);
+                }
+              });
+            }
+          }
+        } catch (e) {
+          debugPrint('Error sending round video message to backend: $e');
+          await syncService.markMessageFailed(pendingLocalId);
+          if (mounted) {
+            setState(() {
+              final idx =
+                  _messages.indexWhere((m) => m.localId == pendingLocalId);
+              if (idx != -1) {
+                _messages[idx] = _messages[idx].copyWith(sendStatus: 2);
+              }
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error uploading round video: $e');
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+          _uploadProgress = 0.0;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              context.l10n.translate('chat_upload_error'),
+            ),
+          ),
+        );
+      }
+    }
   }
 
 
@@ -2803,6 +3007,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     try {
       context.read<UnreadCountProvider>().setOpenChat(null);
     } catch (_) {}
+
+    _videoRecorderService.dispose();
 
     super.dispose();
   }

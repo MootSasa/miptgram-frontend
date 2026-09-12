@@ -681,6 +681,7 @@ class MessageBubble extends StatelessWidget {
 
   bool get _isVideo =>
       _hasMedia &&
+      !_isRoundVideo &&
       (message.messageType == 'video' || _isVideoUrl(message.fileUrl!));
 
   bool get _isAudio =>
@@ -690,7 +691,7 @@ class MessageBubble extends StatelessWidget {
           _isAudioUrl(message.fileUrl!));
 
   bool get _isRoundVideo =>
-      _hasMedia && message.messageType == 'round';
+      _hasMedia && (message.isRound || message.messageType == 'round');
 
   bool get _hasCaption {
     if (!_hasMedia) return false;
@@ -719,7 +720,7 @@ class MessageBubble extends StatelessWidget {
     final bool isBigEmoji = !hasMedia && _isSingleEmoji;
     final Alignment alignment = isMe ? Alignment.centerRight : Alignment.centerLeft;
 
-    final Color backgroundColor = isBigEmoji
+    final Color backgroundColor = (isBigEmoji || _isRoundVideo)
         ? Colors.transparent
         : (isMe
             ? Theme.of(context).colorScheme.primary
@@ -1061,6 +1062,8 @@ class MessageBubble extends StatelessWidget {
                   metadataWidget,
                 ],
         );
+      } else if (_isRoundVideo) {
+        innerContent = mediaWidget;
       } else if (_isImage || _isVideo) {
         innerContent = Stack(
           alignment: Alignment.bottomRight,
@@ -1121,7 +1124,7 @@ class MessageBubble extends StatelessWidget {
       }
     }
 
-    final EdgeInsets bubblePadding = isBigEmoji
+    final EdgeInsets bubblePadding = (isBigEmoji || _isRoundVideo)
         ? EdgeInsets.zero
         : (hasMedia && !hasCaption && replyWidget == null && (senderName == null || senderName!.isEmpty || isMe))
             ? const EdgeInsets.all(4.0)
@@ -1196,7 +1199,16 @@ class MessageBubble extends StatelessWidget {
     String resolvedUrl,
   ) {
     if (_isRoundVideo) {
-      return VideoMessageWidget(videoUrl: resolvedUrl);
+      final double circleSize = math.min(240.0, MediaQuery.of(context).size.width * 0.68);
+      return VideoMessageWidget(
+        videoUrl: resolvedUrl,
+        size: circleSize,
+        isMe: isMe,
+        isRead: message.isRead,
+        sendStatus: message.sendStatus,
+        timeText: formatTime(message.createdAt),
+        onRetry: onRetry != null ? () => onRetry!(message) : null,
+      );
     }
 
     if (_isImage) {

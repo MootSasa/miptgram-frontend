@@ -349,5 +349,18 @@
   "link_preview_remove": "미리보기 삭제",
   "caption_above_media": "미디어 위에 캡션",
   "caption_below_media": "미디어 아래에 캡션",
-  "quote_selection": "선택 영역 인용"
+  "quote_selection": "선택 영역 인용",
+  "chat_video_note": "비디오 메시지",
+  "chat_video_note_hold_hint": "길게 눌러 비디오 녹화",
+  "chat_video_note_swipe_cancel": "스와이프하여 취소",
+  "chat_video_note_release_cancel": "손을 떼면 취소됩니다",
+  "chat_video_note_lock": "고정",
+  "chat_video_note_too_short": "길게 눌러 녹화. 탭하여 음성 전환.",
+  "chat_video_note_send": "보내기",
+  "chat_video_note_discard": "삭제",
+  "chat_video_note_flip_camera": "카메라 전환",
+  "chat_video_note_stop": "정지",
+  "chat_video_note_tap_switch": "탭하여 비디오로 전환",
+  "chat_video_note_tap_voice": "탭하여 음성으로 전환",
+  "chat_video_note_permission_denied": "카메라 또는 마이크 접근이 거부되었습니다"
 }

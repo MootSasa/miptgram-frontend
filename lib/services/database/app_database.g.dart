@@ -779,9 +779,9 @@ class $MessagesTable extends Messages
   static const VerificationMeta _linkPreviewOptionsMeta =
       const VerificationMeta('linkPreviewOptions');
   @override
-  late final GeneratedColumn<String> linkPreviewOptions = GeneratedColumn<String>(
-      'link_preview_options', aliasedName, true,
-      type: DriftSqlType.string, requiredDuringInsert: false);
+  late final GeneratedColumn<String> linkPreviewOptions =
+      GeneratedColumn<String>('link_preview_options', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _invertMediaMeta =
       const VerificationMeta('invertMedia');
   @override
@@ -791,6 +791,16 @@ class $MessagesTable extends Messages
       requiredDuringInsert: false,
       defaultConstraints: GeneratedColumn.constraintIsAlways(
           'CHECK ("invert_media" IN (0, 1))'),
+      defaultValue: const Constant(false));
+  static const VerificationMeta _isRoundMeta =
+      const VerificationMeta('isRound');
+  @override
+  late final GeneratedColumn<bool> isRound = GeneratedColumn<bool>(
+      'is_round', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("is_round" IN (0, 1))'),
       defaultValue: const Constant(false));
   @override
   List<GeneratedColumn> get $columns => [
@@ -824,7 +834,8 @@ class $MessagesTable extends Messages
         entities,
         reactions,
         linkPreviewOptions,
-        invertMedia
+        invertMedia,
+        isRound
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1000,6 +1011,10 @@ class $MessagesTable extends Messages
           invertMedia.isAcceptableOrUnknown(
               data['invert_media']!, _invertMediaMeta));
     }
+    if (data.containsKey('is_round')) {
+      context.handle(_isRoundMeta,
+          isRound.isAcceptableOrUnknown(data['is_round']!, _isRoundMeta));
+    }
     return context;
   }
 
@@ -1067,10 +1082,12 @@ class $MessagesTable extends Messages
           .read(DriftSqlType.string, data['${effectivePrefix}entities']),
       reactions: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}reactions']),
-      linkPreviewOptions: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}link_preview_options']),
+      linkPreviewOptions: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}link_preview_options']),
       invertMedia: attachedDatabase.typeMapping
-          .read(DriftSqlType.bool, data['${effectivePrefix}invert_media']) ?? false,
+          .read(DriftSqlType.bool, data['${effectivePrefix}invert_media'])!,
+      isRound: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_round'])!,
     );
   }
 
@@ -1112,6 +1129,7 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
   final String? reactions;
   final String? linkPreviewOptions;
   final bool invertMedia;
+  final bool isRound;
   const DbMessage(
       {required this.localId,
       this.serverId,
@@ -1143,7 +1161,8 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       this.entities,
       this.reactions,
       this.linkPreviewOptions,
-      this.invertMedia = false});
+      required this.invertMedia,
+      required this.isRound});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -1210,6 +1229,7 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       map['link_preview_options'] = Variable<String>(linkPreviewOptions);
     }
     map['invert_media'] = Variable<bool>(invertMedia);
+    map['is_round'] = Variable<bool>(isRound);
     return map;
   }
 
@@ -1278,6 +1298,7 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
           ? const Value.absent()
           : Value(linkPreviewOptions),
       invertMedia: Value(invertMedia),
+      isRound: Value(isRound),
     );
   }
 
@@ -1318,7 +1339,8 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       reactions: serializer.fromJson<String?>(json['reactions']),
       linkPreviewOptions:
           serializer.fromJson<String?>(json['linkPreviewOptions']),
-      invertMedia: serializer.fromJson<bool>(json['invertMedia']) ?? false,
+      invertMedia: serializer.fromJson<bool>(json['invertMedia']),
+      isRound: serializer.fromJson<bool>(json['isRound']),
     );
   }
   @override
@@ -1354,9 +1376,9 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       'groupedId': serializer.toJson<String?>(groupedId),
       'entities': serializer.toJson<String?>(entities),
       'reactions': serializer.toJson<String?>(reactions),
-      'linkPreviewOptions':
-          serializer.toJson<String?>(linkPreviewOptions),
+      'linkPreviewOptions': serializer.toJson<String?>(linkPreviewOptions),
       'invertMedia': serializer.toJson<bool>(invertMedia),
+      'isRound': serializer.toJson<bool>(isRound),
     };
   }
 
@@ -1391,7 +1413,8 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
           Value<String?> entities = const Value.absent(),
           Value<String?> reactions = const Value.absent(),
           Value<String?> linkPreviewOptions = const Value.absent(),
-          bool? invertMedia}) =>
+          bool? invertMedia,
+          bool? isRound}) =>
       DbMessage(
         localId: localId ?? this.localId,
         serverId: serverId.present ? serverId.value : this.serverId,
@@ -1438,6 +1461,7 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
             ? linkPreviewOptions.value
             : this.linkPreviewOptions,
         invertMedia: invertMedia ?? this.invertMedia,
+        isRound: isRound ?? this.isRound,
       );
   DbMessage copyWithCompanion(MessagesCompanion data) {
     return DbMessage(
@@ -1494,9 +1518,9 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       linkPreviewOptions: data.linkPreviewOptions.present
           ? data.linkPreviewOptions.value
           : this.linkPreviewOptions,
-      invertMedia: data.invertMedia.present
-          ? data.invertMedia.value
-          : this.invertMedia,
+      invertMedia:
+          data.invertMedia.present ? data.invertMedia.value : this.invertMedia,
+      isRound: data.isRound.present ? data.isRound.value : this.isRound,
     );
   }
 
@@ -1531,7 +1555,10 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
           ..write('forwardFromName: $forwardFromName, ')
           ..write('groupedId: $groupedId, ')
           ..write('entities: $entities, ')
-          ..write('reactions: $reactions')
+          ..write('reactions: $reactions, ')
+          ..write('linkPreviewOptions: $linkPreviewOptions, ')
+          ..write('invertMedia: $invertMedia, ')
+          ..write('isRound: $isRound')
           ..write(')'))
         .toString();
   }
@@ -1566,7 +1593,10 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
         forwardFromName,
         groupedId,
         entities,
-        reactions
+        reactions,
+        linkPreviewOptions,
+        invertMedia,
+        isRound
       ]);
   @override
   bool operator ==(Object other) =>
@@ -1600,7 +1630,10 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
           other.forwardFromName == this.forwardFromName &&
           other.groupedId == this.groupedId &&
           other.entities == this.entities &&
-          other.reactions == this.reactions);
+          other.reactions == this.reactions &&
+          other.linkPreviewOptions == this.linkPreviewOptions &&
+          other.invertMedia == this.invertMedia &&
+          other.isRound == this.isRound);
 }
 
 class MessagesCompanion extends UpdateCompanion<DbMessage> {
@@ -1635,6 +1668,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
   final Value<String?> reactions;
   final Value<String?> linkPreviewOptions;
   final Value<bool> invertMedia;
+  final Value<bool> isRound;
   final Value<int> rowid;
   const MessagesCompanion({
     this.localId = const Value.absent(),
@@ -1668,6 +1702,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
     this.reactions = const Value.absent(),
     this.linkPreviewOptions = const Value.absent(),
     this.invertMedia = const Value.absent(),
+    this.isRound = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   MessagesCompanion.insert({
@@ -1702,6 +1737,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
     this.reactions = const Value.absent(),
     this.linkPreviewOptions = const Value.absent(),
     this.invertMedia = const Value.absent(),
+    this.isRound = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : localId = Value(localId),
         chatId = Value(chatId),
@@ -1740,6 +1776,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
     Expression<String>? reactions,
     Expression<String>? linkPreviewOptions,
     Expression<bool>? invertMedia,
+    Expression<bool>? isRound,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1776,6 +1813,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
       if (linkPreviewOptions != null)
         'link_preview_options': linkPreviewOptions,
       if (invertMedia != null) 'invert_media': invertMedia,
+      if (isRound != null) 'is_round': isRound,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1812,6 +1850,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
       Value<String?>? reactions,
       Value<String?>? linkPreviewOptions,
       Value<bool>? invertMedia,
+      Value<bool>? isRound,
       Value<int>? rowid}) {
     return MessagesCompanion(
       localId: localId ?? this.localId,
@@ -1845,6 +1884,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
       reactions: reactions ?? this.reactions,
       linkPreviewOptions: linkPreviewOptions ?? this.linkPreviewOptions,
       invertMedia: invertMedia ?? this.invertMedia,
+      isRound: isRound ?? this.isRound,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1945,6 +1985,9 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
     if (invertMedia.present) {
       map['invert_media'] = Variable<bool>(invertMedia.value);
     }
+    if (isRound.present) {
+      map['is_round'] = Variable<bool>(isRound.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1985,6 +2028,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
           ..write('reactions: $reactions, ')
           ..write('linkPreviewOptions: $linkPreviewOptions, ')
           ..write('invertMedia: $invertMedia, ')
+          ..write('isRound: $isRound, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2962,6 +3006,7 @@ typedef $$MessagesTableCreateCompanionBuilder = MessagesCompanion Function({
   Value<String?> reactions,
   Value<String?> linkPreviewOptions,
   Value<bool> invertMedia,
+  Value<bool> isRound,
   Value<int> rowid,
 });
 typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
@@ -2996,6 +3041,7 @@ typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
   Value<String?> reactions,
   Value<String?> linkPreviewOptions,
   Value<bool> invertMedia,
+  Value<bool> isRound,
   Value<int> rowid,
 });
 
@@ -3108,6 +3154,9 @@ class $$MessagesTableFilterComposer
 
   ColumnFilters<bool> get invertMedia => $composableBuilder(
       column: $table.invertMedia, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isRound => $composableBuilder(
+      column: $table.isRound, builder: (column) => ColumnFilters(column));
 }
 
 class $$MessagesTableOrderingComposer
@@ -3220,6 +3269,9 @@ class $$MessagesTableOrderingComposer
 
   ColumnOrderings<bool> get invertMedia => $composableBuilder(
       column: $table.invertMedia, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get isRound => $composableBuilder(
+      column: $table.isRound, builder: (column) => ColumnOrderings(column));
 }
 
 class $$MessagesTableAnnotationComposer
@@ -3321,8 +3373,11 @@ class $$MessagesTableAnnotationComposer
   GeneratedColumn<String> get linkPreviewOptions => $composableBuilder(
       column: $table.linkPreviewOptions, builder: (column) => column);
 
-  GeneratedColumn<bool> get invertMedia =>
-      $composableBuilder(column: $table.invertMedia, builder: (column) => column);
+  GeneratedColumn<bool> get invertMedia => $composableBuilder(
+      column: $table.invertMedia, builder: (column) => column);
+
+  GeneratedColumn<bool> get isRound =>
+      $composableBuilder(column: $table.isRound, builder: (column) => column);
 }
 
 class $$MessagesTableTableManager extends RootTableManager<
@@ -3379,6 +3434,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             Value<String?> reactions = const Value.absent(),
             Value<String?> linkPreviewOptions = const Value.absent(),
             Value<bool> invertMedia = const Value.absent(),
+            Value<bool> isRound = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               MessagesCompanion(
@@ -3413,6 +3469,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             reactions: reactions,
             linkPreviewOptions: linkPreviewOptions,
             invertMedia: invertMedia,
+            isRound: isRound,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -3447,6 +3504,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             Value<String?> reactions = const Value.absent(),
             Value<String?> linkPreviewOptions = const Value.absent(),
             Value<bool> invertMedia = const Value.absent(),
+            Value<bool> isRound = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               MessagesCompanion.insert(
@@ -3481,6 +3539,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             reactions: reactions,
             linkPreviewOptions: linkPreviewOptions,
             invertMedia: invertMedia,
+            isRound: isRound,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0

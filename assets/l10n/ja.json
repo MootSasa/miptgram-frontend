@@ -349,5 +349,18 @@
   "link_preview_remove": "プレビューを削除",
   "caption_above_media": "メディアの上にキャプション",
   "caption_below_media": "メディアの下にキャプション",
-  "quote_selection": "選択範囲を引用"
+  "quote_selection": "選択範囲を引用",
+  "chat_video_note": "ビデオメッセージ",
+  "chat_video_note_hold_hint": "長押ししてビデオを録画",
+  "chat_video_note_swipe_cancel": "スライドしてキャンセル",
+  "chat_video_note_release_cancel": "離してキャンセル",
+  "chat_video_note_lock": "固定",
+  "chat_video_note_too_short": "長押しして録画。タップで音声に切替。",
+  "chat_video_note_send": "送信",
+  "chat_video_note_discard": "破棄",
+  "chat_video_note_flip_camera": "カメラ切り替え",
+  "chat_video_note_stop": "停止",
+  "chat_video_note_tap_switch": "タップしてビデオに切替",
+  "chat_video_note_tap_voice": "タップして音声に切替",
+  "chat_video_note_permission_denied": "カメラまたはマイクへのアクセスが拒否されました"
 }

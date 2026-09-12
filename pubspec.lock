@@ -98,7 +98,7 @@ packages:
     source: hosted
     version: "4.1.1"
   build_runner:
-    dependency: "direct overridden"
+    dependency: "direct dev"
     description:
       name: build_runner
       sha256: "1523ce62448ebac2c15a8ba5fbad8acac169788658a7dd2a1c2d9c2a9318b9a6"
@@ -306,7 +306,7 @@ packages:
     source: hosted
     version: "2.33.0"
   drift_dev:
-    dependency: "direct overridden"
+    dependency: "direct dev"
     description:
       name: drift_dev
       sha256: b3dd5b75e30522a91da8abda9f5bb17230cb038097f6d15fa75d42bb563428aa

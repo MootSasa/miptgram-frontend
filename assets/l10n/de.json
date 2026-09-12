@@ -349,5 +349,18 @@
   "link_preview_remove": "Vorschau entfernen",
   "caption_above_media": "Beschriftung über Medien",
   "caption_below_media": "Beschriftung unter Medien",
-  "quote_selection": "Auswahl zitieren"
+  "quote_selection": "Auswahl zitieren",
+  "chat_video_note": "Videonachricht",
+  "chat_video_note_hold_hint": "Halten für Videoaufnahme",
+  "chat_video_note_swipe_cancel": "Zum Abbrechen wischen",
+  "chat_video_note_release_cancel": "Loslassen zum Abbrechen",
+  "chat_video_note_lock": "Sperren",
+  "chat_video_note_too_short": "Halten für Video. Tippen für Sprachnachricht.",
+  "chat_video_note_send": "Senden",
+  "chat_video_note_discard": "Verwerfen",
+  "chat_video_note_flip_camera": "Kamera wechseln",
+  "chat_video_note_stop": "Stoppen",
+  "chat_video_note_tap_switch": "Tippen für Video",
+  "chat_video_note_tap_voice": "Tippen für Sprache",
+  "chat_video_note_permission_denied": "Zugriff auf Kamera oder Mikrofon verweigert"
 }

@@ -349,5 +349,18 @@
   "link_preview_remove": "Supprimer l'aperçu",
   "caption_above_media": "Légende au-dessus des médias",
   "caption_below_media": "Légende en dessous des médias",
-  "quote_selection": "Citer la sélection"
+  "quote_selection": "Citer la sélection",
+  "chat_video_note": "Message vidéo",
+  "chat_video_note_hold_hint": "Maintenez pour enregistrer une vidéo",
+  "chat_video_note_swipe_cancel": "Glissez pour annuler",
+  "chat_video_note_release_cancel": "Relâchez pour annuler",
+  "chat_video_note_lock": "Verrouiller",
+  "chat_video_note_too_short": "Maintenez pour la vidéo. Appuyez pour passer au vocal.",
+  "chat_video_note_send": "Envoyer",
+  "chat_video_note_discard": "Supprimer",
+  "chat_video_note_flip_camera": "Changer de caméra",
+  "chat_video_note_stop": "Arrêter",
+  "chat_video_note_tap_switch": "Appuyez pour passer à la vidéo",
+  "chat_video_note_tap_voice": "Appuyez pour passer au vocal",
+  "chat_video_note_permission_denied": "Accès à la caméra ou au microphone refusé"
 }

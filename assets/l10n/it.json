@@ -349,5 +349,18 @@
   "link_preview_remove": "Rimuovi anteprima",
   "caption_above_media": "Didascalia sopra i media",
   "caption_below_media": "Didascalia sotto i media",
-  "quote_selection": "Cita selezione"
+  "quote_selection": "Cita selezione",
+  "chat_video_note": "Videomessaggio",
+  "chat_video_note_hold_hint": "Tieni premuto per registrare un video",
+  "chat_video_note_swipe_cancel": "Scorri per annullare",
+  "chat_video_note_release_cancel": "Rilascia per annullare",
+  "chat_video_note_lock": "Blocca",
+  "chat_video_note_too_short": "Tieni premuto per video. Tocca per passare alla voce.",
+  "chat_video_note_send": "Invia",
+  "chat_video_note_discard": "Elimina",
+  "chat_video_note_flip_camera": "Cambia fotocamera",
+  "chat_video_note_stop": "Ferma",
+  "chat_video_note_tap_switch": "Tocca per passare al video",
+  "chat_video_note_tap_voice": "Tocca per passare alla voce",
+  "chat_video_note_permission_denied": "Accesso alla fotocamera o al microfono negato"
 }

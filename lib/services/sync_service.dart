@@ -159,6 +159,8 @@ class SyncService {
       entities: Value(entitiesStr),
       linkPreviewOptions: Value(linkPreviewOptionsStr),
       invertMedia: Value(invertMedia),
+      isRound: Value(payload['is_round'] == true ||
+          payload['message_type'] == 'round'),
     ));
   }
 
@@ -263,6 +265,7 @@ class SyncService {
     dynamic entities,
     dynamic linkPreviewOptions,
     bool invertMedia = false,
+    bool isRound = false,
   }) async {
     final localId = _uuid.v4();
     final now = DateTime.now().toUtc().toIso8601String();
@@ -301,6 +304,7 @@ class SyncService {
       entities: Value(entitiesStr),
       linkPreviewOptions: Value(linkPreviewOptionsStr),
       invertMedia: Value(invertMedia),
+      isRound: Value(isRound),
     ));
 
     // Return the saved message as DbMessage
@@ -336,6 +340,7 @@ class SyncService {
       reactions: null,
       linkPreviewOptions: linkPreviewOptionsStr,
       invertMedia: invertMedia,
+      isRound: isRound,
     );
   }
 

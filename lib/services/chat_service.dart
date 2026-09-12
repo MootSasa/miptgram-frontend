@@ -320,6 +320,9 @@ class Message {
   final Map<String, int> reactions; // emoji -> count
   final Set<String> myReactions; // emojis selected by current user
 
+  // Round video note flag
+  final bool isRound;
+
   Message({
     required this.id,
     required this.chatId,
@@ -353,6 +356,7 @@ class Message {
     this.invertMedia = false,
     this.reactions = const {},
     this.myReactions = const {},
+    this.isRound = false,
   });
 
   /// Whether this message has a reply or quote
@@ -457,6 +461,7 @@ class Message {
           json['invert_media'] == 'true',
       reactions: parsedReactions,
       myReactions: parsedMyReactions,
+      isRound: json['is_round'] == true || json['message_type'] == 'round',
     );
   }
 
@@ -551,6 +556,7 @@ class Message {
       invertMedia: model.invertMedia,
       reactions: dbReactions,
       myReactions: dbMyReactions,
+      isRound: model.isRound,
     );
   }
 
@@ -588,6 +594,7 @@ class Message {
     bool? invertMedia,
     Map<String, int>? reactions,
     Set<String>? myReactions,
+    bool? isRound,
   }) {
     return Message(
       id: id ?? this.id,
@@ -622,6 +629,7 @@ class Message {
       invertMedia: invertMedia ?? this.invertMedia,
       reactions: reactions ?? this.reactions,
       myReactions: myReactions ?? this.myReactions,
+      isRound: isRound ?? this.isRound,
     );
   }
 }
@@ -993,6 +1001,7 @@ class ChatService {
     List<MessageEntity>? entities,
     LinkPreviewOptions? linkPreviewOptions,
     bool invertMedia = false,
+    bool isRound = false,
   }) async {
     try {
       final token = await AuthService.getToken();
@@ -1006,6 +1015,7 @@ class ChatService {
       };
       if (fileUrl != null) body['file_url'] = fileUrl;
       if (fileName != null) body['file_name'] = fileName;
+      if (isRound) body['is_round'] = true;
       if (replyToMessageId != null) {
         body['reply_to_message_id'] = replyToMessageId;
         if (isQuote) {

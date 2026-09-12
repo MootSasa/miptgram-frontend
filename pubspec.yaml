@@ -74,6 +74,8 @@ dev_dependencies:
 
   # The "flutter_lints" package contains a set of lints to encourage good coding practices.
   flutter_lints: ^2.0.0
+  drift_dev: ^2.22.1
+  build_runner: ^2.4.9
 
 dependency_overrides:
   drift_dev: ^2.22.1

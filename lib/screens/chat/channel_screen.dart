@@ -559,6 +559,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
       senderName: Value(msg.senderName),
       senderAvatarUrl: Value(msg.senderAvatarUrl),
       createdAt: Value(msg.createdAt),
+      isRound: Value(msg.isRound),
     );
   }
 

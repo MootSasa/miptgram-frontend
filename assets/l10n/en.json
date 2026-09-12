@@ -696,5 +696,18 @@
   "link_preview_remove": "Do Not Preview",
   "caption_above_media": "Move Caption Above Media",
   "caption_below_media": "Move Caption Below Media",
-  "quote_selection": "Quote Selection"
+  "quote_selection": "Quote Selection",
+  "chat_video_note": "Video message",
+  "chat_video_note_hold_hint": "Hold to record video",
+  "chat_video_note_swipe_cancel": "Slide to cancel",
+  "chat_video_note_release_cancel": "Release to cancel",
+  "chat_video_note_lock": "Lock",
+  "chat_video_note_too_short": "Hold to record video. Tap to switch to voice.",
+  "chat_video_note_send": "Send",
+  "chat_video_note_discard": "Discard",
+  "chat_video_note_flip_camera": "Flip camera",
+  "chat_video_note_stop": "Stop",
+  "chat_video_note_tap_switch": "Tap to switch to video",
+  "chat_video_note_tap_voice": "Tap to switch to voice",
+  "chat_video_note_permission_denied": "Camera or microphone access denied"
 }

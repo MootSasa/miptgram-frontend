@@ -349,5 +349,18 @@
   "link_preview_remove": "不预览",
   "caption_above_media": "媒体上方显示说明",
   "caption_below_media": "媒体下方显示说明",
-  "quote_selection": "引用所选"
+  "quote_selection": "引用所选",
+  "chat_video_note": "视频留言",
+  "chat_video_note_hold_hint": "按住录制视频",
+  "chat_video_note_swipe_cancel": "滑动以取消",
+  "chat_video_note_release_cancel": "松开以取消",
+  "chat_video_note_lock": "锁定",
+  "chat_video_note_too_short": "按住录制视频。轻触切换到语音。",
+  "chat_video_note_send": "发送",
+  "chat_video_note_discard": "放弃",
+  "chat_video_note_flip_camera": "翻转相机",
+  "chat_video_note_stop": "停止",
+  "chat_video_note_tap_switch": "轻触切换到视频",
+  "chat_video_note_tap_voice": "轻触切换到语音",
+  "chat_video_note_permission_denied": "相机或麦克风访问被拒绝"
 }

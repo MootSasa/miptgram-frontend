@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../l10n/app_localizations.dart';
 import '../../services/profile_theme_provider.dart';
 import '../../utils/emoji_utils.dart';
@@ -55,6 +56,10 @@ class LiquidGlassInputField extends StatefulWidget {
   final VoidCallback? onAttach;
   final VoidCallback? onEmoji;
   final VoidCallback? onVoice;
+  final VoidCallback? onStartVideoRecord;
+  final ValueChanged<Offset>? onVideoRecordMove;
+  final VoidCallback? onVideoRecordEnd;
+  final VoidCallback? onVideoRecordCancel;
   final bool isSending;
   final IconData attachIcon;
   final Widget? attachIconWidget;
@@ -72,6 +77,10 @@ class LiquidGlassInputField extends StatefulWidget {
     this.onAttach,
     this.onEmoji,
     this.onVoice,
+    this.onStartVideoRecord,
+    this.onVideoRecordMove,
+    this.onVideoRecordEnd,
+    this.onVideoRecordCancel,
     this.isSending = false,
     this.attachIcon = Icons.attach_file,
     this.attachIconWidget,
@@ -87,12 +96,14 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
   final GlobalKey _fieldKey = GlobalKey();
   late final AnimationController _blinkController;
   late final AnimationController _spoilerController;
+  late final AnimationController _mediaFlipController;
   late final ScrollController _scrollController;
   final List<SpoilerParticle> _spoilerParticles = [];
   String _lastRecordedText = '';
   bool _lastShowItalic = false;
   bool _lastHasSpoilers = false;
   bool _lastHasQuotes = false;
+  bool _isVideoMode = false;
 
   bool _computeShowItalic() {
     final richCtrl = widget.controller is RichTextEditingController
@@ -157,6 +168,12 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
     widget.focusNode?.addListener(_onFocusChanged);
     // Refresh text field when font loads
     EmojiUtils.isFontLoaded.addListener(_handleFontLoaded);
+
+    _mediaFlipController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    _loadMediaMode();
   }
 
   @override
@@ -189,9 +206,40 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
     widget.focusNode?.removeListener(_onFocusChanged);
     _blinkController.dispose();
     _spoilerController.dispose();
+    _mediaFlipController.dispose();
     _scrollController.dispose();
     EmojiUtils.isFontLoaded.removeListener(_handleFontLoaded);
     super.dispose();
+  }
+
+  Future<void> _loadMediaMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final mode = prefs.getString('chat_input_media_mode');
+      if (mode == 'video' && mounted) {
+        setState(() {
+          _isVideoMode = true;
+          _mediaFlipController.value = 1.0;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _toggleMediaMode() async {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _isVideoMode = !_isVideoMode;
+    });
+    if (_isVideoMode) {
+      _mediaFlipController.forward(from: 0.0);
+    } else {
+      _mediaFlipController.reverse(from: 1.0);
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          'chat_input_media_mode', _isVideoMode ? 'video' : 'voice');
+    } catch (_) {}
   }
 
   void _onControllerChanged() {
@@ -529,17 +577,81 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
         return FakeGlass.inLayer(
           shape: const LiquidOval(),
           child: GestureDetector(
-            onTap: widget.isSending ? null : (hasText ? widget.onSend : widget.onVoice),
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              if (widget.isSending) return;
+              if (hasText) {
+                widget.onSend?.call();
+              } else {
+                _toggleMediaMode();
+              }
+            },
+            onLongPressStart: (details) {
+              if (hasText || widget.isSending) return;
+              if (_isVideoMode) {
+                widget.onStartVideoRecord?.call();
+              } else {
+                widget.onVoice?.call();
+              }
+            },
+            onLongPressMoveUpdate: (details) {
+              if (hasText || widget.isSending) return;
+              if (_isVideoMode) {
+                widget.onVideoRecordMove?.call(details.offsetFromOrigin);
+              }
+            },
+            onLongPressEnd: (details) {
+              if (hasText || widget.isSending) return;
+              if (_isVideoMode) {
+                widget.onVideoRecordEnd?.call();
+              }
+            },
+            onLongPressCancel: () {
+              if (hasText || widget.isSending) return;
+              if (_isVideoMode) {
+                widget.onVideoRecordCancel?.call();
+              }
+            },
             child: Container(
               width: _kActionButtonSize,
               height: _kActionButtonSize,
-              decoration: BoxDecoration(color: widget.isSending ? Colors.grey : rightButtonBg),
+              decoration: BoxDecoration(
+                  color: widget.isSending ? Colors.grey : rightButtonBg),
               alignment: Alignment.center,
               child: widget.isSending
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
                   : (hasText
-                      ? const iconoir.SendDiagonalSolid(width: 22, height: 22, color: Colors.white)
-                      : const iconoir.MicrophoneSolid(width: 22, height: 22, color: Colors.white)),
+                      ? const iconoir.SendDiagonalSolid(
+                          width: 22, height: 22, color: Colors.white)
+                      : AnimatedBuilder(
+                          animation: _mediaFlipController,
+                          builder: (context, child) {
+                            final angle = _mediaFlipController.value * math.pi;
+                            final isVideo = _mediaFlipController.value >= 0.5;
+                            return Transform(
+                              alignment: Alignment.center,
+                              transform: Matrix4.identity()
+                                ..setEntry(3, 2, 0.002)
+                                ..rotateY(angle + (isVideo ? math.pi : 0)),
+                              child: isVideo
+                                  ? const iconoir.VideoCamera(
+                                      width: 22,
+                                      height: 22,
+                                      color: Colors.white,
+                                    )
+                                  : const iconoir.MicrophoneSolid(
+                                      width: 22,
+                                      height: 22,
+                                      color: Colors.white,
+                                    ),
+                            );
+                          },
+                        )),
             ),
           ),
         );

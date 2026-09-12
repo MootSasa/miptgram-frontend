@@ -159,6 +159,15 @@ class _RoundVideoRecordingOverlayState extends State<RoundVideoRecordingOverlay>
     if (file != null && mounted) {
       widget.onSend(file);
     } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)?.translate('chat_upload_error') ??
+                'Failed to record video note',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
       widget.onCancel();
     }
   }
@@ -253,35 +262,10 @@ class _RoundVideoRecordingOverlayState extends State<RoundVideoRecordingOverlay>
         _buildTimerBadge(),
         const SizedBox(height: 12),
 
-        // Breathing pulse ring + circular camera
+        // Clean circular camera viewfinder without pulsating aura
         Stack(
           alignment: Alignment.center,
           children: [
-            // Breathing Aura Ring (expanding / contracting smoothly)
-            AnimatedBuilder(
-              animation: _pulseController,
-              builder: (context, child) {
-                final auraScale = 1.0 + (_pulseController.value * 0.07);
-                final auraAlpha = 0.35 - (_pulseController.value * 0.2);
-
-                return Transform.scale(
-                  scale: auraScale,
-                  child: Container(
-                    width: diameter + 8,
-                    height: diameter + 8,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: theme.colorScheme.primary
-                            .withValues(alpha: auraAlpha),
-                        width: 4.0,
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-
             // Camera Circle Preview
             _buildCameraCircle(diameter),
 

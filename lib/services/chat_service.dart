@@ -1009,13 +1009,20 @@ class ChatService {
         return {'success': false, 'message': 'Not authenticated'};
       }
 
+      String effectiveMessageType = messageType;
+      bool effectiveIsRound = isRound;
+      if (effectiveMessageType == 'round') {
+        effectiveMessageType = 'video';
+        effectiveIsRound = true;
+      }
+
       final body = <String, dynamic>{
         'content': content,
-        'message_type': messageType,
+        'message_type': effectiveMessageType,
       };
       if (fileUrl != null) body['file_url'] = fileUrl;
       if (fileName != null) body['file_name'] = fileName;
-      if (isRound) body['is_round'] = true;
+      if (effectiveIsRound) body['is_round'] = true;
       if (replyToMessageId != null) {
         body['reply_to_message_id'] = replyToMessageId;
         if (isQuote) {

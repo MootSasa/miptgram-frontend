@@ -2491,7 +2491,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           chatId: widget.chatId,
           senderId: _currentUserId ?? '',
           content: uploadResult.fileName,
-          messageType: 'round',
+          messageType: 'video',
           fileUrl: uploadResult.url,
           fileName: uploadResult.fileName,
           isRound: true,
@@ -2514,7 +2514,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           final result = await ChatService.sendMessage(
             chatId: widget.chatId,
             content: uploadResult.fileName,
-            messageType: 'round',
+            messageType: 'video',
             localId: pendingLocalId,
             fileUrl: uploadResult.url,
             fileName: uploadResult.fileName,

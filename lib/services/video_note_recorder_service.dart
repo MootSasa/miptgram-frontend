@@ -128,20 +128,32 @@ class VideoNoteRecorderService with ChangeNotifier {
   }
 
   Future<void> _acquireStream() async {
-    final mediaConstraints = <String, dynamic>{
-      'audio': true,
-      'video': {
-        'mandatory': {
-          'minWidth': '480',
-          'minHeight': '480',
-          'minFrameRate': '30',
+    try {
+      final mediaConstraints = <String, dynamic>{
+        'audio': true,
+        'video': {
+          'mandatory': {
+            'minWidth': '640',
+            'minHeight': '480',
+            'minFrameRate': '30',
+          },
+          'facingMode': _isFrontCamera ? 'user' : 'environment',
+          'optional': [],
         },
-        'facingMode': _isFrontCamera ? 'user' : 'environment',
-        'optional': [],
-      },
-    };
+      };
+      _stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+    } catch (e) {
+      debugPrint(
+          'VideoNoteRecorderService: Failed with mandatory constraints, retrying basic: $e');
+      final fallbackConstraints = <String, dynamic>{
+        'audio': true,
+        'video': {
+          'facingMode': _isFrontCamera ? 'user' : 'environment',
+        },
+      };
+      _stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+    }
 
-    _stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
     if (_renderer != null) {
       _renderer!.srcObject = _stream;
     }
@@ -164,10 +176,18 @@ class VideoNoteRecorderService with ChangeNotifier {
       final videoTracks = _stream!.getVideoTracks();
       final videoTrack = videoTracks.isNotEmpty ? videoTracks.first : null;
 
-      await _recorder!.start(
-        _currentFilePath!,
-        videoTrack: videoTrack,
-      );
+      if (!kIsWeb) {
+        await _recorder!.start(
+          _currentFilePath!,
+          videoTrack: videoTrack,
+          audioChannel: RecorderAudioChannel.INPUT,
+        );
+      } else {
+        _recorder!.startWeb(
+          _stream!,
+          mimeType: 'video/webm',
+        );
+      }
 
       _isRecording = true;
       _elapsed = Duration.zero;
@@ -199,34 +219,36 @@ class VideoNoteRecorderService with ChangeNotifier {
   /// Toggle between front (selfie) and rear cameras during recording or preview
   Future<void> flipCamera() async {
     if (_stream == null) return;
+    final videoTracks = _stream!.getVideoTracks();
+    if (videoTracks.isEmpty) return;
+
     try {
-      _isFrontCamera = !_isFrontCamera;
-
-      // Stop existing video tracks
-      for (final track in _stream!.getVideoTracks()) {
-        track.stop();
-        _stream!.removeTrack(track);
+      final track = videoTracks.first;
+      if (!kIsWeb) {
+        try {
+          final isFront = await Helper.switchCamera(track);
+          _isFrontCamera = isFront;
+        } catch (e) {
+          debugPrint('VideoNoteRecorderService: switchCamera error, toggling flag: $e');
+          _isFrontCamera = !_isFrontCamera;
+        }
+      } else {
+        final cams = await Helper.cameras;
+        if (cams.length > 1) {
+          final otherCam = cams.firstWhere(
+            (c) => _isFrontCamera
+                ? (c.label.toLowerCase().contains('back') ||
+                    c.label.toLowerCase().contains('rear') ||
+                    c.label.toLowerCase().contains('environment'))
+                : (c.label.toLowerCase().contains('front') ||
+                    c.label.toLowerCase().contains('user')),
+            orElse: () => cams.firstWhere((c) => c.deviceId != track.id,
+                orElse: () => cams.first),
+          );
+          await Helper.switchCamera(track, otherCam.deviceId, _stream);
+          _isFrontCamera = !_isFrontCamera;
+        }
       }
-
-      final videoConstraints = <String, dynamic>{
-        'mandatory': {
-          'minWidth': '480',
-          'minHeight': '480',
-          'minFrameRate': '30',
-        },
-        'facingMode': _isFrontCamera ? 'user' : 'environment',
-        'optional': [],
-      };
-
-      final newStream = await navigator.mediaDevices.getUserMedia({
-        'audio': false,
-        'video': videoConstraints,
-      });
-
-      for (final track in newStream.getVideoTracks()) {
-        _stream!.addTrack(track);
-      }
-
       notifyListeners();
     } catch (e) {
       debugPrint('VideoNoteRecorderService: Failed to flip camera: $e');
@@ -250,10 +272,22 @@ class VideoNoteRecorderService with ChangeNotifier {
 
       if (path != null) {
         final file = File(path);
+        // MediaMuxer on mobile flushes asynchronously on background thread.
+        // Poll for up to 3 seconds for the file to be flushed and non-empty.
+        for (int i = 0; i < 30; i++) {
+          if (await file.exists() && await file.length() > 0) {
+            debugPrint(
+                'VideoNoteRecorderService: Video note recorded: ${file.path} (${await file.length()} bytes)');
+            notifyListeners();
+            return file;
+          }
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
         if (await file.exists() && await file.length() > 0) {
           notifyListeners();
           return file;
         }
+        debugPrint('VideoNoteRecorderService: File at $path is missing or empty');
       }
     } catch (e) {
       debugPrint('VideoNoteRecorderService: Failed to stop recording: $e');

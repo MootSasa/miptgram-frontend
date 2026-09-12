@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
@@ -71,7 +72,17 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget> {
     }
 
     try {
-      _controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl))
+      final uri = Uri.tryParse(widget.videoUrl);
+      if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+        _controller = VideoPlayerController.networkUrl(uri);
+      } else {
+        final filePath = widget.videoUrl.startsWith('file://')
+            ? widget.videoUrl.replaceFirst('file://', '')
+            : widget.videoUrl;
+        _controller = VideoPlayerController.file(File(filePath));
+      }
+
+      _controller!
         ..setLooping(true)
         ..setVolume(0.0)
         ..initialize().then((_) {

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
+import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 import 'message_status_widget.dart';
 
@@ -41,6 +42,7 @@ class VideoMessageWidget extends StatefulWidget {
 
 class _VideoMessageWidgetState extends State<VideoMessageWidget> {
   VideoPlayerController? _controller;
+  int _initSession = 0;
   bool _hasError = false;
   bool _isPlayingWithSound = false;
   bool _isPausedWithSound = false;
@@ -55,6 +57,7 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget> {
   void didUpdateWidget(VideoMessageWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.videoUrl != widget.videoUrl) {
+      _initSession++;
       _controller?.removeListener(_onVideoUpdate);
       _controller?.dispose();
       _controller = null;
@@ -65,38 +68,83 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget> {
     }
   }
 
-  void _initializeVideoPlayer() {
+  Future<void> _initializeVideoPlayer() async {
+    final currentSession = ++_initSession;
     if (widget.videoUrl.isEmpty) {
-      setState(() => _hasError = true);
+      if (mounted && currentSession == _initSession) {
+        setState(() => _hasError = true);
+      }
       return;
     }
 
     try {
-      final uri = Uri.tryParse(widget.videoUrl);
-      if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
-        _controller = VideoPlayerController.networkUrl(uri);
+      final url = widget.videoUrl;
+      final uri = Uri.tryParse(url);
+      final isNetwork = uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
+
+      VideoPlayerController controller;
+      if (isNetwork) {
+        controller = VideoPlayerController.networkUrl(uri);
       } else {
-        final filePath = widget.videoUrl.startsWith('file://')
-            ? widget.videoUrl.replaceFirst('file://', '')
-            : widget.videoUrl;
-        _controller = VideoPlayerController.file(File(filePath));
+        final filePath = url.startsWith('file://') ? url.replaceFirst('file://', '') : url;
+        final file = File(filePath);
+        if (!await file.exists()) {
+          debugPrint('[VideoMessageWidget] File does not exist: $filePath');
+          if (mounted && currentSession == _initSession) {
+            setState(() => _hasError = true);
+          }
+          return;
+        }
+        controller = VideoPlayerController.file(file);
       }
 
-      _controller!
-        ..setLooping(true)
-        ..setVolume(0.0)
-        ..initialize().then((_) {
-          if (mounted) {
-            setState(() {});
-            _controller?.play();
+      try {
+        await controller.initialize();
+      } catch (initErr) {
+        if (isNetwork) {
+          debugPrint('[VideoMessageWidget] Network video init failed: $initErr, attempting local fallback');
+          final fileName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : '';
+          File? localFallback;
+          if (fileName.isNotEmpty) {
+            try {
+              final tempDir = await getTemporaryDirectory();
+              final candidate = File('${tempDir.path}/$fileName');
+              if (await candidate.exists()) {
+                localFallback = candidate;
+              }
+            } catch (_) {}
           }
-        }).catchError((error) {
-          if (mounted) setState(() => _hasError = true);
-        });
+          if (localFallback != null) {
+            await controller.dispose();
+            controller = VideoPlayerController.file(localFallback);
+            await controller.initialize();
+          } else {
+            rethrow;
+          }
+        } else {
+          rethrow;
+        }
+      }
 
-      _controller?.addListener(_onVideoUpdate);
-    } catch (_) {
-      if (mounted) setState(() => _hasError = true);
+      await controller.setLooping(true);
+      await controller.setVolume(0.0);
+
+      if (!mounted || currentSession != _initSession) {
+        await controller.dispose();
+        return;
+      }
+
+      _controller = controller;
+      _controller!.addListener(_onVideoUpdate);
+      setState(() {
+        _hasError = false;
+      });
+      _controller!.play();
+    } catch (e) {
+      debugPrint('[VideoMessageWidget] Failed to initialize video: $e');
+      if (mounted && currentSession == _initSession) {
+        setState(() => _hasError = true);
+      }
     }
   }
 
@@ -107,8 +155,10 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget> {
 
   @override
   void dispose() {
+    _initSession++;
     _controller?.removeListener(_onVideoUpdate);
     _controller?.dispose();
+    _controller = null;
     super.dispose();
   }
 

@@ -1813,20 +1813,22 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       debugPrint('Video file is empty or does not exist');
       return;
     }
-    try {
-      final uploadResult = await _fileService.uploadFile(file);
 
-      final syncService = SyncService();
-      String? pendingLocalId;
-      DbMessage? pendingMsg;
+    final syncService = SyncService();
+    String? pendingLocalId;
+    DbMessage? pendingMsg;
+
+    try {
+      final fileName = file.path.split(Platform.pathSeparator).last;
+      // 1. Immediately create pending message with local file path for instant preview
       try {
         pendingMsg = await syncService.createPendingMessage(
           chatId: widget.chatId,
           senderId: _currentUserId ?? '',
-          content: uploadResult.fileName,
+          content: 'Видеосообщение',
           messageType: 'video',
-          fileUrl: uploadResult.url,
-          fileName: uploadResult.fileName,
+          fileUrl: file.path,
+          fileName: fileName,
           isRound: true,
         );
       } catch (e) {
@@ -1842,59 +1844,51 @@ class _GroupChatScreenState extends State<GroupChatScreen>
           });
           _scrollToBottom();
         }
+      }
 
-        try {
-          final result = await ChatService.sendMessage(
-            chatId: widget.chatId,
-            content: uploadResult.fileName,
-            messageType: 'video',
-            localId: pendingLocalId,
-            fileUrl: uploadResult.url,
-            fileName: uploadResult.fileName,
-            isRound: true,
-          );
+      // 2. Upload file to MinIO storage
+      final uploadResult = await _fileService.uploadFile(file);
 
-          if (result['success'] == true) {
-            final sentMessage = result['message'];
-            final serverId = sentMessage is Message ? sentMessage.id : null;
-            if (serverId != null && serverId.isNotEmpty) {
-              await syncService.confirmMessageSent(pendingLocalId, serverId);
-              if (mounted) {
-                setState(() {
-                  final idx =
-                      _messages.indexWhere((m) => m.localId == pendingLocalId);
-                  if (idx != -1) {
-                    if (sentMessage is Message) {
-                      _messages[idx] = sentMessage.copyWith(
-                        localId: pendingLocalId,
-                        sendStatus: 1,
-                        isRound: true,
-                      );
-                    } else {
-                      _messages[idx] = _messages[idx].copyWith(
-                        id: serverId,
-                        sendStatus: 1,
-                        isRound: true,
-                      );
-                    }
-                  }
-                });
-              }
-            }
-          } else {
-            await syncService.markMessageFailed(pendingLocalId);
-            if (mounted) {
-              setState(() {
-                final idx =
-                    _messages.indexWhere((m) => m.localId == pendingLocalId);
-                if (idx != -1) {
-                  _messages[idx] = _messages[idx].copyWith(sendStatus: 2);
+      // 3. Send message via ChatService
+      final result = await ChatService.sendMessage(
+        chatId: widget.chatId,
+        content: 'Видеосообщение',
+        messageType: 'video',
+        localId: pendingLocalId,
+        fileUrl: uploadResult.url,
+        fileName: uploadResult.fileName,
+        isRound: true,
+      );
+
+      if (result['success'] == true) {
+        final sentMessage = result['message'];
+        final serverId = sentMessage is Message ? sentMessage.id : null;
+        if (serverId != null && serverId.isNotEmpty && pendingLocalId != null) {
+          await syncService.confirmMessageSent(pendingLocalId, serverId);
+          if (mounted) {
+            setState(() {
+              final idx =
+                  _messages.indexWhere((m) => m.localId == pendingLocalId);
+              if (idx != -1) {
+                if (sentMessage is Message) {
+                  _messages[idx] = sentMessage.copyWith(
+                    localId: pendingLocalId,
+                    sendStatus: 1,
+                    isRound: true,
+                  );
+                } else {
+                  _messages[idx] = _messages[idx].copyWith(
+                    id: serverId,
+                    sendStatus: 1,
+                    isRound: true,
+                  );
                 }
-              });
-            }
+              }
+            });
           }
-        } catch (e) {
-          debugPrint('Error sending round video message to backend: $e');
+        }
+      } else {
+        if (pendingLocalId != null) {
           await syncService.markMessageFailed(pendingLocalId);
           if (mounted) {
             setState(() {
@@ -1908,7 +1902,19 @@ class _GroupChatScreenState extends State<GroupChatScreen>
         }
       }
     } catch (e) {
-      debugPrint('Error uploading round video: $e');
+      debugPrint('Error sending round video message in group chat: $e');
+      if (pendingLocalId != null) {
+        await syncService.markMessageFailed(pendingLocalId);
+        if (mounted) {
+          setState(() {
+            final idx =
+                _messages.indexWhere((m) => m.localId == pendingLocalId);
+            if (idx != -1) {
+              _messages[idx] = _messages[idx].copyWith(sendStatus: 2);
+            }
+          });
+        }
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

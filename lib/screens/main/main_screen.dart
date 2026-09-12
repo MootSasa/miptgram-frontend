@@ -471,12 +471,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         setState(() {
           final chat = _chats[chatIndex];
           _chats[chatIndex] = chat.copyWith(
-            lastMessage: lastMsg?.content ?? '',
-            lastMessageTime: lastMsg?.createdAt ?? '',
+            lastMessage: (lastMsg != null && lastMsg.content.isNotEmpty)
+                ? lastMsg.content
+                : chat.lastMessage,
+            lastMessageTime: (lastMsg != null && lastMsg.createdAt.isNotEmpty)
+                ? lastMsg.createdAt
+                : chat.lastMessageTime,
             lastMessageType: lastMsg?.messageType ?? chat.lastMessageType,
             lastMessageIsRound: lastMsg?.isRound ?? chat.lastMessageIsRound,
             lastMessageFileUrl: lastMsg?.fileUrl ?? chat.lastMessageFileUrl,
-            updatedAt: lastMsg?.createdAt ?? chat.updatedAt,
+            updatedAt: (lastMsg != null && lastMsg.createdAt.isNotEmpty)
+                ? lastMsg.createdAt
+                : chat.updatedAt,
           );
         });
         _localStorage.saveChats(_chats);
@@ -1241,9 +1247,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             ),
           ),
           const SizedBox(width: 6),
-          Expanded(
+          Flexible(
             child: Text(
-              context.l10n.translate('chat_video_note'),
+              AppLocalizations.of(context)?.translate('chat_video_note') ??
+                  'Видеосообщение',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(

@@ -23,6 +23,10 @@ import '../../l10n/app_localizations.dart';
 import '../../config/app_config.dart';
 import 'package:drift/drift.dart' show Value;
 import '../../utils/image_utils.dart';
+import 'package:video_player/video_player.dart';
+import '../../services/video_note_playback_service.dart';
+import '../../widgets/chat/floating_video_note_overlay.dart';
+import '../../widgets/message/video_message_widget.dart';
 import '../../utils/emoji_utils.dart';
 import '../../widgets/chat/liquid_glass_input_field.dart';
 import '../../widgets/chat/floating_glass_app_bar.dart';
@@ -130,6 +134,10 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     _tabController = TabController(length: 2, vsync: this);
     _loadData();
     _initWebSocket();
+
+    // Connect continuous video note playback and PiP callbacks
+    VideoNotePlaybackService().onPlayNextRequested = _playNextVideoNote;
+    VideoNotePlaybackService().onScrollToMessageRequested = (id) => _scrollToMessage(id);
 
     _scrollController.addListener(() {
       if (!_scrollController.hasClients || _messages.isEmpty) return;
@@ -1292,7 +1300,59 @@ class _GroupChatScreenState extends State<GroupChatScreen>
 
     _videoRecorderService.dispose();
 
+    if (VideoNotePlaybackService().onPlayNextRequested == _playNextVideoNote) {
+      VideoNotePlaybackService().onPlayNextRequested = null;
+      VideoNotePlaybackService().onScrollToMessageRequested = null;
+      VideoNotePlaybackService().stopActivePlayback();
+    }
+
     super.dispose();
+  }
+
+  void _playNextVideoNote(String currentMessageId) {
+    if (!mounted) return;
+    final currentIndex = _messages.indexWhere(
+        (m) => m.id == currentMessageId || m.localId == currentMessageId);
+    if (currentIndex > 0) {
+      for (int i = currentIndex - 1; i >= 0; i--) {
+        final m = _messages[i];
+        if (m.isRound || (m.messageType == 'video' && m.isRound)) {
+          final rawUrl = m.fileUrl ?? '';
+          final resolvedUrl = AppConfig.resolveMediaUrl(rawUrl) ?? rawUrl;
+          if (resolvedUrl.isNotEmpty) {
+            final cached = VideoNoteControllerPool.get(resolvedUrl);
+            if (cached != null && cached.value.isInitialized) {
+              VideoNotePlaybackService().setActivePlayback(
+                messageId: m.id,
+                videoUrl: resolvedUrl,
+                controller: cached,
+              );
+            } else {
+              final uri = Uri.tryParse(resolvedUrl);
+              final ctrl = uri != null && (uri.scheme == 'http' || uri.scheme == 'https')
+                  ? VideoPlayerController.networkUrl(uri)
+                  : VideoPlayerController.file(File(resolvedUrl.replaceFirst('file://', '')));
+              ctrl.initialize().then((_) {
+                ctrl.setLooping(false);
+                ctrl.setVolume(1.0);
+                ctrl.play();
+                VideoNoteControllerPool.put(resolvedUrl, ctrl);
+                VideoNotePlaybackService().setActivePlayback(
+                  messageId: m.id,
+                  videoUrl: resolvedUrl,
+                  controller: ctrl,
+                );
+              }).catchError((err) {
+                debugPrint('Play next init error: $err');
+              });
+            }
+            _scrollToMessage(m.id);
+            return;
+          }
+        }
+      }
+    }
+    VideoNotePlaybackService().stopActivePlayback();
   }
 
   void _updateInputHeight() {
@@ -1592,8 +1652,14 @@ class _GroupChatScreenState extends State<GroupChatScreen>
               onCancel: _onVideoRecordingCancelled,
               onSend: _onVideoRecordingSend,
               onTooShort: _onVideoRecordingTooShort,
+              replyToMessage: _replyToMessage,
+              isQuote: _isQuote,
+              quoteText: _quoteText,
+              onCancelReply: _cancelReply,
             ),
           ),
+        // Плавающий кружочек видеосообщения (PiP), если активный кружок ушел из поля зрения
+        const FloatingVideoNoteOverlay(),
       ],
     );
   }
@@ -1817,6 +1883,13 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       return;
     }
 
+    final replyTo = _replyToMessage;
+    final replyIsQuote = _isQuote;
+    final replyQuoteText = _quoteText;
+    final replyQuoteOffset = _quoteOffset;
+    final replyQuoteLength = _quoteLength;
+    _cancelReply();
+
     final syncService = SyncService();
     String? pendingLocalId;
     DbMessage? pendingMsg;
@@ -1833,6 +1906,15 @@ class _GroupChatScreenState extends State<GroupChatScreen>
           fileUrl: file.path,
           fileName: fileName,
           isRound: true,
+          replyToMessageId: replyTo?.id,
+          isQuote: replyIsQuote,
+          quoteText: replyQuoteText,
+          quoteOffset: replyQuoteOffset,
+          quoteLength: replyQuoteLength,
+          replyToSenderId: replyTo?.senderId,
+          replyToSenderName: replyTo?.senderName,
+          replyToContent: replyTo?.content,
+          replyToMessageType: replyTo?.messageType ?? 'text',
         );
       } catch (e) {
         debugPrint('SyncService createPendingMessage error: $e');
@@ -1840,7 +1922,26 @@ class _GroupChatScreenState extends State<GroupChatScreen>
 
       if (pendingMsg != null) {
         pendingLocalId = pendingMsg.localId;
-        final message = Message.fromDbMessage(pendingMsg);
+        final profileTheme = context.read<ProfileThemeProvider>();
+        var message = Message.fromDbMessage(pendingMsg);
+        if (replyTo != null) {
+          final isReplyToMe = replyTo.senderId == _currentUserId;
+          message = message.copyWith(
+            replyInfo: ReplyInfo(
+              messageId: replyTo.id,
+              senderId: replyTo.senderId,
+              senderName: replyTo.senderName,
+              content: replyTo.content,
+              messageType: replyTo.messageType,
+              nameColorPresetId: isReplyToMe
+                  ? profileTheme.currentNameColorPreset.id
+                  : (replyTo.senderNameColorId ?? 'name_red'),
+              replyStripStyle: isReplyToMe
+                  ? profileTheme.currentStripStyle.name
+                  : (replyTo.senderReplyStripStyle ?? 'solid'),
+            ),
+          );
+        }
         if (mounted) {
           setState(() {
             _messages.insert(0, message);
@@ -1861,6 +1962,11 @@ class _GroupChatScreenState extends State<GroupChatScreen>
         fileUrl: uploadResult.url,
         fileName: uploadResult.fileName,
         isRound: true,
+        replyToMessageId: replyTo?.id,
+        isQuote: replyIsQuote,
+        quoteText: replyQuoteText,
+        quoteOffset: replyQuoteOffset,
+        quoteLength: replyQuoteLength,
       );
 
       if (result['success'] == true) {
@@ -1996,15 +2102,17 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       }
     }
 
+    final bool isVideoNote = message.isRound || (message.messageType == 'video' && message.isRound);
+
     MessageContextMenuService().show(
       context: context,
       message: message,
       messageKey: key,
       isMe: isMe,
       onReply: () => _startReply(message),
-      onQuote: () => _startQuote(message, message.content, 0, message.content.length),
+      onQuote: isVideoNote ? null : () => _startQuote(message, message.content, 0, message.content.length),
       onPin: () {},
-      onEdit: () {
+      onEdit: isVideoNote ? null : () {
         setState(() {
           _cancelReply();
           _messageController.loadMessage(message.content, message.entities);

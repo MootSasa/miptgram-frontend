@@ -9,6 +9,12 @@ import 'package:miptgram/widgets/message/message_bubble.dart';
 import 'package:miptgram/widgets/message/video_message_widget.dart';
 import 'package:miptgram/widgets/chat/round_video_thumbnail.dart';
 import 'package:miptgram/l10n/app_localizations.dart';
+import 'package:visibility_detector/visibility_detector.dart';
+import 'package:video_player/video_player.dart';
+import 'package:miptgram/services/video_note_playback_service.dart';
+import 'package:miptgram/widgets/chat/message_context_menu.dart';
+import 'package:provider/provider.dart';
+import 'package:miptgram/services/profile_theme_provider.dart';
 
 class _TestAppLocalizations extends AppLocalizations {
   final Map<String, String> translations;
@@ -36,31 +42,46 @@ class _TestAppLocalizationsDelegate
 }
 
 Widget createTestApp(Widget child) {
-  return MaterialApp(
-    localizationsDelegates: const [
-      _TestAppLocalizationsDelegate({
-        'chat_video_note': 'Video message',
-        'chat_video_note_hold_hint': 'Hold to record video',
-        'chat_video_note_swipe_cancel': 'Slide to cancel',
-        'chat_video_note_release_cancel': 'Release to cancel',
-        'chat_video_note_lock': 'Lock',
-        'chat_video_note_too_short': 'Hold to record video. Tap to switch to voice.',
-        'chat_video_note_send': 'Send',
-        'chat_video_note_discard': 'Discard',
-        'chat_video_note_flip_camera': 'Flip camera',
-        'chat_video_note_stop': 'Stop',
-        'chat_video_note_tap_switch': 'Tap to switch to video',
-        'chat_video_note_tap_voice': 'Tap to switch to voice',
-        'chat_video_note_permission_denied': 'Camera or microphone access denied',
-        'chat_edited': 'edited',
-      }),
+  return MultiProvider(
+    providers: [
+      ChangeNotifierProvider<ProfileThemeProvider>(
+        create: (_) => ProfileThemeProvider(),
+      ),
     ],
-    home: Scaffold(body: child),
+    child: MaterialApp(
+      localizationsDelegates: const [
+        _TestAppLocalizationsDelegate({
+          'chat_video_note': 'Video message',
+          'chat_video_note_hold_hint': 'Hold to record video',
+          'chat_video_note_swipe_cancel': 'Slide to cancel',
+          'chat_video_note_release_cancel': 'Release to cancel',
+          'chat_video_note_lock': 'Lock',
+          'chat_video_note_too_short': 'Hold to record video. Tap to switch to voice.',
+          'chat_video_note_send': 'Send',
+          'chat_video_note_discard': 'Discard',
+          'chat_video_note_flip_camera': 'Flip camera',
+          'chat_video_note_stop': 'Stop',
+          'chat_video_note_tap_switch': 'Tap to switch to video',
+          'chat_video_note_tap_voice': 'Tap to switch to voice',
+          'chat_video_note_permission_denied': 'Camera or microphone access denied',
+          'chat_edited': 'edited',
+          'chat_action_reply': 'Reply',
+          'chat_action_copy': 'Copy',
+          'chat_action_pin': 'Pin',
+          'chat_action_delete': 'Delete',
+          'chat_edit_message': 'Edit',
+          'format_quote': 'Quote',
+          'chat_reply_you': 'Вы',
+        }),
+      ],
+      home: Scaffold(body: child),
+    ),
   );
 }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  VisibilityDetectorController.instance.updateInterval = Duration.zero;
 
   group('VideoNoteRecorderService Unit Tests', () {
     test('Initial properties are correct', () {
@@ -315,6 +336,137 @@ void main() {
 
       // Now video camera icon is visible
       expect(find.byType(iconoir.VideoCamera), findsOneWidget);
+    });
+  });
+
+  group('RoundVideoRecordingOverlay Reply Integration Tests', () {
+    testWidgets('Renders reply banner when replyToMessage is provided',
+        (WidgetTester tester) async {
+      final recorderService = VideoNoteRecorderService();
+      final replyMsg = Message(
+        id: 'msg-reply-1',
+        chatId: 'chat-1',
+        senderId: 'user-1',
+        content: 'Original message content',
+        senderName: 'Bob',
+        messageType: 'text',
+        isEdited: false,
+        createdAt: '2026-09-12T10:00:00Z',
+      );
+
+      await tester.pumpWidget(
+        createTestApp(
+          RoundVideoRecordingOverlay(
+            recorderService: recorderService,
+            onCancel: () {},
+            onSend: (_) {},
+            onTooShort: () {},
+            replyToMessage: replyMsg,
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Bob'), findsOneWidget);
+      expect(find.text('Original message content'), findsOneWidget);
+      expect(find.byIcon(Icons.reply_rounded), findsOneWidget);
+    });
+  });
+
+  group('MessageBubble Round Video Reply Tests', () {
+    testWidgets('Renders reply preview above round video when message has reply',
+        (WidgetTester tester) async {
+      final roundMessageWithReply = Message(
+        id: 'msg-round-2',
+        chatId: 'chat-1',
+        senderId: 'user-1',
+        content: 'video_note.mp4',
+        messageType: 'round',
+        fileUrl: 'https://example.com/video_note.mp4',
+        isRound: true,
+        isEdited: false,
+        senderName: 'Alice',
+        createdAt: '2026-09-12T10:00:00Z',
+        replyToMessageId: 'orig-1',
+        replyInfo: ReplyInfo(
+          messageId: 'orig-1',
+          senderId: 'user-2',
+          senderName: 'Charlie',
+          content: 'Quoted text here',
+          messageType: 'text',
+        ),
+      );
+
+      await tester.pumpWidget(
+        createTestApp(
+          MessageBubble(
+            message: roundMessageWithReply,
+            isMe: true,
+            currentUserId: 'user-1',
+            formatTime: (_) => '10:05',
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Charlie'), findsOneWidget);
+      expect(find.text('Quoted text here', findRichText: true), findsOneWidget);
+      expect(find.byType(ClipOval), findsOneWidget);
+    });
+  });
+
+  group('MessageContextMenu Restriction Tests', () {
+    testWidgets('Suppresses edit and quote when onEdit and onQuote are null',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        createTestApp(
+          MessageContextMenu(
+            messageOffset: Offset.zero,
+            messageSize: const Size(200, 50),
+            isMe: true,
+            onReply: () {},
+            onQuote: null,
+            onEdit: null,
+            onCopy: () {},
+            onPin: () {},
+            onDelete: () {},
+            onReaction: (_) {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Reply'), findsOneWidget);
+      expect(find.text('Edit'), findsNothing);
+      expect(find.text('Quote'), findsNothing);
+    });
+  });
+
+  group('VideoNotePlaybackService Unit Tests', () {
+    test('Playback service manages active state, floating and auto-advancing', () {
+      final service = VideoNotePlaybackService();
+      bool nextRequested = false;
+      service.onPlayNextRequested = (_) => nextRequested = true;
+
+      service.setActivePlayback(
+        messageId: 'note-1',
+        videoUrl: 'https://example.com/v1.mp4',
+        controller: VideoPlayerController.networkUrl(Uri.parse('https://example.com/v1.mp4')),
+      );
+
+      expect(service.activeMessageId, equals('note-1'));
+      expect(service.isInView, isTrue);
+      expect(service.isFloating, isFalse);
+
+      service.setInView('note-1', false);
+      expect(service.isFloating, isTrue);
+
+      service.onVideoCompleted('note-1');
+      expect(nextRequested, isTrue);
+
+      service.stopActivePlayback();
+      expect(service.activeMessageId, isNull);
+      expect(service.isFloating, isFalse);
     });
   });
 }

@@ -1113,8 +1113,30 @@ class MessageBubble extends StatelessWidget {
                 ),
               ),
             if (replyWidget != null) ...[
-              SizedBox(width: mediaWidth, child: replyWidget),
-              const SizedBox(height: 4.0),
+              if (_isRoundVideo)
+                Container(
+                  width: math.min(mediaWidth, 230.0),
+                  margin: const EdgeInsets.only(bottom: 6.0),
+                  padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
+                  decoration: BoxDecoration(
+                    color: isMe
+                        ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.9)
+                        : Theme.of(context).colorScheme.secondaryContainer.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(14.0),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.12),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: replyWidget,
+                )
+              else ...[
+                SizedBox(width: mediaWidth, child: replyWidget),
+                const SizedBox(height: 4.0),
+              ],
             ],
             innerContent,
           ],
@@ -1201,6 +1223,8 @@ class MessageBubble extends StatelessWidget {
     if (_isRoundVideo) {
       final double circleSize = math.min(240.0, MediaQuery.of(context).size.width * 0.68);
       return VideoMessageWidget(
+        key: ValueKey('vmsg_${message.id}'),
+        messageId: message.id,
         videoUrl: resolvedUrl,
         size: circleSize,
         isMe: isMe,

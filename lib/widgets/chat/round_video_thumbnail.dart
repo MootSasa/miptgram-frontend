@@ -185,19 +185,6 @@ class _RoundVideoThumbnailState extends State<RoundVideoThumbnail> {
               size: size * 0.65,
               color: Colors.white,
             ),
-
-            // 4. Subtle Outer Border
-            Positioned.fill(
-              child: Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: primary.withValues(alpha: 0.7),
-                    width: 1.0,
-                  ),
-                ),
-              ),
-            ),
           ],
         ),
       ),

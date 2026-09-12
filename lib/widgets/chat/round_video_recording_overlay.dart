@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import '../../l10n/app_localizations.dart';
+import '../../services/chat_service.dart';
 import '../../services/video_note_recorder_service.dart';
 
 /// Full-screen Telegram-style overlay for recording circular video notes («кружочки»).
@@ -23,6 +24,10 @@ class RoundVideoRecordingOverlay extends StatefulWidget {
   final Function(File file) onSend;
   final VoidCallback onTooShort;
   final Offset? buttonPosition;
+  final Message? replyToMessage;
+  final bool isQuote;
+  final String? quoteText;
+  final VoidCallback? onCancelReply;
 
   const RoundVideoRecordingOverlay({
     Key? key,
@@ -31,6 +36,10 @@ class RoundVideoRecordingOverlay extends StatefulWidget {
     required this.onSend,
     required this.onTooShort,
     this.buttonPosition,
+    this.replyToMessage,
+    this.isQuote = false,
+    this.quoteText,
+    this.onCancelReply,
   }) : super(key: key);
 
   @override
@@ -239,16 +248,86 @@ class _RoundVideoRecordingOverlayState extends State<RoundVideoRecordingOverlay>
               },
             ),
 
-          // 3. Slide-to-cancel & Lock gestures track (when NOT locked)
+          // 3. Reply Preview Banner (when replying/quoting)
+          if (!_isCancelling) _buildReplyBanner(theme),
+
+          // 4. Slide-to-cancel & Lock gestures track (when NOT locked)
           if (!_isLocked && !_isCancelling) ...[
             _buildSlideToCancelTrack(l10n, size),
             _buildSwipeUpLockIndicator(l10n, size),
           ],
 
-          // 4. Hands-free Controls Bar (when LOCKED)
+          // 5. Hands-free Controls Bar (when LOCKED)
           if (_isLocked && !_isCancelling)
             _buildHandsFreeControlBar(l10n, theme, size),
         ],
+      ),
+    );
+  }
+
+  Widget _buildReplyBanner(ThemeData theme) {
+    if (widget.replyToMessage == null) return const SizedBox.shrink();
+    final reply = widget.replyToMessage!;
+    final replyText = widget.quoteText ?? reply.content;
+    return Positioned(
+      top: 48,
+      left: 20,
+      right: 20,
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          constraints: const BoxConstraints(maxWidth: 320),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.65),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.2),
+              width: 1.0,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.reply_rounded, color: Colors.white70, size: 16),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      reply.senderName.isNotEmpty ? reply.senderName : 'Сообщение',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if (replyText.isNotEmpty)
+                      Text(
+                        replyText.replaceAll('\n', ' '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (widget.onCancelReply != null) ...[
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: widget.onCancelReply,
+                  child: const Icon(Icons.close, color: Colors.white70, size: 16),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

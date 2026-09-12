@@ -18,7 +18,7 @@ class MessageContextMenuService {
     required VoidCallback onReply,
     VoidCallback? onQuote,
     required VoidCallback onPin,
-    required VoidCallback onEdit,
+    VoidCallback? onEdit,
     required Function(Message message) onDelete,
     required Function(String messageId, String emoji) onReaction,
     Set<String>? selectedEmojis,

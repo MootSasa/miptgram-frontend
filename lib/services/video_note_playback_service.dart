@@ -19,7 +19,7 @@ class VideoNotePlaybackService with ChangeNotifier {
   VideoPlayerController? _activeController;
   bool _isFloating = false;
   bool _isInView = true;
-  Offset _floatingPosition = const Offset(20, 96);
+  Offset? _floatingPosition;
   final Set<String> _visibleMessageIds = <String>{};
   double _playbackSpeed = 1.0;
   
@@ -34,7 +34,7 @@ class VideoNotePlaybackService with ChangeNotifier {
   VideoPlayerController? get activeController => _activeController;
   bool get isFloating => _isFloating && _activeController != null;
   bool get isInView => _isInView;
-  Offset get floatingPosition => _floatingPosition;
+  Offset? get floatingPosition => _floatingPosition;
   double get playbackSpeed => _playbackSpeed;
   bool get hasActiveVideo => _activeMessageId != null && _activeController != null;
   bool isMessageInView(String messageId) => _visibleMessageIds.contains(messageId);
@@ -123,6 +123,7 @@ class VideoNotePlaybackService with ChangeNotifier {
     _activeController = null;
     _isFloating = false;
     _isInView = true;
+    _floatingPosition = null;
     _visibleMessageIds.clear();
     notifyListeners();
   }

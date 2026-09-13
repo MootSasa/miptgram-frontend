@@ -87,15 +87,18 @@ class _FloatingVideoNoteOverlayState extends State<FloatingVideoNoteOverlay>
 
   void _onServiceUpdate() {
     _attachControllerListener();
+    if (!_service.isFloating) {
+      _position = null;
+    }
     if (mounted) setState(() {});
   }
 
   Offset _getDefaultPosition(Size screenSize, double topPadding) {
     final saved = _service.floatingPosition;
-    if (saved.dx != 20 || saved.dy != 96) {
+    if (saved != null) {
       return saved;
     }
-    return Offset(screenSize.width - _kSize - _kEdgeMargin, topPadding + 10);
+    return Offset(screenSize.width - _kSize - _kEdgeMargin, topPadding + 60);
   }
 
   void _onPanStart(DragStartDetails details) {

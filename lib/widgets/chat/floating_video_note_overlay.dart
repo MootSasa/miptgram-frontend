@@ -23,6 +23,7 @@ class _FloatingVideoNoteOverlayState extends State<FloatingVideoNoteOverlay>
   late AnimationController _snapController;
   Animation<Offset>? _snapAnimation;
   double _prevProgress = 0.0;
+  bool _isDismissing = false;
 
   @override
   void initState() {
@@ -101,17 +102,32 @@ class _FloatingVideoNoteOverlayState extends State<FloatingVideoNoteOverlay>
     return Offset(screenSize.width - _kSize - _kEdgeMargin, topPadding + 60);
   }
 
+  double _calculateOpacity(double x, double screenWidth) {
+    if (x < 0) {
+      final offScreen = -x;
+      return (1.0 - (offScreen / (_kSize * 1.1))).clamp(0.0, 1.0);
+    }
+    final rightThreshold = screenWidth - _kSize;
+    if (x > rightThreshold) {
+      final offScreen = x - rightThreshold;
+      return (1.0 - (offScreen / (_kSize * 1.1))).clamp(0.0, 1.0);
+    }
+    return 1.0;
+  }
+
   void _onPanStart(DragStartDetails details) {
+    if (_isDismissing) return;
     if (_snapController.isAnimating) {
       _snapController.stop();
     }
   }
 
   void _onPanUpdate(DragUpdateDetails details, Size screenSize, double topPadding, double bottomPadding) {
+    if (_isDismissing) return;
     final minTop = topPadding;
     final maxTop = math.max(minTop, screenSize.height - _kSize - bottomPadding);
-    const minLeft = 4.0;
-    final maxLeft = math.max(minLeft, screenSize.width - _kSize - 4.0);
+    const minLeft = -_kSize - 20.0;
+    final maxLeft = screenSize.width + 20.0;
 
     final current = _position ?? _getDefaultPosition(screenSize, topPadding);
     final newX = (current.dx + details.delta.dx).clamp(minLeft, maxLeft);
@@ -123,6 +139,7 @@ class _FloatingVideoNoteOverlayState extends State<FloatingVideoNoteOverlay>
   }
 
   void _onPanEnd(DragEndDetails details, Size screenSize, double topPadding, double bottomPadding) {
+    if (_isDismissing) return;
     final current = _position ?? _getDefaultPosition(screenSize, topPadding);
     final minTop = topPadding;
     final maxTop = math.max(minTop, screenSize.height - _kSize - bottomPadding);
@@ -131,6 +148,29 @@ class _FloatingVideoNoteOverlayState extends State<FloatingVideoNoteOverlay>
     final velocityX = details.velocity.pixelsPerSecond.dx;
     final centerX = current.dx + _kSize / 2;
     final screenCenterX = screenSize.width / 2;
+
+    // Detect swipe / fling off-screen to the left or right to dismiss playback
+    final bool isDismissLeft = current.dx < -30.0 || (velocityX < -500 && current.dx < 80.0);
+    final bool isDismissRight = current.dx > (screenSize.width - _kSize + 30.0) ||
+        (velocityX > 500 && current.dx > (screenSize.width - _kSize - 80.0));
+
+    if (isDismissLeft || isDismissRight) {
+      _isDismissing = true;
+      final targetX = isDismissLeft ? -_kSize - 50.0 : screenSize.width + 50.0;
+      final targetOffset = Offset(targetX, targetY);
+
+      _snapAnimation = Tween<Offset>(begin: current, end: targetOffset).animate(
+        CurvedAnimation(parent: _snapController, curve: Curves.easeInCubic),
+      );
+      _snapController.duration = const Duration(milliseconds: 180);
+      _snapController.forward(from: 0.0).then((_) {
+        _isDismissing = false;
+        _position = null;
+        _snapController.duration = const Duration(milliseconds: 260);
+        _service.stopActivePlayback();
+      });
+      return;
+    }
 
     // Magnetic snap to nearest edge (left or right), factoring in swipe velocity
     final double targetX;
@@ -146,6 +186,7 @@ class _FloatingVideoNoteOverlayState extends State<FloatingVideoNoteOverlay>
 
     final targetOffset = Offset(targetX, targetY);
 
+    _snapController.duration = const Duration(milliseconds: 260);
     _snapAnimation = Tween<Offset>(begin: current, end: targetOffset).animate(
       CurvedAnimation(parent: _snapController, curve: Curves.easeOutCubic),
     );
@@ -190,13 +231,16 @@ class _FloatingVideoNoteOverlayState extends State<FloatingVideoNoteOverlay>
         Positioned(
           left: currentPos.dx,
           top: currentPos.dy,
-          child: GestureDetector(
-            onPanStart: _onPanStart,
-            onPanUpdate: (d) => _onPanUpdate(d, screenSize, topPadding, bottomPadding),
-            onPanEnd: (d) => _onPanEnd(d, screenSize, topPadding, bottomPadding),
-            onTap: () {
-              _service.requestScrollToActive();
-            },
+          child: Opacity(
+            opacity: _calculateOpacity(currentPos.dx, screenSize.width),
+            child: GestureDetector(
+              onPanStart: _onPanStart,
+              onPanUpdate: (d) => _onPanUpdate(d, screenSize, topPadding, bottomPadding),
+              onPanEnd: (d) => _onPanEnd(d, screenSize, topPadding, bottomPadding),
+              onTap: () {
+                if (_isDismissing) return;
+                _service.requestScrollToActive();
+              },
             child: Material(
               type: MaterialType.transparency,
               child: Container(
@@ -306,8 +350,9 @@ class _FloatingVideoNoteOverlayState extends State<FloatingVideoNoteOverlay>
             ),
           ),
         ),
-      ],
-    );
+      ),
+    ],
+  );
   }
 }
 

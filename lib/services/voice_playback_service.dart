@@ -55,7 +55,11 @@ class VoicePlaybackService with ChangeNotifier {
 
         if (finishedId != null) {
           debugPrint('[VoicePlaybackService] Voice note $finishedId completed, advancing...');
-          onPlayNextRequested?.call(finishedId);
+          if (onPlayNextRequested != null) {
+            onPlayNextRequested!(finishedId);
+          } else {
+            stopVoice(finishedId);
+          }
         }
       }
     });
@@ -176,10 +180,12 @@ class VoicePlaybackService with ChangeNotifier {
 
     try {
       await _player.stop();
+      await _player.seek(Duration.zero);
     } catch (_) {}
 
     _activeMessageId = null;
     _activeAudioUrl = null;
+    _activeSenderName = null;
     _isPlaying = false;
     _position = Duration.zero;
     _duration = Duration.zero;

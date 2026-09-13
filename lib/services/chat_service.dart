@@ -353,6 +353,10 @@ class Message {
   // Round video note flag
   final bool isRound;
 
+  // Voice message waveform and duration
+  final List<int>? waveform;
+  final int? duration;
+
   Message({
     required this.id,
     required this.chatId,
@@ -387,6 +391,8 @@ class Message {
     this.reactions = const {},
     this.myReactions = const {},
     this.isRound = false,
+    this.waveform,
+    this.duration,
   });
 
   /// Whether this message has a reply or quote
@@ -447,6 +453,20 @@ class Message {
       }
     }
 
+    List<int>? waveform;
+    if (json['waveform'] is List) {
+      waveform = (json['waveform'] as List).map((e) => (e as num).toInt()).toList();
+    } else if (json['media_payload'] is Map && json['media_payload']['waveform'] is List) {
+      waveform = (json['media_payload']['waveform'] as List).map((e) => (e as num).toInt()).toList();
+    }
+
+    int? duration;
+    if (json['duration'] is num) {
+      duration = (json['duration'] as num).toInt();
+    } else if (json['media_payload'] is Map && json['media_payload']['duration'] is num) {
+      duration = (json['media_payload']['duration'] as num).toInt();
+    }
+
     return Message(
       id: json['id']?.toString() ?? '',
       chatId: json['chat_id']?.toString() ?? '',
@@ -492,6 +512,8 @@ class Message {
       reactions: parsedReactions,
       myReactions: parsedMyReactions,
       isRound: json['is_round'] == true || json['message_type'] == 'round',
+      waveform: waveform,
+      duration: duration,
     );
   }
 
@@ -546,7 +568,25 @@ class Message {
     }
 
     LinkPreviewOptions? parsedLinkPreviewOptions;
-    if (model.linkPreviewOptions != null &&
+    List<int>? dbWaveform;
+    int? dbDuration;
+    if (model.messageType == 'voice' &&
+        model.linkPreviewOptions != null &&
+        model.linkPreviewOptions!.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(model.linkPreviewOptions!);
+        if (decoded is Map) {
+          if (decoded['waveform'] is List) {
+            dbWaveform = (decoded['waveform'] as List)
+                .map((e) => (e as num).toInt())
+                .toList();
+          }
+          if (decoded['duration'] is num) {
+            dbDuration = (decoded['duration'] as num).toInt();
+          }
+        }
+      } catch (_) {}
+    } else if (model.linkPreviewOptions != null &&
         model.linkPreviewOptions!.isNotEmpty) {
       try {
         final decoded = jsonDecode(model.linkPreviewOptions!);
@@ -587,6 +627,8 @@ class Message {
       reactions: dbReactions,
       myReactions: dbMyReactions,
       isRound: model.isRound,
+      waveform: dbWaveform,
+      duration: dbDuration,
     );
   }
 
@@ -625,6 +667,8 @@ class Message {
     Map<String, int>? reactions,
     Set<String>? myReactions,
     bool? isRound,
+    List<int>? waveform,
+    int? duration,
   }) {
     return Message(
       id: id ?? this.id,
@@ -660,6 +704,8 @@ class Message {
       reactions: reactions ?? this.reactions,
       myReactions: myReactions ?? this.myReactions,
       isRound: isRound ?? this.isRound,
+      waveform: waveform ?? this.waveform,
+      duration: duration ?? this.duration,
     );
   }
 }
@@ -1032,6 +1078,8 @@ class ChatService {
     LinkPreviewOptions? linkPreviewOptions,
     bool invertMedia = false,
     bool isRound = false,
+    List<int>? waveform,
+    int? duration,
   }) async {
     try {
       final token = await AuthService.getToken();
@@ -1053,6 +1101,8 @@ class ChatService {
       if (fileUrl != null) body['file_url'] = fileUrl;
       if (fileName != null) body['file_name'] = fileName;
       if (effectiveIsRound) body['is_round'] = true;
+      if (waveform != null && waveform.isNotEmpty) body['waveform'] = waveform;
+      if (duration != null && duration > 0) body['duration'] = duration;
       if (replyToMessageId != null) {
         body['reply_to_message_id'] = replyToMessageId;
         if (isQuote) {

@@ -49,6 +49,7 @@ class VideoMessageWidget extends StatefulWidget {
   final bool isRead;
   final int sendStatus;
   final String? timeText;
+  final String? senderName;
   final VoidCallback? onRetry;
 
   const VideoMessageWidget({
@@ -62,6 +63,7 @@ class VideoMessageWidget extends StatefulWidget {
     this.isRead = false,
     this.sendStatus = 1,
     this.timeText,
+    this.senderName,
     this.onRetry,
   }) : super(key: key);
 
@@ -75,7 +77,8 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
   int _initSession = 0;
   bool _hasError = false;
   bool _isPlayingWithSound = false;
-  bool _isPausedWithSound = false;
+  bool get _isPausedWithSound =>
+      _isPlayingWithSound && !(_controller?.value.isPlaying ?? false);
   double _prevProgress = 0.0;
   final VideoNotePlaybackService _playbackService = VideoNotePlaybackService();
 
@@ -98,7 +101,6 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
       _controller = null;
       _hasError = false;
       _isPlayingWithSound = false;
-      _isPausedWithSound = false;
       _prevProgress = 0.0;
       _initializeVideoPlayer();
     }
@@ -116,6 +118,7 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
         _revertToMutedLoop();
       }
     }
+    setState(() {});
   }
 
   Future<void> _initializeVideoPlayer() async {
@@ -249,12 +252,12 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
     _prevProgress = 0.0;
     setState(() {
       _isPlayingWithSound = true;
-      _isPausedWithSound = false;
     });
   }
 
   void _revertToMutedLoop() {
     if (_controller == null || !_controller!.value.isInitialized) return;
+    _controller?.seekTo(Duration.zero);
     _controller?.setLooping(true);
     _controller?.setVolume(0.0);
     if (!_controller!.value.isPlaying) {
@@ -262,7 +265,6 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
     }
     setState(() {
       _isPlayingWithSound = false;
-      _isPausedWithSound = false;
       _prevProgress = 0.0;
     });
   }
@@ -284,19 +286,14 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
     if (_controller == null || !_controller!.value.isInitialized) return;
 
     if (_isPlayingWithSound) {
-      if (_controller!.value.isPlaying) {
-        _controller?.pause();
-        setState(() => _isPausedWithSound = true);
-      } else {
-        _controller?.play();
-        setState(() => _isPausedWithSound = false);
-      }
+      _playbackService.togglePlayPause();
     } else {
       if (widget.messageId != null) {
         _playbackService.setActivePlayback(
           messageId: widget.messageId!,
           videoUrl: widget.videoUrl,
           controller: _controller!,
+          senderName: widget.isMe ? null : widget.senderName,
           initialInView: true,
         );
       }

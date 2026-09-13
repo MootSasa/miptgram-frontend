@@ -1345,11 +1345,13 @@ class _GroupChatScreenState extends State<GroupChatScreen>
               audioUrl: resolvedUrl,
               senderName: m.senderName,
             );
-            break;
+            return;
           }
         }
       }
     }
+    // End of playback chain reached: clear active state and dismiss header
+    VoicePlaybackService().stopVoice();
   }
 
   void _playNextVideoNote(String currentMessageId) {
@@ -1373,6 +1375,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
                 messageId: m.id,
                 videoUrl: resolvedUrl,
                 controller: cached,
+                senderName: m.senderName,
               );
             } else {
               final uri = Uri.tryParse(resolvedUrl);
@@ -1388,6 +1391,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
                   messageId: m.id,
                   videoUrl: resolvedUrl,
                   controller: ctrl,
+                  senderName: m.senderName,
                 );
               }).catchError((err) {
                 debugPrint('Play next init error: $err');
@@ -2050,6 +2054,8 @@ class _GroupChatScreenState extends State<GroupChatScreen>
           replyToSenderName: replyTo?.senderName,
           replyToContent: replyTo?.content,
           replyToMessageType: replyTo?.messageType ?? 'text',
+          waveform: result.waveform,
+          duration: result.duration.inSeconds,
         );
       } catch (e) {
         debugPrint('SyncService createPendingMessage voice error: $e');
@@ -2058,7 +2064,10 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       if (pendingMsg != null) {
         pendingLocalId = pendingMsg.localId;
         final profileTheme = context.read<ProfileThemeProvider>();
-        var message = Message.fromDbMessage(pendingMsg);
+        var message = Message.fromDbMessage(pendingMsg).copyWith(
+          waveform: result.waveform,
+          duration: result.duration.inSeconds,
+        );
         if (replyTo != null) {
           final isReplyToMe = replyTo.senderId == _currentUserId;
           message = message.copyWith(
@@ -2101,6 +2110,8 @@ class _GroupChatScreenState extends State<GroupChatScreen>
         quoteText: replyQuoteText,
         quoteOffset: replyQuoteOffset,
         quoteLength: replyQuoteLength,
+        waveform: result.waveform,
+        duration: result.duration.inSeconds,
       );
 
       if (sendResult['success'] == true) {

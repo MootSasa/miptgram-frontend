@@ -1237,6 +1237,7 @@ class MessageBubble extends StatelessWidget {
         isRead: message.isRead,
         sendStatus: message.sendStatus,
         timeText: formatTime(message.createdAt),
+        senderName: isMe ? null : senderName,
         onRetry: onRetry != null ? () => onRetry!(message) : null,
       );
     }
@@ -1246,6 +1247,10 @@ class MessageBubble extends StatelessWidget {
         key: ValueKey('voice_${message.id}'),
         messageId: message.id,
         audioUrl: resolvedUrl,
+        duration: message.duration != null && message.duration! > 0
+            ? Duration(seconds: message.duration!)
+            : null,
+        waveform: message.waveform,
         isMe: isMe,
         isRead: message.isRead,
         sendStatus: message.sendStatus,

@@ -97,6 +97,8 @@ class _VoiceMessageWidgetState extends State<VoiceMessageWidget> {
   void _handlePlayPause() {
     if (_isThisPlaying) {
       _playbackService.pauseVoice();
+    } else if (_isThisActive) {
+      _playbackService.resumeVoice();
     } else {
       _playbackService.playVoice(
         messageId: widget.messageId,

@@ -195,5 +195,49 @@ void main() {
       expect(find.byType(VoiceMessageWidget), findsOneWidget);
       expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
     });
+
+    testWidgets('Renders voice message inside MessageBubble with waveform and duration', (tester) async {
+      final message = Message(
+        id: 'voice_msg_4',
+        chatId: 'chat_1',
+        senderId: 'user_1',
+        content: 'Voice message',
+        messageType: 'voice',
+        fileUrl: 'https://example.com/audio4.m4a',
+        fileName: 'audio4.m4a',
+        duration: 35,
+        waveform: [10, 20, 30, 25, 15, 5],
+        isEdited: false,
+        createdAt: '2026-09-13T12:00:00Z',
+        senderName: 'Charlie',
+      );
+
+      await tester.pumpWidget(
+        createTestApp(
+          MessageBubble(
+            message: message,
+            isMe: false,
+            currentUserId: 'user_me',
+            formatTime: (_) => '12:00',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final voiceWidget = tester.widget<VoiceMessageWidget>(find.byType(VoiceMessageWidget));
+      expect(voiceWidget.duration, const Duration(seconds: 35));
+      expect(voiceWidget.waveform, [10, 20, 30, 25, 15, 5]);
+      expect(find.text('0:35'), findsOneWidget);
+    });
+  });
+
+  group('VideoNotePlaybackService Unit Tests', () {
+    test('Stop active video note resets state', () {
+      final service = VideoNotePlaybackService();
+      service.stopActivePlayback();
+      expect(service.activeMessageId, isNull);
+      expect(service.activeVideoUrl, isNull);
+      expect(service.hasActiveVideo, isFalse);
+    });
   });
 }

@@ -119,7 +119,13 @@ class SyncService {
       }
     }
     String? linkPreviewOptionsStr;
-    if (payload['link_preview_options'] != null) {
+    final msgType = payload['message_type']?.toString() ?? 'text';
+    if (msgType == 'voice' && (payload['waveform'] != null || payload['duration'] != null)) {
+      linkPreviewOptionsStr = jsonEncode({
+        if (payload['waveform'] != null) 'waveform': payload['waveform'],
+        if (payload['duration'] != null) 'duration': payload['duration'],
+      });
+    } else if (payload['link_preview_options'] != null) {
       if (payload['link_preview_options'] is String) {
         linkPreviewOptionsStr = payload['link_preview_options'] as String;
       } else {
@@ -266,6 +272,8 @@ class SyncService {
     dynamic linkPreviewOptions,
     bool invertMedia = false,
     bool isRound = false,
+    List<int>? waveform,
+    int? duration,
   }) async {
     final localId = _uuid.v4();
     final now = DateTime.now().toUtc().toIso8601String();
@@ -273,11 +281,16 @@ class SyncService {
     final String? entitiesStr = entities is List
         ? jsonEncode(entities.map((e) => e is MessageEntity ? e.toJson() : e).toList())
         : (entities is String ? entities : null);
-    final String? linkPreviewOptionsStr = linkPreviewOptions is LinkPreviewOptions
-        ? jsonEncode(linkPreviewOptions.toJson())
-        : (linkPreviewOptions is Map
-            ? jsonEncode(linkPreviewOptions)
-            : (linkPreviewOptions is String ? linkPreviewOptions : null));
+    final String? linkPreviewOptionsStr = messageType == 'voice' && (waveform != null || duration != null)
+        ? jsonEncode({
+            if (waveform != null) 'waveform': waveform,
+            if (duration != null) 'duration': duration,
+          })
+        : (linkPreviewOptions is LinkPreviewOptions
+            ? jsonEncode(linkPreviewOptions.toJson())
+            : (linkPreviewOptions is Map
+                ? jsonEncode(linkPreviewOptions)
+                : (linkPreviewOptions is String ? linkPreviewOptions : null)));
 
     await _db.saveMessage(MessagesCompanion(
       serverId: const Value.absent(), // Нет серверного ID пока

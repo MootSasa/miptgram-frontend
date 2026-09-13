@@ -2632,6 +2632,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           replyToSenderName: replyTo?.senderName,
           replyToContent: replyTo?.content,
           replyToMessageType: replyTo?.messageType ?? 'text',
+          waveform: result.waveform,
+          duration: result.duration.inSeconds,
         );
       } catch (e) {
         debugPrint('SyncService createPendingMessage voice error: $e');
@@ -2640,7 +2642,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       if (pendingMsg != null) {
         pendingLocalId = pendingMsg.localId;
         final profileTheme = context.read<ProfileThemeProvider>();
-        var message = Message.fromDbMessage(pendingMsg);
+        var message = Message.fromDbMessage(pendingMsg).copyWith(
+          waveform: result.waveform,
+          duration: result.duration.inSeconds,
+        );
         if (replyTo != null) {
           final isReplyToMe = replyTo.senderId == _currentUserId;
           message = message.copyWith(
@@ -2689,6 +2694,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         quoteText: replyQuoteText,
         quoteOffset: replyQuoteOffset,
         quoteLength: replyQuoteLength,
+        waveform: result.waveform,
+        duration: result.duration.inSeconds,
       );
 
       if (sendResult['success'] == true) {
@@ -2705,6 +2712,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                   _messages[idx] = sentMessage.copyWith(
                     localId: pendingLocalId,
                     replyInfo: _messages[idx].replyInfo,
+                    waveform: sentMessage.waveform ?? _messages[idx].waveform,
+                    duration: sentMessage.duration ?? _messages[idx].duration,
                   );
                 } else {
                   _messages[idx] = _messages[idx].copyWith(
@@ -3445,11 +3454,13 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               audioUrl: resolvedUrl,
               senderName: m.senderName,
             );
-            break;
+            return;
           }
         }
       }
     }
+    // End of playback chain reached: clear active state and dismiss header
+    VoicePlaybackService().stopVoice();
   }
 
   void _playNextVideoNote(String currentMessageId) {
@@ -3473,6 +3484,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                 messageId: m.id,
                 videoUrl: resolvedUrl,
                 controller: cached,
+                senderName: m.senderName,
               );
             } else {
               final uri = Uri.tryParse(resolvedUrl);
@@ -3488,6 +3500,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                   messageId: m.id,
                   videoUrl: resolvedUrl,
                   controller: ctrl,
+                  senderName: m.senderName,
                 );
               }).catchError((err) {
                 debugPrint('Play next init error: $err');

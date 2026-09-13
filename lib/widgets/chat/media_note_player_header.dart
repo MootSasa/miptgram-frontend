@@ -53,10 +53,16 @@ class _MediaNotePlayerHeaderState extends State<MediaNotePlayerHeader>
   void _onServiceChange() {
     if (!mounted) return;
     final hasActive = _voiceService.hasActiveAudio || _videoService.hasActiveVideo;
-    if (hasActive && !_slideController.isAnimating && _slideController.value == 0.0) {
-      _slideController.forward();
-    } else if (!hasActive && !_slideController.isAnimating && _slideController.value == 1.0) {
-      _slideController.reverse();
+    if (hasActive) {
+      if (_slideController.status != AnimationStatus.forward &&
+          _slideController.status != AnimationStatus.completed) {
+        _slideController.forward();
+      }
+    } else {
+      if (_slideController.status != AnimationStatus.reverse &&
+          _slideController.status != AnimationStatus.dismissed) {
+        _slideController.reverse();
+      }
     }
     setState(() {});
   }
@@ -81,7 +87,7 @@ class _MediaNotePlayerHeaderState extends State<MediaNotePlayerHeader>
     final primaryColor = theme.colorScheme.primary;
     final l10n = AppLocalizations.of(context);
 
-    final bool isVideo = hasVideo;
+    final bool isVideo = hasVideo && _videoService.activeController != null;
     final String title;
     final String subtitle;
     final bool isPlaying;

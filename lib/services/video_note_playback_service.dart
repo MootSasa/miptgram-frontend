@@ -14,11 +14,13 @@ class VideoNotePlaybackService with ChangeNotifier {
 
   String? _activeMessageId;
   String? _activeVideoUrl;
+  String? _activeSenderName;
   VideoPlayerController? _activeController;
   bool _isFloating = false;
   bool _isInView = true;
   Offset _floatingPosition = const Offset(20, 96);
   final Set<String> _visibleMessageIds = <String>{};
+  double _playbackSpeed = 1.0;
   
   // Callback registered by the active chat screen to advance to next video note
   void Function(String currentMessageId)? onPlayNextRequested;
@@ -27,10 +29,13 @@ class VideoNotePlaybackService with ChangeNotifier {
 
   String? get activeMessageId => _activeMessageId;
   String? get activeVideoUrl => _activeVideoUrl;
+  String? get activeSenderName => _activeSenderName;
   VideoPlayerController? get activeController => _activeController;
   bool get isFloating => _isFloating && _activeController != null;
   bool get isInView => _isInView;
   Offset get floatingPosition => _floatingPosition;
+  double get playbackSpeed => _playbackSpeed;
+  bool get hasActiveVideo => _activeMessageId != null && _activeController != null;
   bool isMessageInView(String messageId) => _visibleMessageIds.contains(messageId);
 
   void updateFloatingPosition(Offset newPos) {
@@ -42,6 +47,7 @@ class VideoNotePlaybackService with ChangeNotifier {
     required String messageId,
     required String videoUrl,
     required VideoPlayerController controller,
+    String? senderName,
     bool? initialInView,
   }) {
     if (_activeMessageId != null && _activeMessageId != messageId) {
@@ -55,10 +61,49 @@ class VideoNotePlaybackService with ChangeNotifier {
     _activeMessageId = messageId;
     _activeVideoUrl = videoUrl;
     _activeController = controller;
+    if (senderName != null) _activeSenderName = senderName;
+
+    try {
+      controller.setPlaybackSpeed(_playbackSpeed);
+    } catch (_) {}
 
     final inView = initialInView ?? (_visibleMessageIds.isEmpty ? true : _visibleMessageIds.contains(messageId));
     _isInView = inView;
     _isFloating = !inView;
+    notifyListeners();
+  }
+
+  Future<void> cyclePlaybackSpeed() async {
+    if (_playbackSpeed == 1.0) {
+      _playbackSpeed = 1.5;
+    } else if (_playbackSpeed == 1.5) {
+      _playbackSpeed = 2.0;
+    } else {
+      _playbackSpeed = 1.0;
+    }
+    notifyListeners();
+
+    try {
+      await _activeController?.setPlaybackSpeed(_playbackSpeed);
+    } catch (_) {}
+  }
+
+  Future<void> setPlaybackSpeed(double speed) async {
+    _playbackSpeed = speed;
+    notifyListeners();
+    try {
+      await _activeController?.setPlaybackSpeed(speed);
+    } catch (_) {}
+  }
+
+  Future<void> togglePlayPause() async {
+    final ctrl = _activeController;
+    if (ctrl == null || !ctrl.value.isInitialized) return;
+    if (ctrl.value.isPlaying) {
+      await ctrl.pause();
+    } else {
+      await ctrl.play();
+    }
     notifyListeners();
   }
 
@@ -72,6 +117,7 @@ class VideoNotePlaybackService with ChangeNotifier {
     }
     _activeMessageId = null;
     _activeVideoUrl = null;
+    _activeSenderName = null;
     _activeController = null;
     _isFloating = false;
     _isInView = true;

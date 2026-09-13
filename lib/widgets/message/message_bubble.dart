@@ -18,6 +18,7 @@ import 'fullscreen_photo_viewer.dart';
 import 'inline_video_player.dart';
 import 'document_message_widget.dart';
 import 'video_message_widget.dart';
+import 'voice_message_widget.dart';
 import 'link_preview_card.dart';
 import '../../l10n/app_localizations.dart';
 
@@ -684,17 +685,20 @@ class MessageBubble extends StatelessWidget {
       !_isRoundVideo &&
       (message.messageType == 'video' || _isVideoUrl(message.fileUrl!));
 
+  bool get _isVoice =>
+      _hasMedia && message.messageType == 'voice';
+
   bool get _isAudio =>
       _hasMedia &&
+      !_isVoice &&
       (message.messageType == 'audio' ||
-          message.messageType == 'voice' ||
           _isAudioUrl(message.fileUrl!));
 
   bool get _isRoundVideo =>
       _hasMedia && (message.isRound || message.messageType == 'round');
 
   bool get _hasCaption {
-    if (!_hasMedia || _isRoundVideo) return false;
+    if (!_hasMedia || _isRoundVideo || _isVoice) return false;
     final trimmed = message.content.trim();
     if (trimmed.isEmpty) return false;
     if (trimmed == message.fileName) return false;
@@ -1032,7 +1036,7 @@ class MessageBubble extends StatelessWidget {
       final Widget mediaWidget = _buildMediaWidget(context, mediaWidth, resolvedFileUrl);
 
       Widget innerContent;
-      if (_isRoundVideo) {
+      if (_isRoundVideo || _isVoice) {
         innerContent = mediaWidget;
       } else if (hasCaption) {
         final Widget captionWidget = TextMessageWidget(
@@ -1134,7 +1138,7 @@ class MessageBubble extends StatelessWidget {
                   child: replyWidget,
                 )
               else ...[
-                SizedBox(width: mediaWidth, child: replyWidget),
+                SizedBox(width: _isVoice ? 240.0 : mediaWidth, child: replyWidget),
                 const SizedBox(height: 4.0),
               ],
             ],
@@ -1148,9 +1152,11 @@ class MessageBubble extends StatelessWidget {
 
     final EdgeInsets bubblePadding = (isBigEmoji || _isRoundVideo)
         ? EdgeInsets.zero
-        : (hasMedia && !hasCaption && replyWidget == null && (senderName == null || senderName!.isEmpty || isMe))
-            ? const EdgeInsets.all(4.0)
-            : const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0);
+        : _isVoice
+            ? const EdgeInsets.symmetric(horizontal: 6.0, vertical: 4.0)
+            : (hasMedia && !hasCaption && replyWidget == null && (senderName == null || senderName!.isEmpty || isMe))
+                ? const EdgeInsets.all(4.0)
+                : const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0);
 
     Widget bubbleCore = Container(
       margin: const EdgeInsets.symmetric(vertical: 3.0, horizontal: 8.0),
@@ -1231,6 +1237,20 @@ class MessageBubble extends StatelessWidget {
         isRead: message.isRead,
         sendStatus: message.sendStatus,
         timeText: formatTime(message.createdAt),
+        onRetry: onRetry != null ? () => onRetry!(message) : null,
+      );
+    }
+
+    if (_isVoice) {
+      return VoiceMessageWidget(
+        key: ValueKey('voice_${message.id}'),
+        messageId: message.id,
+        audioUrl: resolvedUrl,
+        isMe: isMe,
+        isRead: message.isRead,
+        sendStatus: message.sendStatus,
+        timeText: formatTime(message.createdAt),
+        senderName: isMe ? null : senderName,
         onRetry: onRetry != null ? () => onRetry!(message) : null,
       );
     }

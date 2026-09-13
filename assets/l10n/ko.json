@@ -723,5 +723,13 @@
   "storage_download_path": "다운로드 경로",
   "storage_download_path_default": "기본값 (다운로드 폴더)",
   "storage_download_path_set": "다운로드 경로가 변경되었습니다",
-  "settings_saved": "설정이 저장되었습니다"
+  "settings_saved": "설정이 저장되었습니다",
+  "chat_voice_message": "음성 메시지",
+  "chat_voice_hold_hint": "음성을 녹음하려면 길게 누르세요",
+  "chat_voice_swipe_cancel": "취소하려면 밀기",
+  "chat_voice_release_cancel": "취소하려면 손을 떼세요",
+  "chat_voice_lock": "고정",
+  "chat_voice_too_short": "음성 녹음은 길게 누르세요. 탭하면 비디오로 전환됩니다.",
+  "chat_voice_permission_denied": "마이크 접근이 거부되었습니다",
+  "chat_media_speed": "배속"
 }

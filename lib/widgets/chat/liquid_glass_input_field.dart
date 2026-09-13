@@ -56,6 +56,10 @@ class LiquidGlassInputField extends StatefulWidget {
   final VoidCallback? onAttach;
   final VoidCallback? onEmoji;
   final VoidCallback? onVoice;
+  final VoidCallback? onStartVoiceRecord;
+  final ValueChanged<Offset>? onVoiceRecordMove;
+  final VoidCallback? onVoiceRecordEnd;
+  final VoidCallback? onVoiceRecordCancel;
   final VoidCallback? onStartVideoRecord;
   final ValueChanged<Offset>? onVideoRecordMove;
   final VoidCallback? onVideoRecordEnd;
@@ -77,6 +81,10 @@ class LiquidGlassInputField extends StatefulWidget {
     this.onAttach,
     this.onEmoji,
     this.onVoice,
+    this.onStartVoiceRecord,
+    this.onVoiceRecordMove,
+    this.onVoiceRecordEnd,
+    this.onVoiceRecordCancel,
     this.onStartVideoRecord,
     this.onVideoRecordMove,
     this.onVideoRecordEnd,
@@ -591,6 +599,7 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
               if (_isVideoMode) {
                 widget.onStartVideoRecord?.call();
               } else {
+                widget.onStartVoiceRecord?.call();
                 widget.onVoice?.call();
               }
             },
@@ -598,18 +607,24 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
               if (hasText || widget.isSending) return;
               if (_isVideoMode) {
                 widget.onVideoRecordMove?.call(details.offsetFromOrigin);
+              } else {
+                widget.onVoiceRecordMove?.call(details.offsetFromOrigin);
               }
             },
             onLongPressEnd: (details) {
               if (hasText || widget.isSending) return;
               if (_isVideoMode) {
                 widget.onVideoRecordEnd?.call();
+              } else {
+                widget.onVoiceRecordEnd?.call();
               }
             },
             onLongPressCancel: () {
               if (hasText || widget.isSending) return;
               if (_isVideoMode) {
                 widget.onVideoRecordCancel?.call();
+              } else {
+                widget.onVoiceRecordCancel?.call();
               }
             },
             child: Container(

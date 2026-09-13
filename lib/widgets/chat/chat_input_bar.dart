@@ -45,6 +45,10 @@ class ChatInputBar extends StatefulWidget {
   final VoidCallback? onAttach;
   final VoidCallback? onEmoji;
   final VoidCallback? onVoice;
+  final VoidCallback? onStartVoiceRecord;
+  final ValueChanged<Offset>? onVoiceRecordMove;
+  final VoidCallback? onVoiceRecordEnd;
+  final VoidCallback? onVoiceRecordCancel;
   final VoidCallback? onStartVideoRecord;
   final ValueChanged<Offset>? onVideoRecordMove;
   final VoidCallback? onVideoRecordEnd;
@@ -81,6 +85,10 @@ class ChatInputBar extends StatefulWidget {
     this.onAttach,
     this.onEmoji,
     this.onVoice,
+    this.onStartVoiceRecord,
+    this.onVoiceRecordMove,
+    this.onVoiceRecordEnd,
+    this.onVoiceRecordCancel,
     this.onStartVideoRecord,
     this.onVideoRecordMove,
     this.onVideoRecordEnd,
@@ -417,6 +425,10 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 onAttach: widget.onAttach,
                 onEmoji: widget.onEmoji,
                 onVoice: widget.onVoice,
+                onStartVoiceRecord: widget.onStartVoiceRecord,
+                onVoiceRecordMove: widget.onVoiceRecordMove,
+                onVoiceRecordEnd: widget.onVoiceRecordEnd,
+                onVoiceRecordCancel: widget.onVoiceRecordCancel,
                 onStartVideoRecord: widget.onStartVideoRecord,
                 onVideoRecordMove: widget.onVideoRecordMove,
                 onVideoRecordEnd: widget.onVideoRecordEnd,

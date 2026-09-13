@@ -723,5 +723,13 @@
   "storage_download_path": "Caminho de download",
   "storage_download_path_default": "Padrão (pasta Downloads)",
   "storage_download_path_set": "Caminho de download atualizado",
-  "settings_saved": "Configurações salvas"
+  "settings_saved": "Configurações salvas",
+  "chat_voice_message": "Mensagem de voz",
+  "chat_voice_hold_hint": "Segure para gravar voz",
+  "chat_voice_swipe_cancel": "Deslize para cancelar",
+  "chat_voice_release_cancel": "Solte para cancelar",
+  "chat_voice_lock": "Bloquear",
+  "chat_voice_too_short": "Segure para voz. Toque para vídeo.",
+  "chat_voice_permission_denied": "Acesso ao microfone negado",
+  "chat_media_speed": "Velocidade"
 }

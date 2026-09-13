@@ -723,5 +723,13 @@
   "storage_download_path": "ダウンロード先",
   "storage_download_path_default": "デフォルト（ダウンロードフォルダ）",
   "storage_download_path_set": "ダウンロード先を更新しました",
-  "settings_saved": "設定を保存しました"
+  "settings_saved": "設定を保存しました",
+  "chat_voice_message": "ボイスメッセージ",
+  "chat_voice_hold_hint": "長押しでボイスメッセージを録音",
+  "chat_voice_swipe_cancel": "スライドしてキャンセル",
+  "chat_voice_release_cancel": "指を離してキャンセル",
+  "chat_voice_lock": "ロック",
+  "chat_voice_too_short": "長押しで音声録音。タップで動画に切り替え。",
+  "chat_voice_permission_denied": "マイクへのアクセスが拒否されました",
+  "chat_media_speed": "速度"
 }

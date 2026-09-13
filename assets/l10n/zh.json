@@ -723,5 +723,13 @@
   "storage_download_path": "下载路径",
   "storage_download_path_default": "默认（下载文件夹）",
   "storage_download_path_set": "下载路径已更新",
-  "settings_saved": "设置已保存"
+  "settings_saved": "设置已保存",
+  "chat_voice_message": "语音消息",
+  "chat_voice_hold_hint": "按住录制语音",
+  "chat_voice_swipe_cancel": "滑动取消",
+  "chat_voice_release_cancel": "松开取消",
+  "chat_voice_lock": "锁定",
+  "chat_voice_too_short": "按住录制语音。点击切换到视频。",
+  "chat_voice_permission_denied": "麦克风访问被拒绝",
+  "chat_media_speed": "倍速"
 }

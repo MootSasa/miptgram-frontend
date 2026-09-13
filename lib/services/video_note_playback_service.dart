@@ -44,10 +44,6 @@ class VideoNotePlaybackService with ChangeNotifier {
     notifyListeners();
   }
 
-  void _onControllerTick() {
-    notifyListeners();
-  }
-
   void setActivePlayback({
     required String messageId,
     required String videoUrl,
@@ -59,7 +55,6 @@ class VideoNotePlaybackService with ChangeNotifier {
     VoicePlaybackService().stopVoice();
 
     if (_activeController != null && _activeController != controller) {
-      _activeController!.removeListener(_onControllerTick);
       try {
         _activeController!.setVolume(0.0);
       } catch (_) {}
@@ -67,8 +62,6 @@ class VideoNotePlaybackService with ChangeNotifier {
     _activeMessageId = messageId;
     _activeVideoUrl = videoUrl;
     _activeController = controller;
-    _activeController!.removeListener(_onControllerTick);
-    _activeController!.addListener(_onControllerTick);
     if (senderName != null) _activeSenderName = senderName;
 
     try {
@@ -118,7 +111,6 @@ class VideoNotePlaybackService with ChangeNotifier {
   void stopActivePlayback([String? messageId]) {
     if (messageId != null && _activeMessageId != messageId) return;
     if (_activeController != null) {
-      _activeController!.removeListener(_onControllerTick);
       try {
         _activeController!.setVolume(0.0);
         _activeController!.pause();

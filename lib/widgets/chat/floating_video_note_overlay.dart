@@ -79,7 +79,9 @@ class _FloatingVideoNoteOverlayState extends State<FloatingVideoNoteOverlay>
           return;
         }
       }
-      setState(() {});
+      if (_service.isFloating) {
+        setState(() {});
+      }
     }
   }
 

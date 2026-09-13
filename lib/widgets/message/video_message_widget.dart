@@ -109,16 +109,18 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
   void _onPlaybackServiceUpdate() {
     if (!mounted || widget.messageId == null) return;
     final activeId = _playbackService.activeMessageId;
-    if (activeId == widget.messageId) {
+    final isThisActive = activeId == widget.messageId;
+    if (isThisActive) {
       if (!_isPlayingWithSound && _controller != null && _controller!.value.isInitialized) {
         _startSoundPlayback();
+      } else {
+        setState(() {});
       }
     } else {
       if (_isPlayingWithSound) {
         _revertToMutedLoop();
       }
     }
-    setState(() {});
   }
 
   Future<void> _initializeVideoPlayer() async {
@@ -297,7 +299,9 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
           initialInView: true,
         );
       }
-      _startSoundPlayback();
+      if (!_isPlayingWithSound) {
+        _startSoundPlayback();
+      }
     }
   }
 
@@ -434,6 +438,10 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
       durationText = '0:00';
     }
 
+    final bool isFloatingActive = _playbackService.isFloating &&
+        widget.messageId != null &&
+        _playbackService.activeMessageId == widget.messageId;
+
     return VisibilityDetector(
       key: Key('vnote_${widget.messageId ?? widget.videoUrl}'),
       onVisibilityChanged: (info) {
@@ -497,18 +505,29 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
                                       child: Icon(Icons.play_arrow_rounded, color: Colors.white24, size: 42),
                                     ),
                                   )
-                                : FittedBox(
-                                    fit: BoxFit.cover,
-                                    child: SizedBox(
-                                      width: _controller!.value.size.width > 0
-                                          ? _controller!.value.size.width
-                                          : effectiveDiameter,
-                                      height: _controller!.value.size.height > 0
-                                          ? _controller!.value.size.height
-                                          : effectiveDiameter,
-                                      child: VideoPlayer(_controller!),
-                                    ),
-                                  ),
+                                 : isFloatingActive
+                                     ? Container(
+                                         color: const Color(0xFF1C1C1E),
+                                         child: const Center(
+                                           child: Icon(
+                                             Icons.picture_in_picture_alt_rounded,
+                                             color: Colors.white54,
+                                             size: 38,
+                                           ),
+                                         ),
+                                       )
+                                     : FittedBox(
+                                         fit: BoxFit.cover,
+                                         child: SizedBox(
+                                           width: _controller!.value.size.width > 0
+                                               ? _controller!.value.size.width
+                                               : effectiveDiameter,
+                                           height: _controller!.value.size.height > 0
+                                               ? _controller!.value.size.height
+                                               : effectiveDiameter,
+                                           child: VideoPlayer(_controller!),
+                                         ),
+                                       ),
                       ),
                     ),
 

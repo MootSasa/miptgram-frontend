@@ -239,5 +239,20 @@ void main() {
       expect(service.activeVideoUrl, isNull);
       expect(service.hasActiveVideo, isFalse);
     });
+
+    test('Video note playback speed cycling works correctly', () async {
+      final service = VideoNotePlaybackService();
+      await service.setPlaybackSpeed(1.0);
+      expect(service.playbackSpeed, 1.0);
+
+      await service.cyclePlaybackSpeed();
+      expect(service.playbackSpeed, 1.5);
+
+      await service.cyclePlaybackSpeed();
+      expect(service.playbackSpeed, 2.0);
+
+      await service.cyclePlaybackSpeed();
+      expect(service.playbackSpeed, 1.0);
+    });
   });
 }

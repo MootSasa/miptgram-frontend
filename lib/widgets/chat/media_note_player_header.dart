@@ -25,6 +25,7 @@ class _MediaNotePlayerHeaderState extends State<MediaNotePlayerHeader>
 
   late AnimationController _slideController;
   late Animation<double> _slideAnimation;
+  VideoPlayerController? _observedVideoController;
 
   @override
   void initState() {
@@ -40,18 +41,35 @@ class _MediaNotePlayerHeaderState extends State<MediaNotePlayerHeader>
 
     _voiceService.addListener(_onServiceChange);
     _videoService.addListener(_onServiceChange);
+    _attachVideoController();
   }
 
   @override
   void dispose() {
+    _observedVideoController?.removeListener(_onVideoTick);
     _voiceService.removeListener(_onServiceChange);
     _videoService.removeListener(_onServiceChange);
     _slideController.dispose();
     super.dispose();
   }
 
+  void _attachVideoController() {
+    final ctrl = _videoService.activeController;
+    if (_observedVideoController != ctrl) {
+      _observedVideoController?.removeListener(_onVideoTick);
+      _observedVideoController = ctrl;
+      _observedVideoController?.addListener(_onVideoTick);
+    }
+  }
+
+  void _onVideoTick() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
   void _onServiceChange() {
     if (!mounted) return;
+    _attachVideoController();
     final hasActive = _voiceService.hasActiveAudio || _videoService.hasActiveVideo;
     if (hasActive) {
       if (_slideController.status != AnimationStatus.forward &&
@@ -172,41 +190,21 @@ class _MediaNotePlayerHeaderState extends State<MediaNotePlayerHeader>
                 child: Row(
                   children: [
                     // 1. Media Icon / Thumbnail
-                    if (isVideo && _videoService.activeController != null)
-                      ClipOval(
-                        child: SizedBox(
-                          width: 28,
-                          height: 28,
-                          child: FittedBox(
-                            fit: BoxFit.cover,
-                            child: SizedBox(
-                              width: _videoService.activeController!.value.size.width > 0
-                                  ? _videoService.activeController!.value.size.width
-                                  : 28,
-                              height: _videoService.activeController!.value.size.height > 0
-                                  ? _videoService.activeController!.value.size.height
-                                  : 28,
-                              child: VideoPlayer(_videoService.activeController!),
-                            ),
-                          ),
-                        ),
-                      )
-                    else
-                      Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: primaryColor.withValues(alpha: 0.15),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Center(
-                          child: Icon(
-                            Icons.graphic_eq_rounded,
-                            size: 17,
-                            color: primaryColor,
-                          ),
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: primaryColor.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Icon(
+                          isVideo ? Icons.videocam_rounded : Icons.graphic_eq_rounded,
+                          size: 17,
+                          color: primaryColor,
                         ),
                       ),
+                    ),
                     const SizedBox(width: 10),
 
                     // 2. Title & Subtitle

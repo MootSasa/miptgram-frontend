@@ -731,5 +731,22 @@
   "chat_voice_lock": "ロック",
   "chat_voice_too_short": "長押しで音声録音。タップで動画に切り替え。",
   "chat_voice_permission_denied": "マイクへのアクセスが拒否されました",
-  "chat_media_speed": "速度"
+  "chat_media_speed": "速度",
+  "storage_keep_media": "メディアの保存期間",
+  "storage_media_size": "キャッシュサイズ: {size}",
+  "storage_device_cache": "デバイスのキャッシュ",
+  "storage_device_cache_desc": "端末に保存された一時メディアファイル",
+  "storage_cloud_note": "すべてのメディアはMiptgramクラウドに保存され、いつでも再ダウンロードできます。",
+  "storage_keep_3days": "3日間",
+  "storage_keep_media_desc": "指定した期間アクセスされなかった写真や動画などのファイルは、空き容量を確保するために端末から削除されます。",
+  "storage_max_cache_size": "最大キャッシュサイズ",
+  "storage_max_cache_size_desc": "キャッシュサイズがこの制限を超えると、最も古いメディアファイルから端末より削除されます。",
+  "storage_no_limit": "無制限",
+  "storage_other": "その他",
+  "storage_free_space": "空き容量",
+  "storage_cache_cleared": "削除完了: {size}",
+  "storage_calculating": "計算中...",
+  "storage_select_all": "すべて選択",
+  "storage_deselect_all": "選択を解除",
+  "storage_clear_selected": "選択項目を削除 ({size})"
 }

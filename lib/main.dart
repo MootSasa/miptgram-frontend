@@ -8,11 +8,11 @@ import 'theme/app_theme.dart';
 import 'screens/auth/splash_screen.dart';
 import 'services/settings_service.dart';
 import 'services/account_manager.dart';
+import 'services/cache_service.dart';
 import 'services/liquid_glass_provider.dart';
 import 'services/unread_count_provider.dart';
 import 'services/deep_link_service.dart';
 import 'services/notification_settings_provider.dart';
-import 'services/notification_service.dart';
 import 'services/push_service_detector.dart';
 import 'services/privacy_settings_provider.dart';
 import 'services/banking_cards_provider.dart';
@@ -54,6 +54,7 @@ void main() async {
   // Initialize services
   await SettingsService().init();
   await AccountManager().init();
+  await CacheService().init();
 
   // Initialize deep link service
   await DeepLinkService().init();

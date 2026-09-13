@@ -731,5 +731,22 @@
   "chat_voice_lock": "고정",
   "chat_voice_too_short": "음성 녹음은 길게 누르세요. 탭하면 비디오로 전환됩니다.",
   "chat_voice_permission_denied": "마이크 접근이 거부되었습니다",
-  "chat_media_speed": "배속"
+  "chat_media_speed": "배속",
+  "storage_keep_media": "미디어 보관 기간",
+  "storage_media_size": "캐시 크기: {size}",
+  "storage_device_cache": "기기 캐시",
+  "storage_device_cache_desc": "기기에 저장된 임시 미디어 파일",
+  "storage_cloud_note": "모든 미디어 파일은 Miptgram 클라우드에 안전하게 보관되며 언제든지 다시 다운로드할 수 있습니다.",
+  "storage_keep_3days": "3일",
+  "storage_keep_media_desc": "지정된 기간 동안 열어보지 않은 사진, 비디오 및 파일은 저장 공간 확보를 위해 기기에서 삭제됩니다.",
+  "storage_max_cache_size": "최대 캐시 크기",
+  "storage_max_cache_size_desc": "캐시 크기가 이 한도를 초과하면 가장 오래된 미디어 파일부터 기기에서 삭제됩니다.",
+  "storage_no_limit": "제한 없음",
+  "storage_other": "기타",
+  "storage_free_space": "여유 공간",
+  "storage_cache_cleared": "삭제 완료: {size}",
+  "storage_calculating": "계산 중...",
+  "storage_select_all": "전체 선택",
+  "storage_deselect_all": "선택 해제",
+  "storage_clear_selected": "선택 항목 삭제 ({size})"
 }

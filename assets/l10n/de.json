@@ -731,5 +731,22 @@
   "chat_voice_lock": "Sperren",
   "chat_voice_too_short": "Gedrückt halten für Sprache. Tippen für Video.",
   "chat_voice_permission_denied": "Mikrofonzugriff verweigert",
-  "chat_media_speed": "Geschwindigkeit"
+  "chat_media_speed": "Geschwindigkeit",
+  "storage_keep_media": "Medien behalten",
+  "storage_media_size": "Cache-Größe: {size}",
+  "storage_device_cache": "Geräte-Cache",
+  "storage_device_cache_desc": "Temporäre Mediendateien auf Ihrem Gerät",
+  "storage_cloud_note": "Alle Medien verbleiben in der Miptgram-Cloud und können jederzeit erneut heruntergeladen werden.",
+  "storage_keep_3days": "3 Tage",
+  "storage_keep_media_desc": "Fotos, Videos und andere Dateien, auf die Sie in diesem Zeitraum nicht zugegriffen haben, werden vom Gerät entfernt, um Speicherplatz zu sparen.",
+  "storage_max_cache_size": "Maximale Cache-Größe",
+  "storage_max_cache_size_desc": "Wenn die Cache-Größe dieses Limit überschreitet, werden die ältesten Mediendateien entfernt.",
+  "storage_no_limit": "Unbegrenzt",
+  "storage_other": "Sonstiges",
+  "storage_free_space": "Frei",
+  "storage_cache_cleared": "Bereinigt: {size}",
+  "storage_calculating": "Berechne...",
+  "storage_select_all": "Alle auswählen",
+  "storage_deselect_all": "Auswahl aufheben",
+  "storage_clear_selected": "Ausgewählte leeren ({size})"
 }

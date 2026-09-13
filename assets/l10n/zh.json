@@ -731,5 +731,22 @@
   "chat_voice_lock": "锁定",
   "chat_voice_too_short": "按住录制语音。点击切换到视频。",
   "chat_voice_permission_denied": "麦克风访问被拒绝",
-  "chat_media_speed": "倍速"
+  "chat_media_speed": "倍速",
+  "storage_keep_media": "保留媒体文件",
+  "storage_media_size": "缓存大小: {size}",
+  "storage_device_cache": "设备缓存",
+  "storage_device_cache_desc": "保存在设备上的临时媒体文件",
+  "storage_cloud_note": "所有媒体文件将保留在 Miptgram 云端，可随时重新下载。",
+  "storage_keep_3days": "3 天",
+  "storage_keep_media_desc": "在此期间未访问的照片、视频和文件将从设备中移除以释放存储空间。",
+  "storage_max_cache_size": "最大缓存大小",
+  "storage_max_cache_size_desc": "如果缓存超过此限制，最旧的媒体文件将从设备中移除。",
+  "storage_no_limit": "无限制",
+  "storage_other": "其他",
+  "storage_free_space": "可用空间",
+  "storage_cache_cleared": "已清理: {size}",
+  "storage_calculating": "计算中...",
+  "storage_select_all": "全选",
+  "storage_deselect_all": "取消全选",
+  "storage_clear_selected": "清理所选 ({size})"
 }

@@ -18,6 +18,7 @@ class VideoNotePlaybackService with ChangeNotifier {
   bool _isFloating = false;
   bool _isInView = true;
   Offset _floatingPosition = const Offset(20, 96);
+  final Set<String> _visibleMessageIds = <String>{};
   
   // Callback registered by the active chat screen to advance to next video note
   void Function(String currentMessageId)? onPlayNextRequested;
@@ -30,6 +31,7 @@ class VideoNotePlaybackService with ChangeNotifier {
   bool get isFloating => _isFloating && _activeController != null;
   bool get isInView => _isInView;
   Offset get floatingPosition => _floatingPosition;
+  bool isMessageInView(String messageId) => _visibleMessageIds.contains(messageId);
 
   void updateFloatingPosition(Offset newPos) {
     _floatingPosition = newPos;
@@ -40,6 +42,7 @@ class VideoNotePlaybackService with ChangeNotifier {
     required String messageId,
     required String videoUrl,
     required VideoPlayerController controller,
+    bool? initialInView,
   }) {
     if (_activeMessageId != null && _activeMessageId != messageId) {
       // Previous controller reverts to muted loop
@@ -52,8 +55,10 @@ class VideoNotePlaybackService with ChangeNotifier {
     _activeMessageId = messageId;
     _activeVideoUrl = videoUrl;
     _activeController = controller;
-    _isInView = true;
-    _isFloating = false;
+
+    final inView = initialInView ?? (_visibleMessageIds.isEmpty ? true : _visibleMessageIds.contains(messageId));
+    _isInView = inView;
+    _isFloating = !inView;
     notifyListeners();
   }
 
@@ -70,15 +75,24 @@ class VideoNotePlaybackService with ChangeNotifier {
     _activeController = null;
     _isFloating = false;
     _isInView = true;
+    _visibleMessageIds.clear();
     notifyListeners();
   }
 
   void setInView(String messageId, bool inView) {
-    if (_activeMessageId != messageId) return;
-    if (_isInView == inView) return;
-    _isInView = inView;
-    _isFloating = !inView && _activeController != null;
-    notifyListeners();
+    if (inView) {
+      _visibleMessageIds.add(messageId);
+    } else {
+      _visibleMessageIds.remove(messageId);
+    }
+
+    if (_activeMessageId == messageId) {
+      if (_isInView != inView) {
+        _isInView = inView;
+        _isFloating = !inView && _activeController != null;
+        notifyListeners();
+      }
+    }
   }
 
   void onVideoCompleted(String messageId) {

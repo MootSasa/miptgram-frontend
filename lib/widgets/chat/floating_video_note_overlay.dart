@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import '../../services/video_note_playback_service.dart';
@@ -11,24 +12,143 @@ class FloatingVideoNoteOverlay extends StatefulWidget {
   State<FloatingVideoNoteOverlay> createState() => _FloatingVideoNoteOverlayState();
 }
 
-class _FloatingVideoNoteOverlayState extends State<FloatingVideoNoteOverlay> {
+class _FloatingVideoNoteOverlayState extends State<FloatingVideoNoteOverlay>
+    with SingleTickerProviderStateMixin {
   final VideoNotePlaybackService _service = VideoNotePlaybackService();
   static const double _kSize = 114.0;
+  static const double _kEdgeMargin = 12.0;
+
+  VideoPlayerController? _observedController;
+  Offset? _position;
+  late AnimationController _snapController;
+  Animation<Offset>? _snapAnimation;
+  double _prevProgress = 0.0;
 
   @override
   void initState() {
     super.initState();
     _service.addListener(_onServiceUpdate);
+    _snapController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    )..addListener(() {
+        if (_snapAnimation != null) {
+          setState(() {
+            _position = _snapAnimation!.value;
+          });
+        }
+      });
+    _attachControllerListener();
   }
 
   @override
   void dispose() {
+    _snapController.dispose();
+    _detachControllerListener();
     _service.removeListener(_onServiceUpdate);
     super.dispose();
   }
 
+  void _attachControllerListener() {
+    final ctrl = _service.activeController;
+    if (_observedController != ctrl) {
+      _detachControllerListener();
+      _observedController = ctrl;
+      _observedController?.addListener(_onVideoTick);
+    }
+  }
+
+  void _detachControllerListener() {
+    _observedController?.removeListener(_onVideoTick);
+    _observedController = null;
+  }
+
+  void _onVideoTick() {
+    if (!mounted) return;
+    final ctrl = _observedController;
+    if (ctrl != null && ctrl.value.isInitialized) {
+      final position = ctrl.value.position;
+      final duration = ctrl.value.duration;
+      final bool isFinished = (duration.inMilliseconds > 0) &&
+          (position >= duration || (!ctrl.value.isPlaying && position >= duration - const Duration(milliseconds: 150)));
+
+      // If video completed in floating mode, trigger auto-advance
+      if (isFinished) {
+        if (_service.isFloating && _service.activeMessageId != null) {
+          _service.onVideoCompleted(_service.activeMessageId!);
+          return;
+        }
+      }
+      setState(() {});
+    }
+  }
+
   void _onServiceUpdate() {
+    _attachControllerListener();
     if (mounted) setState(() {});
+  }
+
+  Offset _getDefaultPosition(Size screenSize, double topPadding) {
+    final saved = _service.floatingPosition;
+    if (saved.dx != 20 || saved.dy != 96) {
+      return saved;
+    }
+    return Offset(screenSize.width - _kSize - _kEdgeMargin, topPadding + 10);
+  }
+
+  void _onPanStart(DragStartDetails details) {
+    if (_snapController.isAnimating) {
+      _snapController.stop();
+    }
+  }
+
+  void _onPanUpdate(DragUpdateDetails details, Size screenSize, double topPadding, double bottomPadding) {
+    final minTop = topPadding;
+    final maxTop = math.max(minTop, screenSize.height - _kSize - bottomPadding);
+    const minLeft = 4.0;
+    final maxLeft = math.max(minLeft, screenSize.width - _kSize - 4.0);
+
+    final current = _position ?? _getDefaultPosition(screenSize, topPadding);
+    final newX = (current.dx + details.delta.dx).clamp(minLeft, maxLeft);
+    final newY = (current.dy + details.delta.dy).clamp(minTop, maxTop);
+
+    setState(() {
+      _position = Offset(newX, newY);
+    });
+  }
+
+  void _onPanEnd(DragEndDetails details, Size screenSize, double topPadding, double bottomPadding) {
+    final current = _position ?? _getDefaultPosition(screenSize, topPadding);
+    final minTop = topPadding;
+    final maxTop = math.max(minTop, screenSize.height - _kSize - bottomPadding);
+    final targetY = current.dy.clamp(minTop, maxTop);
+
+    final velocityX = details.velocity.pixelsPerSecond.dx;
+    final centerX = current.dx + _kSize / 2;
+    final screenCenterX = screenSize.width / 2;
+
+    // Magnetic snap to nearest edge (left or right), factoring in swipe velocity
+    final double targetX;
+    if (velocityX < -350) {
+      targetX = _kEdgeMargin;
+    } else if (velocityX > 350) {
+      targetX = screenSize.width - _kSize - _kEdgeMargin;
+    } else if (centerX < screenCenterX) {
+      targetX = _kEdgeMargin;
+    } else {
+      targetX = screenSize.width - _kSize - _kEdgeMargin;
+    }
+
+    final targetOffset = Offset(targetX, targetY);
+
+    _snapAnimation = Tween<Offset>(begin: current, end: targetOffset).animate(
+      CurvedAnimation(parent: _snapController, curve: Curves.easeOutCubic),
+    );
+    _snapController.forward(from: 0.0).then((_) {
+      if (mounted) {
+        _service.updateFloatingPosition(targetOffset);
+      }
+    });
   }
 
   @override
@@ -47,11 +167,8 @@ class _FloatingVideoNoteOverlayState extends State<FloatingVideoNoteOverlay> {
     final topPadding = mediaQuery.padding.top + 40.0;
     final bottomPadding = mediaQuery.padding.bottom + 80.0;
 
-    // Default position: top right if not positioned yet
-    Offset currentPos = _service.floatingPosition;
-    if (currentPos.dx == 20 && currentPos.dy == 96) {
-      currentPos = Offset(screenSize.width - _kSize - 16, topPadding + 10);
-    }
+    _position ??= _getDefaultPosition(screenSize, topPadding);
+    final currentPos = _position!;
 
     final duration = controller.value.duration;
     final position = controller.value.position;
@@ -59,20 +176,19 @@ class _FloatingVideoNoteOverlayState extends State<FloatingVideoNoteOverlay> {
         ? (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
         : 0.0;
 
+    final animatedBeginProgress = (targetProgress < _prevProgress) ? 0.0 : _prevProgress;
+    _prevProgress = targetProgress;
+
     return Stack(
       fit: StackFit.loose,
       children: [
         Positioned(
-          left: currentPos.dx.clamp(8.0, screenSize.width - _kSize - 8.0),
-          top: currentPos.dy.clamp(topPadding, screenSize.height - _kSize - bottomPadding),
+          left: currentPos.dx,
+          top: currentPos.dy,
           child: GestureDetector(
-            onPanUpdate: (details) {
-              final newX = (currentPos.dx + details.delta.dx)
-                  .clamp(8.0, screenSize.width - _kSize - 8.0);
-              final newY = (currentPos.dy + details.delta.dy)
-                  .clamp(topPadding, screenSize.height - _kSize - bottomPadding);
-              _service.updateFloatingPosition(Offset(newX, newY));
-            },
+            onPanStart: _onPanStart,
+            onPanUpdate: (d) => _onPanUpdate(d, screenSize, topPadding, bottomPadding),
+            onPanEnd: (d) => _onPanEnd(d, screenSize, topPadding, bottomPadding),
             onTap: () {
               _service.requestScrollToActive();
             },
@@ -119,7 +235,7 @@ class _FloatingVideoNoteOverlayState extends State<FloatingVideoNoteOverlay> {
                     Positioned.fill(
                       child: IgnorePointer(
                         child: TweenAnimationBuilder<double>(
-                          tween: Tween<double>(begin: 0.0, end: targetProgress),
+                          tween: Tween<double>(begin: animatedBeginProgress, end: targetProgress),
                           duration: const Duration(milliseconds: 250),
                           curve: Curves.linear,
                           builder: (context, smoothProgress, _) {

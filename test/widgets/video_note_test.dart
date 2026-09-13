@@ -183,7 +183,7 @@ void main() {
   });
 
   group('VideoMessageWidget Tests', () {
-    testWidgets('Renders circular container with time & status pill',
+    testWidgets('Renders circular container with duration pill on left and time pill on right',
         (WidgetTester tester) async {
       await tester.pumpWidget(
         createTestApp(
@@ -194,6 +194,7 @@ void main() {
             isRead: true,
             sendStatus: 1,
             timeText: '14:22',
+            duration: Duration(seconds: 15),
           ),
         ),
       );
@@ -202,7 +203,10 @@ void main() {
       // Circular video container with ClipOval
       expect(find.byType(ClipOval), findsOneWidget);
 
-      // Time pill displays time
+      // Duration pill displays video duration
+      expect(find.text('0:15'), findsOneWidget);
+
+      // Time pill displays message time
       expect(find.text('14:22'), findsOneWidget);
 
       // Outgoing status for read message (DoubleCheck)
@@ -388,7 +392,7 @@ void main() {
         senderName: 'Alice',
         createdAt: '2026-09-12T10:00:00Z',
         replyToMessageId: 'orig-1',
-        replyInfo: ReplyInfo(
+        replyInfo: const ReplyInfo(
           messageId: 'orig-1',
           senderId: 'user-2',
           senderName: 'Charlie',
@@ -467,6 +471,29 @@ void main() {
       service.stopActivePlayback();
       expect(service.activeMessageId, isNull);
       expect(service.isFloating, isFalse);
+    });
+
+    test('Playback service automatically enters floating mode if next video note is not in view', () {
+      final service = VideoNotePlaybackService();
+
+      // Screen is populated with note-1 in view
+      service.setInView('note-1', true);
+      expect(service.isMessageInView('note-1'), isTrue);
+      expect(service.isMessageInView('note-2'), isFalse);
+
+      // Playing note-2 (off-screen)
+      service.setActivePlayback(
+        messageId: 'note-2',
+        videoUrl: 'https://example.com/v2.mp4',
+        controller: VideoPlayerController.networkUrl(Uri.parse('https://example.com/v2.mp4')),
+      );
+
+      // Must start in floating PiP mode immediately
+      expect(service.activeMessageId, equals('note-2'));
+      expect(service.isInView, isFalse);
+      expect(service.isFloating, isTrue);
+
+      service.stopActivePlayback();
     });
   });
 }

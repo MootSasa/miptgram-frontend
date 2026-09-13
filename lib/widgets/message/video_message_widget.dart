@@ -225,10 +225,9 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
       final position = controller.value.position;
       final duration = controller.value.duration;
 
-      // Detect end of playback to automatically advance to the next circle
-      if (duration.inMilliseconds > 0 &&
-          position >= duration &&
-          !controller.value.isPlaying) {
+      final bool isCompleted = (duration.inMilliseconds > 0) &&
+          (position >= duration || (!controller.value.isPlaying && position >= duration - const Duration(milliseconds: 150)));
+      if (isCompleted) {
         _revertToMutedLoop();
         if (widget.messageId != null) {
           _playbackService.onVideoCompleted(widget.messageId!);
@@ -298,6 +297,7 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
           messageId: widget.messageId!,
           videoUrl: widget.videoUrl,
           controller: _controller!,
+          initialInView: true,
         );
       }
       _startSoundPlayback();
@@ -308,6 +308,98 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
     final minutes = d.inMinutes.remainder(60).toString().padLeft(1, '0');
     final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$minutes:$seconds';
+  }
+
+  Widget _buildDurationPill(String durationText) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.15),
+          width: 0.8,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            _isPlayingWithSound ? Icons.volume_up_rounded : Icons.play_arrow_rounded,
+            size: 13,
+            color: Colors.white.withValues(alpha: 0.85),
+          ),
+          const SizedBox(width: 3),
+          Text(
+            durationText,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimePill(BuildContext context) {
+    final hasTime = widget.timeText != null && widget.timeText!.isNotEmpty;
+    if (!hasTime && !widget.isMe) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.15),
+          width: 0.8,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (hasTime)
+            Text(
+              widget.timeText!,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          if (widget.isMe) ...[
+            if (hasTime) const SizedBox(width: 4),
+            if (widget.sendStatus == 0)
+              const SizedBox(
+                width: 10,
+                height: 10,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.2,
+                  color: Colors.white70,
+                ),
+              )
+            else if (widget.sendStatus == 2)
+              GestureDetector(
+                onTap: widget.onRetry,
+                child: const iconoir.WarningCircle(
+                  width: 13,
+                  height: 13,
+                  color: Colors.redAccent,
+                ),
+              )
+            else
+              MessageStatusWidget(
+                isRead: widget.isRead,
+                isOutgoing: widget.isMe,
+                colorOverride: Colors.white,
+              ),
+          ],
+        ],
+      ),
+    );
   }
 
   @override
@@ -334,6 +426,17 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
     final animatedBeginProgress = (progress < _prevProgress) ? 0.0 : _prevProgress;
     _prevProgress = progress;
 
+    final String durationText;
+    if (_isPlayingWithSound && isInitialized) {
+      durationText = _formatDuration(duration - position);
+    } else if (duration.inSeconds > 0) {
+      durationText = _formatDuration(duration);
+    } else if (widget.duration != null && widget.duration!.inSeconds > 0) {
+      durationText = _formatDuration(widget.duration!);
+    } else {
+      durationText = '0:00';
+    }
+
     return VisibilityDetector(
       key: Key('vnote_${widget.messageId ?? widget.videoUrl}'),
       onVisibilityChanged: (info) {
@@ -343,187 +446,143 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
         }
       },
       child: RepaintBoundary(
-        child: GestureDetector(
-          onTap: _handleTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 260),
-            curve: Curves.easeOutCubic,
-            width: effectiveDiameter,
-            height: effectiveDiameter,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.28),
-                  blurRadius: 12,
-                  spreadRadius: 1,
-                  offset: const Offset(0, 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: widget.isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            GestureDetector(
+              onTap: _handleTap,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 260),
+                curve: Curves.easeOutCubic,
+                width: effectiveDiameter,
+                height: effectiveDiameter,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.28),
+                      blurRadius: 12,
+                      spreadRadius: 1,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                // 1. Circular Video / Placeholder / Error (No spinning loader!)
-                ClipOval(
-                  child: SizedBox(
-                    width: effectiveDiameter,
-                    height: effectiveDiameter,
-                    child: _hasError
-                        ? Container(
-                            color: Colors.black87,
-                            child: Center(
-                              child: widget.onRetry != null
-                                  ? IconButton(
-                                      icon: const Icon(Icons.refresh, color: Colors.white70, size: 36),
-                                      onPressed: () {
-                                        setState(() {
-                                          _hasError = false;
-                                        });
-                                        _initializeVideoPlayer();
-                                      },
-                                    )
-                                  : const Icon(Icons.error_outline, color: Colors.white70, size: 36),
-                            ),
-                          )
-                        : !isInitialized
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // 1. Circular Video / Placeholder / Error (No spinning loader!)
+                    ClipOval(
+                      child: SizedBox(
+                        width: effectiveDiameter,
+                        height: effectiveDiameter,
+                        child: _hasError
                             ? Container(
-                                color: const Color(0xFF1C1C1E),
-                                child: const Center(
-                                  child: Icon(Icons.play_arrow_rounded, color: Colors.white24, size: 42),
+                                color: Colors.black87,
+                                child: Center(
+                                  child: widget.onRetry != null
+                                      ? IconButton(
+                                          icon: const Icon(Icons.refresh, color: Colors.white70, size: 36),
+                                          onPressed: () {
+                                            setState(() {
+                                              _hasError = false;
+                                            });
+                                            _initializeVideoPlayer();
+                                          },
+                                        )
+                                      : const Icon(Icons.error_outline, color: Colors.white70, size: 36),
                                 ),
                               )
-                            : FittedBox(
-                                fit: BoxFit.cover,
-                                child: SizedBox(
-                                  width: _controller!.value.size.width > 0
-                                      ? _controller!.value.size.width
-                                      : effectiveDiameter,
-                                  height: _controller!.value.size.height > 0
-                                      ? _controller!.value.size.height
-                                      : effectiveDiameter,
-                                  child: VideoPlayer(_controller!),
-                                ),
-                              ),
-                  ),
-                ),
-
-                // 2. Play / Pause Overlay Icon when paused with sound
-                if (_isPlayingWithSound && _isPausedWithSound)
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.55),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Center(
-                      child: Icon(Icons.play_arrow, color: Colors.white, size: 28),
-                    ),
-                  ),
-
-                // 3. Smooth Circular Progress Ring around edge (Active during sound playback)
-                if (_isPlayingWithSound && isInitialized)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: TweenAnimationBuilder<double>(
-                        tween: Tween<double>(begin: animatedBeginProgress, end: progress),
-                        duration: const Duration(milliseconds: 250),
-                        curve: Curves.linear,
-                        builder: (context, smoothProgress, _) {
-                          return CustomPaint(
-                            painter: _CircularProgressPainter(
-                              progress: smoothProgress,
-                              color: Colors.white,
-                              strokeWidth: 3.0,
-                            ),
-                          );
-                        },
+                            : !isInitialized
+                                ? Container(
+                                    color: const Color(0xFF1C1C1E),
+                                    child: const Center(
+                                      child: Icon(Icons.play_arrow_rounded, color: Colors.white24, size: 42),
+                                    ),
+                                  )
+                                : FittedBox(
+                                    fit: BoxFit.cover,
+                                    child: SizedBox(
+                                      width: _controller!.value.size.width > 0
+                                          ? _controller!.value.size.width
+                                          : effectiveDiameter,
+                                      height: _controller!.value.size.height > 0
+                                          ? _controller!.value.size.height
+                                          : effectiveDiameter,
+                                      child: VideoPlayer(_controller!),
+                                    ),
+                                  ),
                       ),
                     ),
-                  ),
 
-                // 4. Subtle Outer Border
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          width: 1.2,
+                    // 2. Play / Pause Overlay Icon when paused with sound
+                    if (_isPlayingWithSound && _isPausedWithSound)
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.55),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.play_arrow, color: Colors.white, size: 28),
                         ),
                       ),
-                    ),
-                  ),
-                ),
 
-                // 5. Floating Time & Status Pill (Bottom-Right)
-                Positioned(
-                  bottom: 8,
-                  right: 14,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.55),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.15),
-                        width: 0.8,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Time Text
-                        Text(
-                          _isPlayingWithSound && isInitialized
-                              ? _formatDuration(duration - position)
-                              : (widget.timeText ??
-                                  (duration.inSeconds > 0
-                                      ? _formatDuration(duration)
-                                      : '0:00')),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
+                    // 3. Smooth Circular Progress Ring around edge (Active during sound playback)
+                    if (_isPlayingWithSound && isInitialized)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: TweenAnimationBuilder<double>(
+                            tween: Tween<double>(begin: animatedBeginProgress, end: progress),
+                            duration: const Duration(milliseconds: 250),
+                            curve: Curves.linear,
+                            builder: (context, smoothProgress, _) {
+                              return CustomPaint(
+                                painter: _CircularProgressPainter(
+                                  progress: smoothProgress,
+                                  color: Colors.white,
+                                  strokeWidth: 3.0,
+                                ),
+                              );
+                            },
                           ),
                         ),
-                        // Status checks for outgoing messages
-                        if (widget.isMe) ...[
-                          const SizedBox(width: 4),
-                          if (widget.sendStatus == 0)
-                            const SizedBox(
-                              width: 10,
-                              height: 10,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 1.2,
-                                color: Colors.white70,
-                              ),
-                            )
-                          else if (widget.sendStatus == 2)
-                            GestureDetector(
-                              onTap: widget.onRetry,
-                              child: const iconoir.WarningCircle(
-                                width: 13,
-                                height: 13,
-                                color: Colors.redAccent,
-                              ),
-                            )
-                          else
-                            MessageStatusWidget(
-                              isRead: widget.isRead,
-                              isOutgoing: widget.isMe,
-                              colorOverride: Colors.white,
+                      ),
+
+                    // 4. Subtle Outer Border
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.2),
+                              width: 1.2,
                             ),
-                        ],
-                      ],
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
+            const SizedBox(height: 5.0),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+              width: effectiveDiameter,
+              padding: const EdgeInsets.symmetric(horizontal: 4.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildDurationPill(durationText),
+                  _buildTimePill(context),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

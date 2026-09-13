@@ -3165,6 +3165,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           if (resolvedUrl.isNotEmpty) {
             final cached = VideoNoteControllerPool.get(resolvedUrl);
             if (cached != null && cached.value.isInitialized) {
+              cached.seekTo(Duration.zero);
+              cached.setLooping(false);
+              cached.setVolume(1.0);
+              cached.play();
               VideoNotePlaybackService().setActivePlayback(
                 messageId: m.id,
                 videoUrl: resolvedUrl,
@@ -3189,7 +3193,6 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                 debugPrint('Play next init error: $err');
               });
             }
-            _scrollToMessage(m.id);
             return;
           }
         }

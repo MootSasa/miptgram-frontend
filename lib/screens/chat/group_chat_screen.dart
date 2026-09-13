@@ -1322,6 +1322,10 @@ class _GroupChatScreenState extends State<GroupChatScreen>
           if (resolvedUrl.isNotEmpty) {
             final cached = VideoNoteControllerPool.get(resolvedUrl);
             if (cached != null && cached.value.isInitialized) {
+              cached.seekTo(Duration.zero);
+              cached.setLooping(false);
+              cached.setVolume(1.0);
+              cached.play();
               VideoNotePlaybackService().setActivePlayback(
                 messageId: m.id,
                 videoUrl: resolvedUrl,
@@ -1346,7 +1350,6 @@ class _GroupChatScreenState extends State<GroupChatScreen>
                 debugPrint('Play next init error: $err');
               });
             }
-            _scrollToMessage(m.id);
             return;
           }
         }

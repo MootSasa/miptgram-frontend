@@ -76,7 +76,9 @@ class _FloatingVideoNoteOverlayState extends State<FloatingVideoNoteOverlay>
       // If video completed in floating mode, trigger auto-advance
       if (isFinished) {
         if (_service.isFloating && _service.activeMessageId != null) {
-          _service.onVideoCompleted(_service.activeMessageId!);
+          final finishedId = _service.activeMessageId!;
+          _detachControllerListener();
+          _service.onVideoCompleted(finishedId);
           return;
         }
       }

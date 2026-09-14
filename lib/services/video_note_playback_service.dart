@@ -68,7 +68,15 @@ class VideoNotePlaybackService with ChangeNotifier {
       controller.setPlaybackSpeed(_playbackSpeed);
     } catch (_) {}
 
-    final inView = initialInView ?? (_visibleMessageIds.isEmpty ? true : _visibleMessageIds.contains(messageId));
+    final bool inView;
+    if (initialInView != null) {
+      inView = initialInView;
+    } else if (_isFloating) {
+      // Preserve floating mode when advancing unless next note is explicitly visible on screen
+      inView = _visibleMessageIds.contains(messageId);
+    } else {
+      inView = _visibleMessageIds.isEmpty ? true : _visibleMessageIds.contains(messageId);
+    }
     _isInView = inView;
     _isFloating = !inView;
     notifyListeners();
@@ -124,8 +132,11 @@ class VideoNotePlaybackService with ChangeNotifier {
     _isFloating = false;
     _isInView = true;
     _floatingPosition = null;
-    _visibleMessageIds.clear();
     notifyListeners();
+  }
+
+  void clearVisibility() {
+    _visibleMessageIds.clear();
   }
 
   void setInView(String messageId, bool inView) {

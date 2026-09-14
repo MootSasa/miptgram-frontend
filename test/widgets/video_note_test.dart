@@ -495,5 +495,74 @@ void main() {
 
       service.stopActivePlayback();
     });
+
+    test('Preserves floating mode when auto-advancing to next note while scrolled away (even with empty visibleMessageIds)', () {
+      final service = VideoNotePlaybackService();
+      service.stopActivePlayback();
+      service.clearVisibility();
+
+      // Start playing note-1
+      service.setActivePlayback(
+        messageId: 'note-1',
+        videoUrl: 'https://example.com/v1.mp4',
+        controller: VideoPlayerController.networkUrl(Uri.parse('https://example.com/v1.mp4')),
+        initialInView: true,
+      );
+      expect(service.isFloating, isFalse);
+
+      // User scrolls note-1 out of view (e.g. no video notes visible in viewport now)
+      service.setInView('note-1', false);
+      expect(service.isFloating, isTrue);
+
+      // Auto-advance triggers for note-2 which is also off-screen
+      service.setActivePlayback(
+        messageId: 'note-2',
+        videoUrl: 'https://example.com/v2.mp4',
+        controller: VideoPlayerController.networkUrl(Uri.parse('https://example.com/v2.mp4')),
+      );
+
+      // Must remain floating in PiP mode without glitching or dismissing
+      expect(service.activeMessageId, equals('note-2'));
+      expect(service.isFloating, isTrue);
+      expect(service.isInView, isFalse);
+
+      // If user scrolls back so note-2 becomes visible in viewport
+      service.setInView('note-2', true);
+      expect(service.isFloating, isFalse);
+      expect(service.isInView, isTrue);
+
+      service.stopActivePlayback();
+    });
+
+    test('Floating PiP switches back to in-view when advancing to a note that is visible on screen', () {
+      final service = VideoNotePlaybackService();
+      service.stopActivePlayback();
+      service.clearVisibility();
+
+      // note-2 is in view on screen, but note-1 was scrolled out
+      service.setInView('note-2', true);
+
+      service.setActivePlayback(
+        messageId: 'note-1',
+        videoUrl: 'https://example.com/v1.mp4',
+        controller: VideoPlayerController.networkUrl(Uri.parse('https://example.com/v1.mp4')),
+        initialInView: false,
+      );
+      expect(service.isFloating, isTrue);
+
+      // Advancing to note-2 which is in view
+      service.setActivePlayback(
+        messageId: 'note-2',
+        videoUrl: 'https://example.com/v2.mp4',
+        controller: VideoPlayerController.networkUrl(Uri.parse('https://example.com/v2.mp4')),
+        initialInView: service.isMessageInView('note-2'),
+      );
+
+      expect(service.activeMessageId, equals('note-2'));
+      expect(service.isFloating, isFalse);
+      expect(service.isInView, isTrue);
+
+      service.stopActivePlayback();
+    });
   });
 }

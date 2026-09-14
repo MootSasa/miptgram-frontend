@@ -112,7 +112,8 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
     final isThisActive = activeId == widget.messageId;
     if (isThisActive) {
       if (!_isPlayingWithSound && _controller != null && _controller!.value.isInitialized) {
-        _startSoundPlayback();
+        final isAlreadyPlaying = _controller!.value.isPlaying;
+        _startSoundPlayback(restart: !isAlreadyPlaying);
       } else {
         setState(() {});
       }
@@ -137,6 +138,11 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
     if (cached != null && cached.value.isInitialized) {
       _controller = cached;
       _controller!.addListener(_onVideoUpdate);
+      final isCurrentlyActive = (widget.messageId != null && _playbackService.activeMessageId == widget.messageId) ||
+          _playbackService.activeController == cached;
+      if (isCurrentlyActive) {
+        _isPlayingWithSound = true;
+      }
       if (mounted) {
         setState(() {
           _hasError = false;
@@ -209,6 +215,14 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
       _controller!.addListener(_onVideoUpdate);
       VideoNoteControllerPool.put(widget.videoUrl, controller);
 
+      final isCurrentlyActive = (widget.messageId != null && _playbackService.activeMessageId == widget.messageId) ||
+          _playbackService.activeController == controller;
+      if (isCurrentlyActive) {
+        _isPlayingWithSound = true;
+        await controller.setLooping(false);
+        await controller.setVolume(1.0);
+      }
+
       setState(() {
         _hasError = false;
       });
@@ -234,7 +248,7 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
           (position >= duration || (!controller.value.isPlaying && position >= duration - const Duration(milliseconds: 150)));
       if (isCompleted) {
         _revertToMutedLoop();
-        if (widget.messageId != null) {
+        if (widget.messageId != null && _playbackService.activeMessageId == widget.messageId) {
           _playbackService.onVideoCompleted(widget.messageId!);
         }
         return;
@@ -244,14 +258,18 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
     setState(() {});
   }
 
-  void _startSoundPlayback() {
+  void _startSoundPlayback({bool restart = true}) {
     if (_controller == null || !_controller!.value.isInitialized) return;
-    _controller?.pause();
-    _controller?.seekTo(Duration.zero);
+    if (restart) {
+      _controller?.pause();
+      _controller?.seekTo(Duration.zero);
+      _prevProgress = 0.0;
+    }
     _controller?.setLooping(false);
     _controller?.setVolume(1.0);
-    _controller?.play();
-    _prevProgress = 0.0;
+    if (!(_controller?.value.isPlaying ?? false)) {
+      _controller?.play();
+    }
     setState(() {
       _isPlayingWithSound = true;
     });
@@ -451,7 +469,12 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
         }
         // Pause muted background video decoding when scrolled off-screen
         // to prevent multiple concurrent hardware decoders from degrading scroll performance.
-        if (!_isPlayingWithSound && _controller != null && _controller!.value.isInitialized) {
+        // Active playback videos (with sound or in floating PiP) must NEVER be paused by visibility detector.
+        final bool isActiveVideo = (widget.messageId != null && _playbackService.activeMessageId == widget.messageId) ||
+            (_controller != null && _playbackService.activeController == _controller) ||
+            _isPlayingWithSound;
+
+        if (!isActiveVideo && _controller != null && _controller!.value.isInitialized) {
           if (!inView && _controller!.value.isPlaying) {
             _controller!.pause();
           } else if (inView && !_controller!.value.isPlaying && !_hasError) {

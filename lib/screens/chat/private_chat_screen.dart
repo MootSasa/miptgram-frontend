@@ -3461,6 +3461,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                 videoUrl: resolvedUrl,
                 controller: cached,
                 senderName: m.senderName,
+                initialInView: VideoNotePlaybackService().isMessageInView(m.id),
               );
             } else {
               final uri = Uri.tryParse(resolvedUrl);
@@ -3468,6 +3469,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                   ? VideoPlayerController.networkUrl(uri)
                   : VideoPlayerController.file(File(resolvedUrl.replaceFirst('file://', '')));
               ctrl.initialize().then((_) {
+                if (!mounted) {
+                  ctrl.dispose();
+                  return;
+                }
                 ctrl.setLooping(false);
                 ctrl.setVolume(1.0);
                 ctrl.play();
@@ -3477,9 +3482,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                   videoUrl: resolvedUrl,
                   controller: ctrl,
                   senderName: m.senderName,
+                  initialInView: VideoNotePlaybackService().isMessageInView(m.id),
                 );
               }).catchError((err) {
                 debugPrint('Play next init error: $err');
+                VideoNotePlaybackService().stopActivePlayback();
               });
             }
             return;

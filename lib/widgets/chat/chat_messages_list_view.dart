@@ -82,6 +82,7 @@ class ChatMessagesListView extends StatelessWidget {
     final listView = ListView.builder(
       controller: scrollController,
       reverse: reverse,
+      cacheExtent: 600.0,
       padding: EdgeInsets.only(
         top: topPadding,
         left: 8,
@@ -108,36 +109,6 @@ class ChatMessagesListView extends StatelessWidget {
           )
         : listView;
 
-    if (!enableTopShaderMask) {
-      return content;
-    }
-
-    return ShaderMask(
-      shaderCallback: (Rect bounds) {
-        final statusBarHeight = MediaQuery.of(context).padding.top;
-        final appBarBottom = statusBarHeight + 54 + 8;
-        final fadeStart = appBarBottom + 20;
-        final fadeEnd = statusBarHeight;
-
-        return LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: const [
-            Colors.transparent,
-            Colors.transparent,
-            Colors.black,
-            Colors.black,
-          ],
-          stops: [
-            0.0,
-            (fadeEnd / bounds.height).clamp(0.0, 1.0),
-            (fadeStart / bounds.height).clamp(0.0, 1.0),
-            1.0,
-          ],
-        ).createShader(bounds);
-      },
-      blendMode: BlendMode.dstIn,
-      child: content,
-    );
+    return content;
   }
 }

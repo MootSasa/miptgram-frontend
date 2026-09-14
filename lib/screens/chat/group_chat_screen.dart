@@ -1620,7 +1620,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
           formatTime: _formatTime,
         );
 
-        if (!isMe) {
+        if (!isMe && !message.isRead) {
           messageWidget = VisibleMessageDetector(
             messageId: message.id,
             onMessageSeen: () => _onMessageVisible(message.id),
@@ -1667,7 +1667,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
         }
         items.add(messageWidget);
 
-        return Column(children: items);
+        return RepaintBoundary(child: Column(children: items));
       },
     );
 

@@ -2034,6 +2034,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                     child: ListView.builder(
                       controller: _scrollController,
                       reverse: true,
+                      cacheExtent: 600.0,
                       // В glass-режиме добавляем верхний отступ,
                       // чтобы сообщения не прятались за glass AppBar
                       padding: EdgeInsets.only(
@@ -2118,38 +2119,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                   ),
                 // Сообщения на весь экран (с верхним отступом через ListView.padding)
                 Positioned.fill(
-                  child: ShaderMask(
-                    shaderCallback: (Rect bounds) {
-                      final statusBarHeight = MediaQuery.of(context).padding.top;
-                      // FloatingGlassAppBar использует _kAppBarHeight (54) + vertical padding (8).
-                      final appBarBottom = statusBarHeight + 54 + 8;
-                      final fadeStart = appBarBottom + 20; // Начинаем затухание чуть ниже AppBar
-                      final fadeEnd = statusBarHeight; // Полная прозрачность у верхнего края
-
-                      return LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: const [
-                          Colors.transparent,
-                          Colors.transparent,
-                          Colors.black,
-                          Colors.black,
-                        ],
-                        stops: [
-                          0.0,
-                          (fadeEnd / bounds.height).clamp(0.0, 1.0),
-                          (fadeStart / bounds.height).clamp(0.0, 1.0),
-                          1.0,
-                        ],
-                      ).createShader(bounds);
-                    },
-                    blendMode: BlendMode.dstIn,
-                    child: Column(
-                      children: [
-                        typingIndicator,
-                        Expanded(child: messageList),
-                      ],
-                    ),
+                  child: Column(
+                    children: [
+                      typingIndicator,
+                      Expanded(child: messageList),
+                    ],
                   ),
                 ),
                 // Кнопка прокрутки вниз (теперь здесь, в главном Stack чата)
@@ -2325,8 +2299,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       child: messageWidget,
     );
 
-    // Wrap ALL incoming messages with VisibleMessageDetector
-    if (!isMe) {
+    // Wrap incoming unread messages with VisibleMessageDetector
+    if (!isMe && !message.isRead) {
       messageWidget = VisibleMessageDetector(
         messageId: message.id,
         onMessageSeen: () => _onMessageVisible(message.id),
@@ -2376,9 +2350,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     items.add(messageWidget);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: items,
+    return RepaintBoundary(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: items,
+      ),
     );
   }
 

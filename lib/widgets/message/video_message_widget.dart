@@ -445,9 +445,18 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
     return VisibilityDetector(
       key: Key('vnote_${widget.messageId ?? widget.videoUrl}'),
       onVisibilityChanged: (info) {
+        final inView = info.visibleFraction >= 0.15;
         if (widget.messageId != null) {
-          final inView = info.visibleFraction >= 0.15;
           _playbackService.setInView(widget.messageId!, inView);
+        }
+        // Pause muted background video decoding when scrolled off-screen
+        // to prevent multiple concurrent hardware decoders from degrading scroll performance.
+        if (!_isPlayingWithSound && _controller != null && _controller!.value.isInitialized) {
+          if (!inView && _controller!.value.isPlaying) {
+            _controller!.pause();
+          } else if (inView && !_controller!.value.isPlaying && !_hasError) {
+            _controller!.play();
+          }
         }
       },
       child: RepaintBoundary(

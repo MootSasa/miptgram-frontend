@@ -313,18 +313,14 @@ class RenderBubbleLayout extends RenderBox
       );
     }
 
-    // Calculate offset of targetParagraph within root
+    // Calculate offset of targetParagraph within root via BoxParentData
     Offset offsetInRoot = Offset.zero;
-    try {
-      offsetInRoot = targetParagraph.localToGlobal(Offset.zero, ancestor: root);
-    } catch (_) {
-      RenderObject current = targetParagraph;
-      while (current != root && current.parent != null) {
-        if (current.parentData is BoxParentData) {
-          offsetInRoot += (current.parentData as BoxParentData).offset;
-        }
-        current = current.parent!;
+    RenderObject current = targetParagraph;
+    while (current != root && current.parent != null) {
+      if (current.parentData is BoxParentData) {
+        offsetInRoot += (current.parentData as BoxParentData).offset;
       }
+      current = current.parent!;
     }
 
     final plainText = targetParagraph.text.toPlainText();
@@ -912,19 +908,9 @@ class MessageBubble extends StatelessWidget {
       final String replyText = message.quoteText ?? message.replyInfo?.content ?? '';
       final String senderTitle = (message.replyInfo?.senderId == currentUserId ? 'Вы' : message.replyInfo?.senderName) ?? 'Сообщение';
       
-      final TextPainter replyTitleTp = TextPainter(
-        text: TextSpan(text: senderTitle, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-        textDirection: TextDirection.ltr,
-        maxLines: 1,
-      )..layout(maxWidth: maxBubbleWidth);
-
-      final TextPainter replyBodyTp = TextPainter(
-        text: TextSpan(text: replyText.replaceAll(RegExp(r'\n+'), ' '), style: const TextStyle(fontSize: 12)),
-        textDirection: TextDirection.ltr,
-        maxLines: 1,
-      )..layout(maxWidth: maxBubbleWidth);
-
-      replyWidthEstimate = math.max(replyTitleTp.width, replyBodyTp.width) + 28.0; // 28 = accent bar + padding
+      // Fast estimate avoiding synchronous TextPainter.layout() during build
+      final double estimatedTextWidth = math.max(senderTitle.length * 8.0, replyText.length * 7.0);
+      replyWidthEstimate = (estimatedTextWidth + 28.0).clamp(60.0, maxBubbleWidth);
     } else if (chatType == 'saved' && (message.forwardFromName?.isNotEmpty ?? false || message.senderName.isNotEmpty)) {
       replyWidget = MessageReplyInfo.forwarded(
         authorName: message.forwardFromName ?? message.senderName,
@@ -941,12 +927,8 @@ class MessageBubble extends StatelessWidget {
         fontWeight: FontWeight.bold,
         color: effectivePreset.primaryColor,
       );
-      final TextPainter senderNameTp = TextPainter(
-        text: TextSpan(text: senderName!, style: style),
-        textDirection: TextDirection.ltr,
-        maxLines: 1,
-      )..layout(maxWidth: maxBubbleWidth);
-      senderNameWidthEstimate = senderNameTp.width;
+      // Measured precisely by RenderBubbleLayout during layout; fast baseline here
+      senderNameWidthEstimate = (senderName!.length * 8.0).clamp(0.0, maxBubbleWidth);
 
       senderNameWidget = Padding(
         padding: const EdgeInsets.only(bottom: 4.0),
@@ -1278,6 +1260,7 @@ class MessageBubble extends StatelessWidget {
             child: Image.network(
               resolvedUrl,
               width: maxWidth,
+              cacheWidth: (maxWidth * MediaQuery.devicePixelRatioOf(context)).round(),
               fit: BoxFit.cover,
               loadingBuilder: (context, child, loadingProgress) {
                 if (loadingProgress == null) return child;
@@ -1444,28 +1427,16 @@ class MessageBubble extends StatelessWidget {
   }
 
   double _calculateMetadataWidth(BuildContext context) {
+    // Fast estimation avoiding synchronous TextPainter.layout() during build.
+    // RenderBubbleLayout.performLayout also measures the actual metadata widget during layout.
     double width = 0.0;
     if (message.isEdited) {
-      final editedText = context.l10n.translate('chat_edited');
-      final tp = TextPainter(
-        text: TextSpan(
-          text: editedText,
-          style: const TextStyle(fontSize: 10, fontStyle: FontStyle.italic),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      width += tp.width + 4.0;
+      width += 40.0; // "изм." / "edited" label + padding
     }
 
     final timeStr = formatTime(message.createdAt);
-    final timeTp = TextPainter(
-      text: TextSpan(
-        text: timeStr,
-        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w400),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    width += timeTp.width;
+    // 11pt font width estimation (~6.5-7px per character)
+    width += timeStr.length * 7.0;
 
     if (isMe) {
       width += 4.0;

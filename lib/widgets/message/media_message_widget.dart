@@ -40,6 +40,7 @@ class MediaMessageWidget extends StatelessWidget {
       borderRadius: BorderRadius.circular(8.0),
       child: Image.network(
         url,
+        cacheWidth: 800,
         fit: BoxFit.cover,
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) return child;
@@ -77,6 +78,7 @@ class MediaMessageWidget extends StatelessWidget {
           borderRadius: BorderRadius.circular(8.0),
           child: Image.network(
             thumbnail,
+            cacheWidth: 800,
             fit: BoxFit.cover,
             loadingBuilder: (context, child, loadingProgress) {
               if (loadingProgress == null) return child;

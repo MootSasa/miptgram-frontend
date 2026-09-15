@@ -1,7 +1,9 @@
 import '../../utils/image_utils.dart';
 import '../../utils/emoji_utils.dart';
 import '../../utils/date_time_utils.dart';
+import '../../l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'round_video_thumbnail.dart';
 
 class ChatListItem extends StatelessWidget {
   final String chatName;
@@ -10,6 +12,8 @@ class ChatListItem extends StatelessWidget {
   final String avatarUrl;
   final bool isOnline;
   final bool isGroup;
+  final bool isRoundVideo;
+  final String? videoUrl;
   final int unreadCount;
   final VoidCallback onTap;
 
@@ -21,6 +25,8 @@ class ChatListItem extends StatelessWidget {
     required this.avatarUrl,
     required this.isOnline,
     required this.isGroup,
+    this.isRoundVideo = false,
+    this.videoUrl,
     this.unreadCount = 0,
     required this.onTap,
   }) : super(key: key);
@@ -105,19 +111,43 @@ class ChatListItem extends StatelessWidget {
       ),
       subtitle: Row(
         children: [
-          Expanded(
-            child: RichText(
-              text: EmojiUtils.buildEmojiTextSpan(
-                lastMessage,
-                style: TextStyle(
-                  color: hasUnread ? Colors.grey[800] : Colors.grey[600],
-                  fontSize: 14,
-                  fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal,
-                ),
-              ),
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
+          if (isRoundVideo) ...[
+            RoundVideoThumbnail(
+              videoUrl: videoUrl,
+              size: 18,
             ),
+            const SizedBox(width: 6),
+          ],
+          Expanded(
+            child: isRoundVideo
+                ? Text(
+                    (lastMessage.isNotEmpty &&
+                            lastMessage != 'Видеосообщение' &&
+                            lastMessage != 'Video message')
+                        ? lastMessage
+                        : (AppLocalizations.of(context)
+                                ?.translate('chat_video_note') ??
+                            'Video message'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  )
+                : RichText(
+                    text: EmojiUtils.buildEmojiTextSpan(
+                      lastMessage,
+                      style: TextStyle(
+                        color: hasUnread ? Colors.grey[800] : Colors.grey[600],
+                        fontSize: 14,
+                        fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal,
+                      ),
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
           ),
           const SizedBox(width: 8),
           Text(

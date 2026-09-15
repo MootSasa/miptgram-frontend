@@ -67,10 +67,10 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>Miptgram needs camera access to take photos for your avatar</string>
+	<string>Miptgram needs camera access to record video messages and take photos</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Miptgram needs photo library access to select photos for your avatar</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Miptgram needs microphone access for voice messages and calls</string>
+	<string>Miptgram needs microphone access for voice messages, video messages, and calls</string>
 	</dict>
 	</plist>

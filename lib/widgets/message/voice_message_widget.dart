@@ -1,18 +1,41 @@
-import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:record/record.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
+import '../../services/voice_playback_service.dart';
+import 'message_status_widget.dart';
 
+/// Full Telegram-style voice message player widget inside message bubbles.
+/// Features:
+/// - Play/Pause button with smooth progress.
+/// - Multi-bar interactive waveform scrubber with seek-on-drag/tap.
+/// - Dynamic duration countdown during playback.
+/// - 1X / 1.5X / 2X playback speed pill button.
+/// - Unplayed message dot for incoming voice notes.
+/// - Send time & delivery status checkmarks.
 class VoiceMessageWidget extends StatefulWidget {
-  final String? voiceMessageUrl; // URL of the voice message to play (if null, recording mode)
-  final Function(String)? onRecordComplete; // Callback when recording is complete
+  final String messageId;
+  final String audioUrl;
+  final Duration? duration;
+  final List<int>? waveform;
+  final bool isMe;
+  final bool isRead;
+  final int sendStatus;
+  final String? timeText;
+  final String? senderName;
+  final VoidCallback? onRetry;
 
   const VoiceMessageWidget({
     Key? key,
-    this.voiceMessageUrl,
-    this.onRecordComplete,
+    required this.messageId,
+    required this.audioUrl,
+    this.duration,
+    this.waveform,
+    this.isMe = false,
+    this.isRead = false,
+    this.sendStatus = 1,
+    this.timeText,
+    this.senderName,
+    this.onRetry,
   }) : super(key: key);
 
   @override
@@ -20,190 +43,365 @@ class VoiceMessageWidget extends StatefulWidget {
 }
 
 class _VoiceMessageWidgetState extends State<VoiceMessageWidget> {
-  final AudioRecorder _recorder = AudioRecorder();
-  late final AudioPlayer _player;
-  bool _isRecording = false;
-  bool _isPlaying = false;
-  double _progress = 0.0;
-  String? _recordedFilePath;
-  StreamSubscription<Duration>? _positionSubscription;
-  bool _isInitialized = false;
+  final VoicePlaybackService _playbackService = VoicePlaybackService();
+  bool _hasBeenPlayedLocally = false;
 
   @override
   void initState() {
     super.initState();
-    _player = AudioPlayer();
-    _init();
-  }
-
-  Future<void> _init() async {
-    // Request permissions
-    final hasPermission = await _requestPermissions();
-    if (mounted) {
-      setState(() {
-        _isInitialized = true;
-      });
-      
-      // Set up playback progress subscription only if we have a valid URL to play
-      if (hasPermission && widget.voiceMessageUrl != null && widget.voiceMessageUrl!.isNotEmpty) {
-        _setupPlaybackProgressSubscription();
-      }
-    }
-  }
-
-  Future<bool> _requestPermissions() async {
-    final status = await Permission.microphone.request();
-    if (!status.isGranted) {
-      throw RecordingPermissionException('Microphone permission not granted');
-    }
-    return status.isGranted;
-  }
-
-  void _setupPlaybackProgressSubscription() {
-    _positionSubscription = _player.positionStream.listen((position) {
-      final duration = _player.duration;
-      if (duration != null && mounted) {
-        setState(() {
-          _progress = duration.inMilliseconds > 0 
-              ? position.inMilliseconds / duration.inMilliseconds 
-              : 0.0;
-        });
-      }
-    });
-  }
-
-  Future<void> _startRecording() async {
-    try {
-      // Check permission
-      if (!await _recorder.hasPermission()) {
-        throw RecordingPermissionException('Microphone permission not granted');
-      }
-
-      // Create a temporary file path for recording
-      final dir = await getTemporaryDirectory();
-      _recordedFilePath = '${dir.path}/voice_message_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      
-      await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          numChannels: 1,
-          bitRate: 128000,
-        ),
-        path: _recordedFilePath!,
-      );
-      
-      if (mounted) {
-        setState(() => _isRecording = true);
-      }
-    } catch (e) {
-      debugPrint('Error starting recording: $e');
-      rethrow;
-    }
-  }
-
-  Future<void> _stopRecording() async {
-    final path = await _recorder.stop();
-    if (mounted) {
-      setState(() => _isRecording = false);
-    }
-    if (path != null && widget.onRecordComplete != null) {
-      widget.onRecordComplete!(path);
-    }
-  }
-
-  Future<void> _play() async {
-    if (widget.voiceMessageUrl == null || widget.voiceMessageUrl!.isEmpty) {
-      return;
-    }
-    
-    try {
-      if (_isPlaying) {
-        await _player.pause();
-      } else {
-        await _player.setUrl(widget.voiceMessageUrl!);
-        await _player.play();
-      }
-      if (mounted) {
-        setState(() => _isPlaying = !_isPlaying);
-      }
-    } catch (e) {
-      debugPrint('Error playing audio: $e');
-    }
-  }
-
-  void _seekTo(double value) {
-    final duration = _player.duration;
-    if (duration != null) {
-      final position = value * duration.inMilliseconds;
-      _player.seek(Duration(milliseconds: position.round()));
-    }
+    _playbackService.addListener(_onPlaybackUpdate);
   }
 
   @override
   void dispose() {
-    _recorder.dispose();
-    _player.dispose();
-    _positionSubscription?.cancel();
+    _playbackService.removeListener(_onPlaybackUpdate);
     super.dispose();
+  }
+
+  void _onPlaybackUpdate() {
+    if (!mounted) return;
+    if (_playbackService.activeMessageId == widget.messageId && _playbackService.isPlaying) {
+      if (!_hasBeenPlayedLocally) {
+        setState(() => _hasBeenPlayedLocally = true);
+        return;
+      }
+    }
+    setState(() {});
+  }
+
+  bool get _isThisPlaying =>
+      _playbackService.activeMessageId == widget.messageId && _playbackService.isPlaying;
+
+  bool get _isThisActive => _playbackService.activeMessageId == widget.messageId;
+
+  Duration get _effectiveDuration {
+    if (_isThisActive && _playbackService.duration > Duration.zero) {
+      return _playbackService.duration;
+    }
+    return widget.duration ?? Duration.zero;
+  }
+
+  Duration get _effectivePosition {
+    if (_isThisActive) {
+      return _playbackService.position;
+    }
+    return Duration.zero;
+  }
+
+  double get _effectiveProgress {
+    final dur = _effectiveDuration.inMilliseconds;
+    if (dur <= 0) return 0.0;
+    return (_effectivePosition.inMilliseconds / dur).clamp(0.0, 1.0);
+  }
+
+  void _handlePlayPause() {
+    if (_isThisPlaying) {
+      _playbackService.pauseVoice();
+    } else if (_isThisActive) {
+      _playbackService.resumeVoice();
+    } else {
+      _playbackService.playVoice(
+        messageId: widget.messageId,
+        audioUrl: widget.audioUrl,
+        senderName: widget.senderName,
+        initialDuration: widget.duration,
+      );
+    }
+  }
+
+  void _handleWaveformTap(double localDx, double totalWidth) {
+    if (totalWidth <= 0) return;
+    final fraction = (localDx / totalWidth).clamp(0.0, 1.0);
+    final targetMs = (fraction * _effectiveDuration.inMilliseconds).round();
+
+    if (!_isThisActive) {
+      _playbackService.playVoice(
+        messageId: widget.messageId,
+        audioUrl: widget.audioUrl,
+        senderName: widget.senderName,
+        initialDuration: widget.duration,
+      ).then((_) {
+        _playbackService.seekVoice(Duration(milliseconds: targetMs));
+      });
+    } else {
+      _playbackService.seekVoice(Duration(milliseconds: targetMs));
+    }
+  }
+
+  String _formatDuration(Duration d) {
+    final minutes = d.inMinutes.remainder(60).toString().padLeft(1, '0');
+    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  List<int> _getEffectiveWaveform() {
+    if (widget.waveform != null && widget.waveform!.isNotEmpty) {
+      return widget.waveform!;
+    }
+    // Generate deterministic waveform based on messageId
+    final hash = widget.messageId.hashCode;
+    return List.generate(36, (i) {
+      final val = ((math.sin(i * 0.45 + hash) * 12) + 16).round();
+      return val.clamp(4, 30);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_isInitialized) {
-      return const CircularProgressIndicator();
-    }
-    
-    if (widget.voiceMessageUrl == null) {
-      // Recording mode
-      return Column(
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final primaryColor = theme.colorScheme.primary;
+
+    // Outgoing bubble styling vs incoming bubble styling
+    final playedColor = widget.isMe ? Colors.white : primaryColor;
+    final unplayedColor = widget.isMe
+        ? Colors.white.withValues(alpha: 0.4)
+        : (isDark ? Colors.white24 : Colors.black26);
+
+    final duration = _effectiveDuration;
+    final position = _effectivePosition;
+    final progress = _effectiveProgress;
+    final waveform = _getEffectiveWaveform();
+
+    final durationText = _isThisActive && _isThisPlaying
+        ? _formatDuration(position)
+        : (duration > Duration.zero ? _formatDuration(duration) : '0:00');
+
+    final bool showUnplayedDot =
+        !widget.isMe && !widget.isRead && !_hasBeenPlayedLocally && !_isThisActive;
+
+    return Container(
+      constraints: const BoxConstraints(minWidth: 200, maxWidth: 260),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(
-            icon: Icon(
-              _isRecording ? Icons.stop : Icons.mic,
-              color: _isRecording ? Colors.red : null,
-              size: 36,
-            ),
-            onPressed: _isRecording ? _stopRecording : _startRecording,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // 1. Play / Pause Button
+              GestureDetector(
+                onTap: _handlePlayPause,
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: widget.isMe
+                        ? Colors.white.withValues(alpha: 0.22)
+                        : primaryColor.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Icon(
+                      _isThisPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                      size: 28,
+                      color: widget.isMe ? Colors.white : primaryColor,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+
+              // 2. Waveform & Controls
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Waveform Scrubber
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final width = constraints.maxWidth;
+                        return GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTapDown: (details) =>
+                              _handleWaveformTap(details.localPosition.dx, width),
+                          onHorizontalDragUpdate: (details) =>
+                              _handleWaveformTap(details.localPosition.dx, width),
+                          child: SizedBox(
+                            width: width,
+                            height: 26,
+                            child: CustomPaint(
+                              painter: _WaveformScrubberPainter(
+                                waveform: waveform,
+                                progress: progress,
+                                playedColor: playedColor,
+                                unplayedColor: unplayedColor,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 4),
+
+                    // Duration, Unplayed Dot, and Speed Button Row
+                    Row(
+                      children: [
+                        // Unplayed Blue Dot
+                        if (showUnplayedDot) ...[
+                          Container(
+                            width: 6,
+                            height: 6,
+                            margin: const EdgeInsets.only(right: 5),
+                            decoration: BoxDecoration(
+                              color: primaryColor,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ],
+
+                        // Duration text
+                        Text(
+                          durationText,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w500,
+                            color: widget.isMe
+                                ? Colors.white.withValues(alpha: 0.85)
+                                : theme.textTheme.bodySmall?.color,
+                          ),
+                        ),
+                        const Spacer(),
+
+                        // Playback Speed Toggle Pill (1X / 1.5X / 2X)
+                        if (_isThisActive)
+                          GestureDetector(
+                            onTap: _playbackService.cyclePlaybackSpeed,
+                            child: Container(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: widget.isMe
+                                    ? Colors.white.withValues(alpha: 0.2)
+                                    : (isDark ? Colors.white12 : Colors.black.withValues(alpha: 0.08)),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '${_playbackService.playbackSpeed.toString().replaceAll('.0', '')}X',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: widget.isMe ? Colors.white : primaryColor,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          if (_isRecording)
-            const Text(
-              'Recording...',
-              style: TextStyle(color: Colors.red),
+
+          // Time and Status pill row
+          Align(
+            alignment: Alignment.bottomRight,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 2, right: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (widget.timeText != null && widget.timeText!.isNotEmpty)
+                    Text(
+                      widget.timeText!,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: widget.isMe
+                            ? Colors.white.withValues(alpha: 0.7)
+                            : (isDark ? Colors.white54 : Colors.black45),
+                      ),
+                    ),
+                  if (widget.isMe) ...[
+                    const SizedBox(width: 4),
+                    if (widget.sendStatus == 0)
+                      const SizedBox(
+                        width: 10,
+                        height: 10,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 1.2,
+                          color: Colors.white70,
+                        ),
+                      )
+                    else if (widget.sendStatus == 2)
+                      GestureDetector(
+                        onTap: widget.onRetry,
+                        child: const iconoir.WarningCircle(
+                          width: 13,
+                          height: 13,
+                          color: Colors.redAccent,
+                        ),
+                      )
+                    else
+                      MessageStatusWidget(
+                        isRead: widget.isRead,
+                        isOutgoing: widget.isMe,
+                        colorOverride: Colors.white.withValues(alpha: 0.7),
+                      ),
+                  ],
+                ],
+              ),
             ),
+          ),
         ],
-      );
-    } else {
-      // Playback mode
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: Icon(
-              _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-              size: 36,
-            ),
-            onPressed: _play,
-          ),
-          Slider(
-            value: _progress.clamp(0.0, 1.0),
-            onChanged: _seekTo,
-            activeColor: Theme.of(context).primaryColor,
-          ),
-          Text(
-            '${_player.position.inSeconds}/${_player.duration?.inSeconds ?? 0}',
-            style: const TextStyle(fontSize: 12),
-          ),
-        ],
-      );
-    }
+      ),
+    );
   }
 }
 
-class RecordingPermissionException implements Exception {
-  final String message;
-  RecordingPermissionException(this.message);
-  
+class _WaveformScrubberPainter extends CustomPainter {
+  final List<int> waveform;
+  final double progress;
+  final Color playedColor;
+  final Color unplayedColor;
+
+  _WaveformScrubberPainter({
+    required this.waveform,
+    required this.progress,
+    required this.playedColor,
+    required this.unplayedColor,
+  });
+
   @override
-  String toString() => 'RecordingPermissionException: $message';
+  void paint(Canvas canvas, Size size) {
+    if (waveform.isEmpty || size.width <= 0) return;
+
+    final playedPaint = Paint()
+      ..color = playedColor
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 2.4;
+
+    final unplayedPaint = Paint()
+      ..color = unplayedColor
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 2.4;
+
+    final barCount = waveform.length;
+    final gap = size.width / barCount;
+    final centerY = size.height / 2;
+    final progressX = progress * size.width;
+
+    for (int i = 0; i < barCount; i++) {
+      final x = (i * gap) + (gap / 2);
+      final heightRatio = (waveform[i] / 31.0).clamp(0.12, 1.0);
+      final barHeight = math.max(3.0, heightRatio * size.height * 0.95);
+
+      final paint = (x <= progressX) ? playedPaint : unplayedPaint;
+      canvas.drawLine(
+        Offset(x, centerY - barHeight / 2),
+        Offset(x, centerY + barHeight / 2),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_WaveformScrubberPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.playedColor != playedColor ||
+        oldDelegate.unplayedColor != unplayedColor ||
+        oldDelegate.waveform != waveform;
+  }
 }

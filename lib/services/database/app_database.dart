@@ -78,6 +78,9 @@ class Messages extends Table {
   TextColumn get linkPreviewOptions => text().nullable()(); // JSON string of LinkPreviewOptions
   BoolColumn get invertMedia => boolean().withDefault(const Constant(false))();
 
+  // Round video note flag
+  BoolColumn get isRound => boolean().withDefault(const Constant(false))();
+
   @override
   Set<Column> get primaryKey => {localId};
 }
@@ -122,7 +125,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -198,6 +201,11 @@ class AppDatabase extends _$AppDatabase {
             );
             await customStatement(
               'ALTER TABLE messages ADD COLUMN invert_media INTEGER NOT NULL DEFAULT 0',
+            );
+          }
+          if (from < 7) {
+            await customStatement(
+              'ALTER TABLE messages ADD COLUMN is_round INTEGER NOT NULL DEFAULT 0',
             );
           }
         },

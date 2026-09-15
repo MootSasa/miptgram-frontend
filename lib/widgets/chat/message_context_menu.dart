@@ -13,7 +13,7 @@ class MessageContextMenu extends StatefulWidget {
   final VoidCallback? onQuote;
   final VoidCallback onCopy;
   final VoidCallback onPin;
-  final VoidCallback onEdit;
+  final VoidCallback? onEdit;
   final VoidCallback onDelete;
   final Function(String emoji) onReaction;
   final Set<String> selectedEmojis;
@@ -28,7 +28,7 @@ class MessageContextMenu extends StatefulWidget {
     this.onQuote,
     required this.onCopy,
     required this.onPin,
-    required this.onEdit,
+    this.onEdit,
     required this.onDelete,
     required this.onReaction,
     this.selectedEmojis = const {},
@@ -205,11 +205,11 @@ class _MessageContextMenuState extends State<MessageContextMenu> with SingleTick
             theme,
             enabled: !isSending,
           ),
-          if (widget.isMe) 
+          if (widget.isMe && widget.onEdit != null) 
             _buildActionItem(
               (c) => iconoir.EditPencil(color: c, width: 20, height: 20),
               context.l10n.translate('chat_edit_message'),
-              widget.onEdit,
+              widget.onEdit!,
               theme,
               enabled: !isSending,
             ),

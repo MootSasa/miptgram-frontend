@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:inspire_blur/inspire_blur.dart';
 import 'package:provider/provider.dart';
 import '../../services/wallpaper_provider.dart';
 
@@ -15,6 +16,7 @@ class ChatScaffold extends StatelessWidget {
   final Color? backgroundColor;
   final bool? canPop;
   final void Function(bool didPop, dynamic result)? onPopInvoked;
+  final bool enableStatusBarBlur;
 
   const ChatScaffold({
     Key? key,
@@ -26,6 +28,7 @@ class ChatScaffold extends StatelessWidget {
     this.backgroundColor,
     this.canPop,
     this.onPopInvoked,
+    this.enableStatusBarBlur = true,
   }) : super(key: key);
 
   /// Helper to calculate standard top padding for chat message lists
@@ -71,7 +74,11 @@ class ChatScaffold extends StatelessWidget {
               ),
             ),
 
-            // 3. Floating AppBar layer
+            // 3. Status bar blur layer (inspire_blur)
+            if (enableStatusBarBlur)
+              _buildStatusBarBlur(context),
+
+            // 4. Floating AppBar layer
             if (appBar != null)
               Positioned(
                 top: 0,
@@ -80,7 +87,7 @@ class ChatScaffold extends StatelessWidget {
                 child: appBar!,
               ),
 
-            // 4. Floating Action Button layer
+            // 5. Floating Action Button layer
             if (floatingActionButton != null)
               Positioned(
                 right: 16,
@@ -88,6 +95,29 @@ class ChatScaffold extends StatelessWidget {
                 child: floatingActionButton!,
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusBarBlur(BuildContext context) {
+    final statusBarHeight = MediaQuery.paddingOf(context).top;
+    if (statusBarHeight <= 0) return const SizedBox.shrink();
+
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      height: statusBarHeight,
+      child: IgnorePointer(
+        child: InspireBackdropBlur(
+          clipBehavior: Clip.hardEdge,
+          config: InspireBlurConfig.topToBottom(
+            sigma: 16.0,
+            extent: 1.0,
+            fadeCurve: Curves.easeOutCubic,
+          ),
+          child: const SizedBox.expand(),
         ),
       ),
     );

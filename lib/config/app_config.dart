@@ -293,11 +293,40 @@ class AppConfig {
     final trimmed = url.trim();
     if (trimmed.isEmpty) return null;
 
+    // Check if it's already a local file path
+    if (trimmed.startsWith('file://') ||
+        trimmed.startsWith('/data/') ||
+        trimmed.startsWith('/storage/') ||
+        trimmed.startsWith('/var/') ||
+        trimmed.startsWith('/tmp/') ||
+        trimmed.startsWith('/private/') ||
+        trimmed.startsWith('/Users/') ||
+        trimmed.startsWith('/home/') ||
+        RegExp(r'^[a-zA-Z]:[/\\]').hasMatch(trimmed)) {
+      return trimmed;
+    }
+
+    // Check if it's a data or blob URL
+    if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
+      return trimmed;
+    }
+
+    // If it's a localhost / 127.0.0.1 / minio MinIO URL and storageUrl is configured to a remote/different host, rewrite it to storageUrl
+    if (trimmed.startsWith('http://localhost:9000') ||
+        trimmed.startsWith('http://127.0.0.1:9000') ||
+        trimmed.startsWith('http://minio:9000') ||
+        trimmed.startsWith('https://localhost:9000') ||
+        trimmed.startsWith('https://127.0.0.1:9000') ||
+        trimmed.startsWith('https://minio:9000')) {
+      final base = storageUrl.replaceAll(RegExp(r'/+$'), '');
+      final parsed = Uri.tryParse(trimmed);
+      if (parsed != null) {
+        return '$base${parsed.path}${parsed.hasQuery ? '?${parsed.query}' : ''}';
+      }
+    }
+
     if (trimmed.startsWith('http://') ||
-        trimmed.startsWith('https://') ||
-        trimmed.startsWith('data:') ||
-        trimmed.startsWith('blob:') ||
-        trimmed.startsWith('file://')) {
+        trimmed.startsWith('https://')) {
       return trimmed;
     }
 

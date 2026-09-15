@@ -18,6 +18,7 @@ import 'fullscreen_photo_viewer.dart';
 import 'inline_video_player.dart';
 import 'document_message_widget.dart';
 import 'video_message_widget.dart';
+import 'voice_message_widget.dart';
 import 'link_preview_card.dart';
 import '../../l10n/app_localizations.dart';
 
@@ -312,18 +313,14 @@ class RenderBubbleLayout extends RenderBox
       );
     }
 
-    // Calculate offset of targetParagraph within root
+    // Calculate offset of targetParagraph within root via BoxParentData
     Offset offsetInRoot = Offset.zero;
-    try {
-      offsetInRoot = targetParagraph.localToGlobal(Offset.zero, ancestor: root);
-    } catch (_) {
-      RenderObject current = targetParagraph;
-      while (current != root && current.parent != null) {
-        if (current.parentData is BoxParentData) {
-          offsetInRoot += (current.parentData as BoxParentData).offset;
-        }
-        current = current.parent!;
+    RenderObject current = targetParagraph;
+    while (current != root && current.parent != null) {
+      if (current.parentData is BoxParentData) {
+        offsetInRoot += (current.parentData as BoxParentData).offset;
       }
+      current = current.parent!;
     }
 
     final plainText = targetParagraph.text.toPlainText();
@@ -681,19 +678,23 @@ class MessageBubble extends StatelessWidget {
 
   bool get _isVideo =>
       _hasMedia &&
+      !_isRoundVideo &&
       (message.messageType == 'video' || _isVideoUrl(message.fileUrl!));
+
+  bool get _isVoice =>
+      _hasMedia && message.messageType == 'voice';
 
   bool get _isAudio =>
       _hasMedia &&
+      !_isVoice &&
       (message.messageType == 'audio' ||
-          message.messageType == 'voice' ||
           _isAudioUrl(message.fileUrl!));
 
   bool get _isRoundVideo =>
-      _hasMedia && message.messageType == 'round';
+      _hasMedia && (message.isRound || message.messageType == 'round');
 
   bool get _hasCaption {
-    if (!_hasMedia) return false;
+    if (!_hasMedia || _isRoundVideo || _isVoice) return false;
     final trimmed = message.content.trim();
     if (trimmed.isEmpty) return false;
     if (trimmed == message.fileName) return false;
@@ -719,7 +720,7 @@ class MessageBubble extends StatelessWidget {
     final bool isBigEmoji = !hasMedia && _isSingleEmoji;
     final Alignment alignment = isMe ? Alignment.centerRight : Alignment.centerLeft;
 
-    final Color backgroundColor = isBigEmoji
+    final Color backgroundColor = (isBigEmoji || _isRoundVideo)
         ? Colors.transparent
         : (isMe
             ? Theme.of(context).colorScheme.primary
@@ -907,19 +908,9 @@ class MessageBubble extends StatelessWidget {
       final String replyText = message.quoteText ?? message.replyInfo?.content ?? '';
       final String senderTitle = (message.replyInfo?.senderId == currentUserId ? 'Вы' : message.replyInfo?.senderName) ?? 'Сообщение';
       
-      final TextPainter replyTitleTp = TextPainter(
-        text: TextSpan(text: senderTitle, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-        textDirection: TextDirection.ltr,
-        maxLines: 1,
-      )..layout(maxWidth: maxBubbleWidth);
-
-      final TextPainter replyBodyTp = TextPainter(
-        text: TextSpan(text: replyText.replaceAll(RegExp(r'\n+'), ' '), style: const TextStyle(fontSize: 12)),
-        textDirection: TextDirection.ltr,
-        maxLines: 1,
-      )..layout(maxWidth: maxBubbleWidth);
-
-      replyWidthEstimate = math.max(replyTitleTp.width, replyBodyTp.width) + 28.0; // 28 = accent bar + padding
+      // Fast estimate avoiding synchronous TextPainter.layout() during build
+      final double estimatedTextWidth = math.max(senderTitle.length * 8.0, replyText.length * 7.0);
+      replyWidthEstimate = (estimatedTextWidth + 28.0).clamp(60.0, maxBubbleWidth);
     } else if (chatType == 'saved' && (message.forwardFromName?.isNotEmpty ?? false || message.senderName.isNotEmpty)) {
       replyWidget = MessageReplyInfo.forwarded(
         authorName: message.forwardFromName ?? message.senderName,
@@ -936,12 +927,8 @@ class MessageBubble extends StatelessWidget {
         fontWeight: FontWeight.bold,
         color: effectivePreset.primaryColor,
       );
-      final TextPainter senderNameTp = TextPainter(
-        text: TextSpan(text: senderName!, style: style),
-        textDirection: TextDirection.ltr,
-        maxLines: 1,
-      )..layout(maxWidth: maxBubbleWidth);
-      senderNameWidthEstimate = senderNameTp.width;
+      // Measured precisely by RenderBubbleLayout during layout; fast baseline here
+      senderNameWidthEstimate = (senderName!.length * 8.0).clamp(0.0, maxBubbleWidth);
 
       senderNameWidget = Padding(
         padding: const EdgeInsets.only(bottom: 4.0),
@@ -1031,7 +1018,9 @@ class MessageBubble extends StatelessWidget {
       final Widget mediaWidget = _buildMediaWidget(context, mediaWidth, resolvedFileUrl);
 
       Widget innerContent;
-      if (hasCaption) {
+      if (_isRoundVideo || _isVoice) {
+        innerContent = mediaWidget;
+      } else if (hasCaption) {
         final Widget captionWidget = TextMessageWidget(
           text: message.content,
           style: textStyle,
@@ -1110,8 +1099,30 @@ class MessageBubble extends StatelessWidget {
                 ),
               ),
             if (replyWidget != null) ...[
-              SizedBox(width: mediaWidth, child: replyWidget),
-              const SizedBox(height: 4.0),
+              if (_isRoundVideo)
+                Container(
+                  width: math.min(mediaWidth, 230.0),
+                  margin: const EdgeInsets.only(bottom: 6.0),
+                  padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
+                  decoration: BoxDecoration(
+                    color: isMe
+                        ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.9)
+                        : Theme.of(context).colorScheme.secondaryContainer.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(14.0),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.12),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: replyWidget,
+                )
+              else ...[
+                SizedBox(width: _isVoice ? 240.0 : mediaWidth, child: replyWidget),
+                const SizedBox(height: 4.0),
+              ],
             ],
             innerContent,
           ],
@@ -1121,11 +1132,13 @@ class MessageBubble extends StatelessWidget {
       }
     }
 
-    final EdgeInsets bubblePadding = isBigEmoji
+    final EdgeInsets bubblePadding = (isBigEmoji || _isRoundVideo)
         ? EdgeInsets.zero
-        : (hasMedia && !hasCaption && replyWidget == null && (senderName == null || senderName!.isEmpty || isMe))
-            ? const EdgeInsets.all(4.0)
-            : const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0);
+        : _isVoice
+            ? const EdgeInsets.symmetric(horizontal: 6.0, vertical: 4.0)
+            : (hasMedia && !hasCaption && replyWidget == null && (senderName == null || senderName!.isEmpty || isMe))
+                ? const EdgeInsets.all(4.0)
+                : const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0);
 
     Widget bubbleCore = Container(
       margin: const EdgeInsets.symmetric(vertical: 3.0, horizontal: 8.0),
@@ -1196,7 +1209,37 @@ class MessageBubble extends StatelessWidget {
     String resolvedUrl,
   ) {
     if (_isRoundVideo) {
-      return VideoMessageWidget(videoUrl: resolvedUrl);
+      final double circleSize = math.min(240.0, MediaQuery.of(context).size.width * 0.68);
+      return VideoMessageWidget(
+        key: ValueKey('vmsg_${message.id}'),
+        messageId: message.id,
+        videoUrl: resolvedUrl,
+        size: circleSize,
+        isMe: isMe,
+        isRead: message.isRead,
+        sendStatus: message.sendStatus,
+        timeText: formatTime(message.createdAt),
+        senderName: isMe ? null : senderName,
+        onRetry: onRetry != null ? () => onRetry!(message) : null,
+      );
+    }
+
+    if (_isVoice) {
+      return VoiceMessageWidget(
+        key: ValueKey('voice_${message.id}'),
+        messageId: message.id,
+        audioUrl: resolvedUrl,
+        duration: message.duration != null && message.duration! > 0
+            ? Duration(seconds: message.duration!)
+            : null,
+        waveform: message.waveform,
+        isMe: isMe,
+        isRead: message.isRead,
+        sendStatus: message.sendStatus,
+        timeText: formatTime(message.createdAt),
+        senderName: isMe ? null : senderName,
+        onRetry: onRetry != null ? () => onRetry!(message) : null,
+      );
     }
 
     if (_isImage) {
@@ -1217,6 +1260,7 @@ class MessageBubble extends StatelessWidget {
             child: Image.network(
               resolvedUrl,
               width: maxWidth,
+              cacheWidth: (maxWidth * MediaQuery.devicePixelRatioOf(context)).round(),
               fit: BoxFit.cover,
               loadingBuilder: (context, child, loadingProgress) {
                 if (loadingProgress == null) return child;
@@ -1383,28 +1427,16 @@ class MessageBubble extends StatelessWidget {
   }
 
   double _calculateMetadataWidth(BuildContext context) {
+    // Fast estimation avoiding synchronous TextPainter.layout() during build.
+    // RenderBubbleLayout.performLayout also measures the actual metadata widget during layout.
     double width = 0.0;
     if (message.isEdited) {
-      final editedText = context.l10n.translate('chat_edited');
-      final tp = TextPainter(
-        text: TextSpan(
-          text: editedText,
-          style: const TextStyle(fontSize: 10, fontStyle: FontStyle.italic),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      width += tp.width + 4.0;
+      width += 40.0; // "изм." / "edited" label + padding
     }
 
     final timeStr = formatTime(message.createdAt);
-    final timeTp = TextPainter(
-      text: TextSpan(
-        text: timeStr,
-        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w400),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    width += timeTp.width;
+    // 11pt font width estimation (~6.5-7px per character)
+    width += timeStr.length * 7.0;
 
     if (isMe) {
       width += 4.0;

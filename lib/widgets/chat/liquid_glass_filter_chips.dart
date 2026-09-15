@@ -1,9 +1,8 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:motor/motor.dart';
 
+import '../../theme/liquid_glass_styles.dart';
 import '../../utils/haptic_utils.dart';
 
 /// Создаёт матрицу jelly-трансформации (копия из liquid_glass_bottom_bar.dart).
@@ -136,108 +135,47 @@ class _LiquidGlassFilterChipsState extends State<LiquidGlassFilterChips> {
     final isDark = brightness == Brightness.dark;
     final theme = Theme.of(context);
 
-    // Те же настройки стекла что и у нижнего бара
-    final glassSettings = LiquidGlassSettings(
-      refractiveIndex: 1.21,
-      thickness: 30,
-      blur: 8,
-      saturation: 1.5,
-      lightIntensity: isDark ? 0.7 : 1.0,
-      ambientStrength: isDark ? 0.2 : 0.5,
-      lightAngle: math.pi / 2,
-      glassColor: isDark
-          ? const Color.fromARGB(60, 30, 30, 40)
-          : const Color.fromARGB(80, 200, 200, 210),
-    );
-
-    // Padding снаружи LiquidGlassLayer чтобы слой стекла
-    // покрывал только стеклянную форму, а не область отступов
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: LiquidGlassLayer(
-        settings: glassSettings,
-        child: LiquidGlassBlendGroup(
-          blend: 10,
-          child: _FilterIndicator(
-            tabIndex: widget.activeFilter,
-            tabCount: widget.filters.length,
-            onTabChanged: widget.onFilterSelected,
-            child: widget.isLite
-                ? FakeGlass.inLayer(
-                    shape: const LiquidRoundedSuperellipse(borderRadius: 18),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      height: 36,
-                      decoration: isDark
-                          ? null
-                          : BoxDecoration(
-                              borderRadius: BorderRadius.circular(18),
-                              border: Border.all(
-                                color: Colors.black.withValues(alpha: 0.12),
-                                width: 0.5,
-                              ),
-                            ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          for (var i = 0; i < widget.filters.length; i++)
-                            Expanded(
-                              child: _GlassFilterChip(
-                                label: widget.filters[i],
-                                unreadCount: i < widget.unreadCounts.length
-                                    ? widget.unreadCounts[i]
-                                    : 0,
-                                isActive: widget.activeFilter == i,
-                                isDark: isDark,
-                                theme: theme,
-                                onTap: () {
-                                  HapticUtils.selection();
-                                  widget.onFilterSelected(i);
-                                },
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  )
-                : LiquidGlass.grouped(
-                    clipBehavior: Clip.none,
-                    shape: const LiquidRoundedSuperellipse(borderRadius: 18),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      height: 36,
-                      decoration: isDark
-                          ? null
-                          : BoxDecoration(
-                              borderRadius: BorderRadius.circular(18),
-                              border: Border.all(
-                                color: Colors.black.withValues(alpha: 0.12),
-                                width: 0.5,
-                              ),
-                            ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          for (var i = 0; i < widget.filters.length; i++)
-                            Expanded(
-                              child: _GlassFilterChip(
-                                label: widget.filters[i],
-                                unreadCount: i < widget.unreadCounts.length
-                                    ? widget.unreadCounts[i]
-                                    : 0,
-                                isActive: widget.activeFilter == i,
-                                isDark: isDark,
-                                theme: theme,
-                                onTap: () {
-                                  HapticUtils.selection();
-                                  widget.onFilterSelected(i);
-                                },
-                              ),
-                            ),
-                        ],
-                      ),
+      child: LiquidGlassLens(
+        style: LiquidGlassStyles.filterChipStyle(isDark),
+        child: _FilterIndicator(
+          tabIndex: widget.activeFilter,
+          tabCount: widget.filters.length,
+          onTabChanged: widget.onFilterSelected,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            height: 36,
+            decoration: isDark
+                ? null
+                : BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: Colors.black.withValues(alpha: 0.12),
+                      width: 0.5,
                     ),
                   ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                for (var i = 0; i < widget.filters.length; i++)
+                  Expanded(
+                    child: _GlassFilterChip(
+                      label: widget.filters[i],
+                      unreadCount: i < widget.unreadCounts.length
+                          ? widget.unreadCounts[i]
+                          : 0,
+                      isActive: widget.activeFilter == i,
+                      isDark: isDark,
+                      theme: theme,
+                      onTap: () {
+                        HapticUtils.selection();
+                        widget.onFilterSelected(i);
+                      },
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -612,21 +550,28 @@ class _FilterIndicatorState extends State<_FilterIndicator>
                       tabCount: widget.tabCount,
                       alignment: alignment,
                       thickness: thickness,
-                      child: LiquidGlass.withOwnLayer(
-                        settings: LiquidGlassSettings(
-                          visibility: thickness,
-                          glassColor: const Color.fromARGB(25, 255, 255, 255),
-                          saturation: 1.5,
-                          refractiveIndex: 1.15,
-                          thickness: 20,
-                          lightIntensity: 2,
-                          chromaticAberration: 0.5,
-                          blur: 0,
+                      child: Opacity(
+                        opacity: thickness.clamp(0.0, 1.0),
+                        child: const LiquidGlassLens(
+                          style: LiquidGlassStyle(
+                            shape:
+                                LiquidGlassShape.continuousRoundedRectangle(
+                              cornerRadius: 18,
+                              borderType: OpticalBorder(
+                                borderSaturation: 1.1,
+                                ambientIntensity: 1.2,
+                              ),
+                            ),
+                            appearance: LiquidGlassAppearance(
+                              color: Color.fromARGB(25, 255, 255, 255),
+                            ),
+                            refraction: LiquidGlassRefraction(
+                              distortion: 0.15,
+                              distortionWidth: 16,
+                            ),
+                          ),
+                          child: SizedBox.expand(),
                         ),
-                        shape: const LiquidRoundedSuperellipse(
-                          borderRadius: 64,
-                        ),
-                        child: const GlassGlow(child: SizedBox.expand()),
                       ),
                     ),
                 ],

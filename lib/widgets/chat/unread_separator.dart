@@ -1,8 +1,8 @@
-import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
+import '../../theme/liquid_glass_styles.dart';
 import '../../l10n/app_localizations.dart';
 import '../../services/liquid_glass_provider.dart';
 
@@ -54,7 +54,6 @@ class DateSeparator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       child: Row(
@@ -145,24 +144,10 @@ class ScrollDownFab extends StatelessWidget {
   }
 
   Widget _buildGlassButton(BuildContext context, bool isDark, Widget child) {
-    final glassSettings = LiquidGlassSettings(
-      refractiveIndex: 1.15,
-      thickness: 15,
-      blur: 10,
-      lightIntensity: isDark ? 0.6 : 0.9,
-      ambientStrength: isDark ? 0.2 : 0.4,
-      lightAngle: math.pi / 2,
-      glassColor: isDark
-          ? const Color.fromARGB(60, 40, 40, 50)
-          : const Color.fromARGB(70, 255, 255, 255),
-    );
-
-    return LiquidGlass.withOwnLayer(
-      settings: glassSettings,
-      shape: const LiquidOval(),
-      child: GlassGlow(
-        child: Center(child: child),
-      ),
+    return LiquidGlassLens(
+      touch: LiquidGlassStyles.touchPronounced,
+      style: LiquidGlassStyles.fabStyle(isDark),
+      child: Center(child: child),
     );
   }
 

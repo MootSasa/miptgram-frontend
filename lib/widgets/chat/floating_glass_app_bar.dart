@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:provider/provider.dart';
 import '../../services/liquid_glass_provider.dart';
+import '../../theme/liquid_glass_styles.dart';
 import '../user/avatar_with_status.dart';
 import '../../l10n/app_localizations.dart';
 import '../../services/websocket_service.dart';
@@ -30,8 +30,6 @@ const double _kStatusFontSize = 12.0;
 /// Радиус аватарки в панели.
 const double _kAvatarRadius = 22.0;
 
-/// Размер круглых кнопок действий (назад и др.).
-const double _kCircularButtonSize = 38.0;
 /// Размер иконки внутри кнопок действий.
 const double _kCircularIconSize = 18.0;
 
@@ -87,38 +85,19 @@ class FloatingGlassAppBar extends StatelessWidget {
         left: _kAppBarHorizontalPadding,
         right: _kAppBarHorizontalPadding,
       ),
-      child: LiquidGlassLayer(
-        settings: LiquidGlassSettings(
-          refractiveIndex: 1.15,
-          thickness: 20,
-          blur: 8,
-          saturation: 1.5,
-          lightIntensity: isDark ? 0.7 : 1.0,
-          ambientStrength: isDark ? 0.2 : 0.5,
-          lightAngle: math.pi / 2,
-          glassColor: isDark
-              ? const Color.fromARGB(40, 30, 30, 40)
-              : const Color.fromARGB(50, 255, 255, 255),
-        ),
-        child: isGlassEnabled
-            ? _buildGlassCloud(context, isDark, isLite, _kAppBarHeight)
-            : _buildMatteCloud(context, isDark, _kAppBarHeight),
-      ),
+      child: isGlassEnabled
+          ? _buildGlassCloud(context, isDark, isLite, _kAppBarHeight)
+          : _buildMatteCloud(context, isDark, _kAppBarHeight),
     );
   }
 
   Widget _buildGlassCloud(BuildContext context, bool isDark, bool isLite, double height) {
-    return Container(
+    return SizedBox(
       height: height,
-      child: isLite
-          ? FakeGlass(
-              shape: const LiquidRoundedSuperellipse(borderRadius: _kAppBarBorderRadius),
-              child: GlassGlow(child: _buildContent(context)),
-            )
-          : LiquidGlass.grouped(
-              shape: const LiquidRoundedSuperellipse(borderRadius: _kAppBarBorderRadius),
-              child: GlassGlow(child: _buildContent(context)),
-            ),
+      child: LiquidGlassLens(
+        style: LiquidGlassStyles.appBarStyle(isDark, isLite: isLite),
+        child: _buildContent(context),
+      ),
     );
   }
 
@@ -468,12 +447,19 @@ class _GlassChatMenuState extends State<GlassChatMenu> with SingleTickerProvider
           right: 12, // Align with the right edge of the app bar
           child: Material(
             color: Colors.transparent,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: _kMenuMaxWidth),
-              child: IntrinsicWidth(
-                child: isGlassEnabled
-                    ? _buildGlassMenu(isDark, theme)
-                    : _buildMatteMenu(isDark, theme),
+            child: FadeTransition(
+              opacity: _opacityAnimation,
+              child: ScaleTransition(
+                scale: _scaleAnimation,
+                alignment: Alignment.topRight,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: _kMenuMaxWidth),
+                  child: IntrinsicWidth(
+                    child: isGlassEnabled
+                        ? _buildGlassMenu(isDark, theme)
+                        : _buildMatteMenu(isDark, theme),
+                  ),
+                ),
               ),
             ),
           ),
@@ -482,28 +468,9 @@ class _GlassChatMenuState extends State<GlassChatMenu> with SingleTickerProvider
     );
   }
 
-  // Removed old build methods and dismissal logic as showGeneralDialog handles it
-
-  void _dismiss() {
-    _controller.reverse().then((_) {
-       // We can't easily remove overlay from here without passing it.
-       // Let's use Navigator instead for the menu, it's easier.
-       // Re-thinking: I'll use a PageRoute for the menu instead.
-    });
-  }
-
   Widget _buildGlassMenu(bool isDark, ThemeData theme) {
-    return LiquidGlass.withOwnLayer(
-      shape: const LiquidRoundedSuperellipse(borderRadius: _kMenuBorderRadius),
-      settings: LiquidGlassSettings(
-        blur: 8,
-        thickness: 20,
-        refractiveIndex: 1.15,
-        saturation: 1.5,
-        glassColor: isDark
-            ? const Color.fromARGB(40, 30, 30, 40)
-            : const Color.fromARGB(50, 255, 255, 255),
-      ),
+    return LiquidGlassLens(
+      style: LiquidGlassStyles.menuStyle(isDark),
       child: _buildMenuItems(theme),
     );
   }

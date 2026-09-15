@@ -1,12 +1,13 @@
-import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/name_color_preset.dart';
 import '../../services/chat_service.dart';
 import '../../services/profile_theme_provider.dart';
+import '../../theme/liquid_glass_styles.dart';
 import '../../utils/emoji_utils.dart';
 import '../profile/reply_strip_painter.dart';
 
@@ -82,24 +83,17 @@ class ReplyPreviewBar extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    final glassSettings = LiquidGlassSettings(
-      blur: 15,
-      refractiveIndex: 1.0,
-      thickness: 10,
-      glassColor: isDark
-          ? Colors.black.withValues(alpha: 0.65)
-          : Colors.white.withValues(alpha: 0.65),
-    );
-
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: LiquidGlassLayer(
-        settings: glassSettings,
-        child: FakeGlass(
-          settings: glassSettings,
-          shape: const LiquidRoundedSuperellipse(borderRadius: 16),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 15, sigmaY: 15),
           child: Container(
             decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.black.withValues(alpha: 0.65)
+                  : Colors.white.withValues(alpha: 0.65),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: isDark ? Colors.white10 : Colors.black12,
@@ -116,32 +110,12 @@ class ReplyPreviewBar extends StatelessWidget {
   Widget _buildGlassBar(BuildContext context) {
     final isDark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
 
-    final glassSettings = LiquidGlassSettings(
-      refractiveIndex: 1.15,
-      thickness: 20,
-      blur: 8,
-      saturation: 1.5,
-      lightIntensity: isDark ? 0.7 : 1.0,
-      ambientStrength: isDark ? 0.2 : 0.5,
-      lightAngle: math.pi / 2,
-      glassColor: isDark
-          ? const Color.fromARGB(40, 30, 30, 40)
-          : const Color.fromARGB(50, 255, 255, 255),
-    );
-
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: isLite
-          ? FakeGlass(
-              settings: glassSettings,
-              shape: const LiquidRoundedSuperellipse(borderRadius: 16),
-              child: GlassGlow(child: _buildContent(context)),
-            )
-          : LiquidGlass.withOwnLayer(
-              settings: glassSettings,
-              shape: const LiquidRoundedSuperellipse(borderRadius: 16),
-              child: GlassGlow(child: _buildContent(context)),
-            ),
+      child: LiquidGlassLens(
+        style: LiquidGlassStyles.replyPreviewStyle(isDark, isLite: isLite),
+        child: _buildContent(context),
+      ),
     );
   }
 

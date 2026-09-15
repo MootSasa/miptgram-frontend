@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/profile_theme_provider.dart';
+import '../../theme/liquid_glass_styles.dart';
 import '../../utils/haptic_utils.dart';
 
 /// Сегментированный переключатель (Segmented Control) для профиля.
@@ -188,8 +189,6 @@ class ProfileSegmentedControl extends StatelessWidget {
     final preset = customPreset ?? profileTheme.currentPreset;
     final hasCustom = preset != null || profileTheme.hasCustomColor;
 
-    const shape = LiquidRoundedSuperellipse(borderRadius: 15);
-
     final glassIndicatorColor = customPreset != null
         ? Colors.white.withValues(alpha: 0.25)
         : (hasCustom
@@ -218,105 +217,104 @@ class ProfileSegmentedControl extends StatelessWidget {
             ? (isDark ? Colors.white.withValues(alpha: 0.65) : Colors.black.withValues(alpha: 0.6))
             : (isDark ? Colors.white.withValues(alpha: 0.55) : Colors.black.withValues(alpha: 0.55)));
 
-    final glassChild = GlassGlow(
-      child: Container(
-        height: 30,
-        width: double.infinity,
-        padding: const EdgeInsets.all(2),
-        decoration: (isDark && !hasCustom)
-            ? null
-            : BoxDecoration(
-                borderRadius: BorderRadius.circular(15),
-                border: Border.all(
-                  color: hasCustom
-                      ? preset!.ringColor.withValues(alpha: 0.25)
-                      : Colors.black.withValues(alpha: 0.12),
-                  width: 0.5,
-                ),
+    final innerContent = Container(
+      height: 30,
+      width: double.infinity,
+      padding: const EdgeInsets.all(2),
+      decoration: (isDark && !hasCustom)
+          ? null
+          : BoxDecoration(
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(
+                color: hasCustom
+                    ? preset!.ringColor.withValues(alpha: 0.25)
+                    : Colors.black.withValues(alpha: 0.12),
+                width: 0.5,
               ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final tabWidth = (constraints.maxWidth) / 2;
+            ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final tabWidth = (constraints.maxWidth) / 2;
 
-            return Stack(
-              children: [
-                // Скользящий стеклянный бегунок
-                AnimatedAlign(
-                  alignment: selectedIndex == 0
-                      ? Alignment.centerLeft
-                      : Alignment.centerRight,
-                  duration: const Duration(milliseconds: 250),
-                  curve: Curves.easeOutCubic,
-                  child: Container(
-                    width: tabWidth,
-                    height: double.infinity,
-                    decoration: BoxDecoration(
-                      color: glassIndicatorColor,
-                      borderRadius: BorderRadius.circular(13),
-                      border: Border.all(
-                        color: glassIndicatorBorderColor,
-                        width: 0.8,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: isDark
-                              ? Colors.black.withValues(alpha: 0.3)
-                              : Colors.black.withValues(alpha: 0.08),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
+          return Stack(
+            children: [
+              // Скользящий стеклянный бегунок
+              AnimatedAlign(
+                alignment: selectedIndex == 0
+                    ? Alignment.centerLeft
+                    : Alignment.centerRight,
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeOutCubic,
+                child: Container(
+                  width: tabWidth,
+                  height: double.infinity,
+                  decoration: BoxDecoration(
+                    color: glassIndicatorColor,
+                    borderRadius: BorderRadius.circular(13),
+                    border: Border.all(
+                      color: glassIndicatorBorderColor,
+                      width: 0.8,
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: isDark
+                            ? Colors.black.withValues(alpha: 0.3)
+                            : Colors.black.withValues(alpha: 0.08),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
                 ),
+              ),
 
-                // Вкладки
-                Row(
-                  children: [
-                    Expanded(
-                      child: _SegmentTab(
-                        label: wallLabel,
-                        isSelected: selectedIndex == 0,
-                        selectedColor: selectedTextColor,
-                        unselectedColor: unselectedTextColor,
-                        isDark: isDark,
-                        isGlass: true,
-                        onTap: () {
-                          if (selectedIndex != 0) {
-                            HapticUtils.selection();
-                            onTabChanged(0);
-                          }
-                        },
-                      ),
+              // Вкладки
+              Row(
+                children: [
+                  Expanded(
+                    child: _SegmentTab(
+                      label: wallLabel,
+                      isSelected: selectedIndex == 0,
+                      selectedColor: selectedTextColor,
+                      unselectedColor: unselectedTextColor,
+                      isDark: isDark,
+                      isGlass: true,
+                      onTap: () {
+                        if (selectedIndex != 0) {
+                          HapticUtils.selection();
+                          onTabChanged(0);
+                        }
+                      },
                     ),
-                    Expanded(
-                      child: _SegmentTab(
-                        label: giftsLabel,
-                        isSelected: selectedIndex == 1,
-                        selectedColor: selectedTextColor,
-                        unselectedColor: unselectedTextColor,
-                        isDark: isDark,
-                        isGlass: true,
-                        onTap: () {
-                          if (selectedIndex != 1) {
-                            HapticUtils.selection();
-                            onTabChanged(1);
-                          }
-                        },
-                      ),
+                  ),
+                  Expanded(
+                    child: _SegmentTab(
+                      label: giftsLabel,
+                      isSelected: selectedIndex == 1,
+                      selectedColor: selectedTextColor,
+                      unselectedColor: unselectedTextColor,
+                      isDark: isDark,
+                      isGlass: true,
+                      onTap: () {
+                        if (selectedIndex != 1) {
+                          HapticUtils.selection();
+                          onTabChanged(1);
+                        }
+                      },
                     ),
-                  ],
-                ),
-              ],
-            );
-          },
-        ),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
       ),
     );
 
-    return isLite
-        ? FakeGlass.inLayer(shape: shape, child: glassChild)
-        : LiquidGlass.grouped(shape: shape, child: glassChild);
+    return LiquidGlassLens(
+      style: LiquidGlassStyles.segmentedControlStyle(isDark, isLite: isLite),
+      child: innerContent,
+    );
   }
 }
 

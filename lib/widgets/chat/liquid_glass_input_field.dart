@@ -5,8 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:provider/provider.dart';
+import '../../theme/liquid_glass_styles.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../l10n/app_localizations.dart';
 import '../../services/profile_theme_provider.dart';
@@ -310,24 +311,17 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    final glassSettings = LiquidGlassSettings(
-      blur: 15,
-      refractiveIndex: 1.0,
-      thickness: 10,
-      glassColor: isDark
-          ? Colors.black.withValues(alpha: 0.65)
-          : Colors.white.withValues(alpha: 0.65),
-    );
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: _kInputHorizontalPadding, vertical: _kInputVerticalPadding),
-      child: LiquidGlassLayer(
-        settings: glassSettings,
-        child: FakeGlass(
-          settings: glassSettings,
-          shape: const LiquidRoundedSuperellipse(borderRadius: _kInputFillBorderRadius),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(_kInputFillBorderRadius),
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 15, sigmaY: 15),
           child: Container(
             decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.black.withValues(alpha: 0.65)
+                  : Colors.white.withValues(alpha: 0.65),
               borderRadius: BorderRadius.circular(_kInputFillBorderRadius),
               border: Border.all(
                 color: isDark ? Colors.white10 : Colors.black12,
@@ -344,32 +338,13 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
   Widget _buildGlassInput(BuildContext context) {
     final isDark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
 
-    final glassSettings = LiquidGlassSettings(
-      refractiveIndex: 1.15,
-      thickness: 20,
-      blur: 8,
-      saturation: 1.5,
-      lightIntensity: isDark ? 0.7 : 1.0,
-      ambientStrength: isDark ? 0.2 : 0.5,
-      lightAngle: math.pi / 2,
-      glassColor: isDark
-          ? const Color.fromARGB(40, 30, 30, 40)
-          : const Color.fromARGB(50, 255, 255, 255),
-    );
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: _kInputHorizontalPadding, vertical: _kInputVerticalPadding),
-      child: widget.isLite
-          ? FakeGlass(
-              settings: glassSettings,
-              shape: const LiquidRoundedSuperellipse(borderRadius: _kInputFillBorderRadius),
-              child: GlassGlow(child: _buildInputRow(context)),
-            )
-          : LiquidGlass.withOwnLayer(
-              settings: glassSettings,
-              shape: const LiquidRoundedSuperellipse(borderRadius: _kInputFillBorderRadius),
-              child: GlassGlow(child: _buildInputRow(context)),
-            ),
+      child: LiquidGlassLens(
+        touch: LiquidGlassStyles.touchSubtle,
+        style: LiquidGlassStyles.inputStyle(isDark, isLite: widget.isLite),
+        child: _buildInputRow(context),
+      ),
     );
   }
 
@@ -582,8 +557,7 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
       valueListenable: widget.controller,
       builder: (context, value, child) {
         final hasText = value.text.isNotEmpty;
-        return FakeGlass.inLayer(
-          shape: const LiquidOval(),
+        return ClipOval(
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () {
@@ -631,7 +605,9 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
               width: _kActionButtonSize,
               height: _kActionButtonSize,
               decoration: BoxDecoration(
-                  color: widget.isSending ? Colors.grey : rightButtonBg),
+                shape: BoxShape.circle,
+                color: widget.isSending ? Colors.grey : rightButtonBg,
+              ),
               alignment: Alignment.center,
               child: widget.isSending
                   ? const SizedBox(

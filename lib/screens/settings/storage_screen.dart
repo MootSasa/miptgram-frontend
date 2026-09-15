@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart' hide LiquidGlassAppBar;
 
 import '../../services/settings_service.dart';
 import '../../services/auth_service.dart';
@@ -315,34 +315,41 @@ class _StorageScreenState extends State<StorageScreen> {
 
         if (glassEnabled) {
           final topPadding = MediaQuery.of(context).padding.top + kToolbarHeight;
+          final content = Stack(
+            children: [
+              Positioned.fill(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : ListView(
+                        physics: const ClampingScrollPhysics(),
+                        padding: EdgeInsets.only(top: topPadding + 10, bottom: 40),
+                        children: _buildSections(context, l10n, glassEnabled: true, isLite: isLite),
+                      ),
+              ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: LiquidGlassAppBar(
+                  title: Text(l10n.translate('storage_title')),
+                  centerTitle: true,
+                  isLite: isLite,
+                ),
+              ),
+              if (_isClearing)
+                Container(
+                  color: Colors.black45,
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+            ],
+          );
+
           return Scaffold(
-            body: Stack(
-              children: [
-                Positioned.fill(
-                  child: _isLoading
-                      ? const Center(child: CircularProgressIndicator())
-                      : ListView(
-                          physics: const ClampingScrollPhysics(),
-                          padding: EdgeInsets.only(top: topPadding + 10, bottom: 40),
-                          children: _buildSections(context, l10n, glassEnabled: true, isLite: isLite),
-                        ),
-                ),
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: LiquidGlassAppBar(
-                    title: Text(l10n.translate('storage_title')),
-                    centerTitle: true,
-                    isLite: isLite,
-                  ),
-                ),
-                if (_isClearing)
-                  Container(
-                    color: Colors.black45,
-                    child: const Center(child: CircularProgressIndicator()),
-                  ),
-              ],
+            body: LiquidGlassView(
+              backgroundWidget: Container(
+                color: Theme.of(context).scaffoldBackgroundColor,
+              ),
+              child: content,
             ),
           );
         }
@@ -1437,47 +1444,51 @@ class _StorageScreenState extends State<StorageScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (glassEnabled) {
-      const shape = LiquidRoundedSuperellipse(borderRadius: 20);
-      final glassContent = GlassGlow(
-        child: Container(
-          width: double.infinity,
-          margin: margin,
-          padding: padding,
-          decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.04)
-                : Colors.black.withValues(alpha: 0.02),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.12)
-                  : Colors.black.withValues(alpha: 0.08),
-              width: 0.5,
-            ),
+      final style = LiquidGlassStyle(
+        shape: const LiquidGlassShape.continuousRoundedRectangle(
+          cornerRadius: 20,
+          borderType: OpticalBorder(
+            borderSaturation: 1.1,
+            ambientIntensity: 1.1,
+            borderSolidity: 0.1,
           ),
-          child: child,
         ),
+        appearance: LiquidGlassAppearance(
+          color: isDark
+              ? const Color.fromARGB(80, 20, 20, 30)
+              : const Color.fromARGB(80, 240, 240, 245),
+          shadow: const LiquidGlassShadow(blur: 8, opacity: 0.1),
+        ),
+        refraction: const LiquidGlassRefraction(
+          distortion: 0.08,
+          distortionWidth: 16,
+        ),
+        liteGlass: isLite ? LiquidGlassLitePickup.backdrop : null,
       );
 
-      final glassSettings = LiquidGlassSettings(
-        refractiveIndex: 1.1,
-        thickness: 10,
-        blur: 14,
-        saturation: 1.2,
-        lightIntensity: isDark ? 0.4 : 0.7,
-        ambientStrength: isDark ? 0.15 : 0.3,
-        glassColor: isDark
-            ? const Color.fromARGB(80, 20, 20, 30)
-            : const Color.fromARGB(80, 240, 240, 245),
+      final glassContent = Container(
+        width: double.infinity,
+        margin: margin,
+        padding: padding,
+        decoration: BoxDecoration(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.04)
+              : Colors.black.withValues(alpha: 0.02),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.12)
+                : Colors.black.withValues(alpha: 0.08),
+            width: 0.5,
+          ),
+        ),
+        child: child,
       );
 
-      return isLite
-          ? FakeGlass(shape: shape, child: glassContent)
-          : LiquidGlass.withOwnLayer(
-              shape: shape,
-              settings: glassSettings,
-              child: glassContent,
-            );
+      return LiquidGlassLens(
+        style: style,
+        child: glassContent,
+      );
     }
 
     // Standard Material 3 Card

@@ -1,14 +1,15 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:iconoir_flutter/regular/shield_check.dart';
 import 'package:iconoir_flutter/regular/laptop.dart';
 import 'package:iconoir_flutter/regular/check.dart';
 import 'package:iconoir_flutter/regular/lock.dart';
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:provider/provider.dart';
+
+import '../../theme/liquid_glass_styles.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/chat_service.dart';
@@ -169,24 +170,22 @@ class _SystemNotificationsScreenState extends State<SystemNotificationsScreen> {
         : l10n.translate('system_notifications_title');
     final String chatSubtitle = l10n.translate('system_notifications_subtitle');
 
-    return Scaffold(
-      resizeToAvoidBottomInset: false,
-      body: Stack(
+    final Widget contentStack = Stack(
         children: [
           // 1. Wallpaper background (exact match with PrivateChatScreen)
-          if (wallpaperPath != null)
-            Positioned.fill(
-              child: Image.file(
-                File(wallpaperPath),
-                fit: BoxFit.cover,
-              ),
-            )
-          else
-            Positioned.fill(
-              child: Container(
-                color: theme.scaffoldBackgroundColor,
-              ),
-            ),
+          if (!glassEnabled)
+            (wallpaperPath != null
+                ? Positioned.fill(
+                    child: Image.file(
+                      File(wallpaperPath),
+                      fit: BoxFit.cover,
+                    ),
+                  )
+                : Positioned.fill(
+                    child: Container(
+                      color: theme.scaffoldBackgroundColor,
+                    ),
+                  )),
 
           // 2. Messages List with top shader fade under Floating AppBar
           Positioned.fill(
@@ -280,7 +279,35 @@ class _SystemNotificationsScreenState extends State<SystemNotificationsScreen> {
             child: _buildBottomBar(glassEnabled, isDark, theme, l10n),
           ),
         ],
-      ),
+      );
+
+    final Widget scaffoldBody;
+    if (glassEnabled) {
+      scaffoldBody = LiquidGlassView(
+        realTimeCapture: true,
+        pixelRatio: 0.8,
+        useSync: true,
+        refreshRate: LiquidGlassRefreshRate.deviceRefreshRate,
+        backgroundWidget: Container(
+          color: theme.scaffoldBackgroundColor,
+          width: double.infinity,
+          height: double.infinity,
+          child: wallpaperPath != null
+              ? Image.file(
+                  File(wallpaperPath),
+                  fit: BoxFit.cover,
+                )
+              : null,
+        ),
+        child: contentStack,
+      );
+    } else {
+      scaffoldBody = contentStack;
+    }
+
+    return Scaffold(
+      resizeToAvoidBottomInset: false,
+      body: scaffoldBody,
     );
   }
 
@@ -515,32 +542,14 @@ class _SystemNotificationsScreenState extends State<SystemNotificationsScreen> {
     );
 
     if (glassEnabled) {
-      final glassSettings = LiquidGlassSettings(
-        refractiveIndex: 1.15,
-        thickness: 20,
-        blur: 8,
-        saturation: 1.5,
-        lightIntensity: isDark ? 0.7 : 1.0,
-        ambientStrength: isDark ? 0.2 : 0.5,
-        lightAngle: math.pi / 2,
-        glassColor: isDark
-            ? const Color.fromARGB(40, 30, 30, 40)
-            : const Color.fromARGB(50, 255, 255, 255),
-      );
-
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
-        child: LiquidGlassLayer(
-          settings: glassSettings,
-          child: FakeGlass(
-            settings: glassSettings,
-            shape: const LiquidRoundedSuperellipse(
-                borderRadius: kInputFillBorderRadius),
-            child: Container(
-              height: kInputHeight,
-              alignment: Alignment.center,
-              child: content,
-            ),
+        child: LiquidGlassLens(
+          touch: LiquidGlassStyles.touchSubtle,
+          style: LiquidGlassStyles.readOnlyBarStyle(isDark),
+          child: SizedBox(
+            height: kInputHeight,
+            child: Center(child: content),
           ),
         ),
       );

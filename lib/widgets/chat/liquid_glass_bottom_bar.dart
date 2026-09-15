@@ -1,10 +1,9 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:motor/motor.dart';
 
+import '../../theme/liquid_glass_styles.dart';
 import '../../utils/haptic_utils.dart';
 
 /// Создаёт матрицу jelly-трансформации на основе скорости для органичного
@@ -65,7 +64,7 @@ class LiquidGlassBottomBar extends StatefulWidget {
     this.horizontalPadding = 20,
     this.bottomPadding = 20,
     this.barHeight = 64,
-    this.glassSettings,
+    this.glassStyle,
     this.isLite = false,
   }) : super(key: key);
 
@@ -82,7 +81,7 @@ class LiquidGlassBottomBar extends StatefulWidget {
   final double horizontalPadding;
   final double bottomPadding;
   final double barHeight;
-  final LiquidGlassSettings? glassSettings;
+  final LiquidGlassStyle? glassStyle;
 
   /// Включён ли облегчённый режим (FakeGlass вместо LiquidGlass)
   final bool isLite;
@@ -116,177 +115,80 @@ class _LiquidGlassBottomBarState extends State<LiquidGlassBottomBar> {
     final isDark = brightness == Brightness.dark;
     final theme = Theme.of(context);
 
-    final glassSettings = widget.glassSettings ??
-        LiquidGlassSettings(
-          refractiveIndex: 1.21,
-          thickness: 30,
-          blur: 8,
-          saturation: 1.5,
-          lightIntensity: isDark ? 0.7 : 1.0,
-          ambientStrength: isDark ? 0.2 : 0.5,
-          lightAngle: math.pi / 2,
-          glassColor: isDark
-              ? const Color.fromARGB(60, 30, 30, 40)
-              : const Color.fromARGB(80, 200, 200, 210),
-        );
-
-    return LiquidGlassLayer(
-      settings: glassSettings,
-      child: LiquidGlassBlendGroup(
-        blend: 10,
-        child: Padding(
-          padding: EdgeInsets.only(
-            left: widget.horizontalPadding,
-            right: widget.horizontalPadding,
-            bottom: widget.bottomPadding,
-            top: widget.bottomPadding,
-          ),
-          child: Row(
-            spacing: widget.spacing,
-            children: [
-              // Основной бар с вкладками (занимает всё свободное пространство)
-              Expanded(
-                child: _TabIndicator(
-                  tabIndex: widget.selectedIndex,
-                  tabCount: _tabs.length,
-                  onTabChanged: widget.onTabSelected,
-                  child: widget.isLite
-                      ? FakeGlass.inLayer(
-                          shape: const LiquidRoundedSuperellipse(borderRadius: 32),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                            height: widget.barHeight,
-                            decoration: isDark
-                                ? null
-                                : BoxDecoration(
-                                    borderRadius: BorderRadius.circular(32),
-                                    border: Border.all(
-                                      color: Colors.black.withValues(alpha: 0.12),
-                                      width: 0.5,
-                                    ),
-                                  ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                for (var i = 0; i < _tabs.length; i++)
-                                  Expanded(
-                                    child: _BottomBarTab(
-                                      tab: _tabs[i],
-                                      selected: widget.selectedIndex == i,
-                                      onTap: () {
-                                        HapticUtils.selection();
-                                        widget.onTabSelected(i);
-                                      },
-                                      isDark: isDark,
-                                      theme: theme,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        )
-                      : LiquidGlass.grouped(
-                          clipBehavior: Clip.none,
-                          shape: const LiquidRoundedSuperellipse(borderRadius: 32),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                            height: widget.barHeight,
-                            decoration: isDark
-                                ? null
-                                : BoxDecoration(
-                                    borderRadius: BorderRadius.circular(32),
-                                    border: Border.all(
-                                      color: Colors.black.withValues(alpha: 0.12),
-                                      width: 0.5,
-                                    ),
-                                  ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                for (var i = 0; i < _tabs.length; i++)
-                                  Expanded(
-                                    child: _BottomBarTab(
-                                      tab: _tabs[i],
-                                      selected: widget.selectedIndex == i,
-                                      onTap: () {
-                                        HapticUtils.selection();
-                                        widget.onTabSelected(i);
-                                      },
-                                      isDark: isDark,
-                                      theme: theme,
-                                    ),
-                                  ),
-                              ],
-                            ),
+    return Padding(
+      padding: EdgeInsets.only(
+        left: widget.horizontalPadding,
+        right: widget.horizontalPadding,
+        bottom: widget.bottomPadding,
+        top: widget.bottomPadding,
+      ),
+      child: Row(
+        spacing: widget.spacing,
+        children: [
+          // Основной бар с вкладками (занимает всё свободное пространство)
+          Expanded(
+            child: LiquidGlassLens(
+              style: widget.glassStyle ??
+                  LiquidGlassStyles.appBarStyle(isDark, isLite: widget.isLite),
+              child: _TabIndicator(
+                tabIndex: widget.selectedIndex,
+                tabCount: _tabs.length,
+                onTabChanged: widget.onTabSelected,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  height: widget.barHeight,
+                  decoration: isDark
+                      ? null
+                      : BoxDecoration(
+                          borderRadius: BorderRadius.circular(32),
+                          border: Border.all(
+                            color: Colors.black.withValues(alpha: 0.12),
+                            width: 0.5,
                           ),
                         ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      for (var i = 0; i < _tabs.length; i++)
+                        Expanded(
+                          child: _BottomBarTab(
+                            tab: _tabs[i],
+                            selected: widget.selectedIndex == i,
+                            onTap: () {
+                              HapticUtils.selection();
+                              widget.onTabSelected(i);
+                            },
+                            isDark: isDark,
+                            theme: theme,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
-              // Кнопка "+" — как в примере LiquidOval + LiquidStretch
-              if (widget.onAddTap != null)
-                if (widget.isLite)
-                  FakeGlass.inLayer(
-                    shape: const LiquidOval(),
-                    child: GlassGlow(
-                      child: GestureDetector(
-                        onTap: widget.onAddTap,
-                        child: Container(
-                          height: widget.barHeight,
-                          width: widget.barHeight,
-                          decoration: isDark
-                              ? null
-                              : BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: Colors.black.withValues(alpha: 0.12),
-                                    width: 0.5,
-                                  ),
-                                ),
-                          child: Center(
-                            child: iconoir.Plus(
-                              width: 28,
-                              height: 28,
-                              color: isDark ? Colors.white70 : Colors.black54,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  )
-                else
-                  LiquidStretch(
-                    child: LiquidGlass.grouped(
-                      shape: const LiquidOval(),
-                      child: GlassGlow(
-                        child: GestureDetector(
-                          onTap: widget.onAddTap,
-                          child: Container(
-                            height: widget.barHeight,
-                            width: widget.barHeight,
-                            decoration: isDark
-                                ? null
-                                : BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Colors.black.withValues(alpha: 0.12),
-                                      width: 0.5,
-                                    ),
-                                  ),
-                            child: Center(
-                              child: iconoir.Plus(
-                                width: 28,
-                                height: 28,
-                                color: isDark ? Colors.white70 : Colors.black54,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+            ),
+          ),
+          // Кнопка "+"
+          if (widget.onAddTap != null)
+            LiquidGlassLens(
+              touch: LiquidGlassStyles.touchPronounced,
+              style: LiquidGlassStyles.fabStyle(isDark, isLite: widget.isLite),
+              child: GestureDetector(
+                onTap: widget.onAddTap,
+                child: SizedBox(
+                  height: widget.barHeight,
+                  width: widget.barHeight,
+                  child: Center(
+                    child: iconoir.Plus(
+                      width: 28,
+                      height: 28,
+                      color: isDark ? Colors.white70 : Colors.black54,
                     ),
                   ),
-            ],
-          ),
-        ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -566,21 +468,28 @@ class _TabIndicatorState extends State<_TabIndicator>
                       tabCount: widget.tabCount,
                       alignment: alignment,
                       thickness: thickness,
-                      child: LiquidGlass.withOwnLayer(
-                        settings: LiquidGlassSettings(
-                          visibility: thickness,
-                          glassColor: const Color.fromARGB(25, 255, 255, 255),
-                          saturation: 1.5,
-                          refractiveIndex: 1.15,
-                          thickness: 20,
-                          lightIntensity: 2,
-                          chromaticAberration: 0.5,
-                          blur: 0,
+                      child: Opacity(
+                        opacity: thickness.clamp(0.0, 1.0),
+                        child: const LiquidGlassLens(
+                          style: LiquidGlassStyle(
+                            shape:
+                                LiquidGlassShape.continuousRoundedRectangle(
+                              cornerRadius: 32,
+                              borderType: OpticalBorder(
+                                borderSaturation: 1.1,
+                                ambientIntensity: 1.2,
+                              ),
+                            ),
+                            appearance: LiquidGlassAppearance(
+                              color: Color.fromARGB(25, 255, 255, 255),
+                            ),
+                            refraction: LiquidGlassRefraction(
+                              distortion: 0.15,
+                              distortionWidth: 16,
+                            ),
+                          ),
+                          child: SizedBox.expand(),
                         ),
-                        shape: const LiquidRoundedSuperellipse(
-                          borderRadius: 64,
-                        ),
-                        child: const GlassGlow(child: SizedBox.expand()),
                       ),
                     ),
                 ],

@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
+import '../../theme/liquid_glass_styles.dart';
 
 /// Круглые кнопки действий под именем пользователя:
 /// «Выбрать фото», «QR-код», «Изменить», «Удалить фото».
 ///
 /// Отображаются исключительно иконки в увеличенных круглых кнопках (без текста).
-/// В режиме liquid glass используется эффект `LiquidStretch` и повышенная прозрачность.
+/// В режиме liquid glass используется эффект оптического стекла и физика нажатия.
 /// В обычном дизайне стретч отключён.
 class LiquidGlassProfileButtons extends StatelessWidget {
   /// Включён ли стеклянный дизайн (полный или облегчённый)
@@ -159,42 +160,33 @@ class _RoundActionButton extends StatelessWidget {
 
     // Увеличенный диаметр кнопок действий (58.0)
     const size = 58.0;
-    const shape = LiquidOval();
 
     Widget buttonContent;
 
     if (enabled) {
-      // Liquid Glass / FakeGlass прозрачный круглый дизайн
-      final glassChild = GlassGlow(
-        child: Container(
-          width: size,
-          height: size,
-          alignment: Alignment.center,
-          decoration: isDark
-              ? null
-              : BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.black.withValues(alpha: 0.06),
-                    width: 0.5,
-                  ),
+      final iconWidget = Container(
+        width: size,
+        height: size,
+        alignment: Alignment.center,
+        decoration: isDark
+            ? null
+            : BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  width: 0.5,
                 ),
-          child: Icon(icon, size: 24, color: iconColor),
-        ),
+              ),
+        child: Icon(icon, size: 24, color: iconColor),
       );
 
-      buttonContent = isLite
-          ? FakeGlass.inLayer(shape: shape, child: glassChild)
-          : LiquidGlass.grouped(shape: shape, child: glassChild);
-
-      // В стеклянном режиме включаем LiquidStretch
-      return LiquidStretch(
-        stretch: 0.3,
-        interactionScale: 1.06,
-        child: GestureDetector(
-          onTap: onTap,
-          behavior: HitTestBehavior.opaque,
-          child: buttonContent,
+      return GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: LiquidGlassLens(
+          style: LiquidGlassStyles.profileButtonStyle(isDark, isLite: isLite),
+          touch: LiquidGlassStyles.touchPronounced,
+          child: iconWidget,
         ),
       );
     } else {

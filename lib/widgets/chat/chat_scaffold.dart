@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:inspire_blur/inspire_blur.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:provider/provider.dart';
+import '../../services/liquid_glass_provider.dart';
 import '../../services/wallpaper_provider.dart';
 
 /// Unified scaffold for all chat screens (private chat, group chat, channel).
@@ -42,6 +44,66 @@ class ChatScaffold extends StatelessWidget {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final bool isKeyboardVisible = bottomInset > 0;
     final defaultCanPop = canPop ?? !isKeyboardVisible;
+    final glassEnabled =
+        context.watch<LiquidGlassProvider?>()?.enabled ?? false;
+
+    final contentStack = Stack(
+      fit: StackFit.expand,
+      children: [
+        // 1. Wallpaper background layer (rendered inside content when glass is disabled)
+        if (!glassEnabled) _buildBackground(context),
+
+        // 2. Main content layer
+        Positioned.fill(
+          child: Column(
+            children: [
+              Expanded(child: body),
+              if (bottomBar != null) bottomBar!,
+            ],
+          ),
+        ),
+
+        // 3. Status bar blur layer (inspire_blur)
+        if (enableStatusBarBlur)
+          _buildStatusBarBlur(context),
+
+        // 4. Floating AppBar layer
+        if (appBar != null)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: appBar!,
+          ),
+
+        // 5. Floating Action Button layer
+        if (floatingActionButton != null)
+          Positioned(
+            right: 16,
+            bottom: bottomInset + 80,
+            child: floatingActionButton!,
+          ),
+      ],
+    );
+
+    final Widget scaffoldBody;
+    if (glassEnabled) {
+      scaffoldBody = LiquidGlassView(
+        realTimeCapture: true,
+        pixelRatio: 0.8,
+        useSync: true,
+        refreshRate: LiquidGlassRefreshRate.deviceRefreshRate,
+        backgroundWidget: Container(
+          color: backgroundColor ?? Theme.of(context).scaffoldBackgroundColor,
+          width: double.infinity,
+          height: double.infinity,
+          child: _buildBackgroundContent(context),
+        ),
+        child: contentStack,
+      );
+    } else {
+      scaffoldBody = contentStack;
+    }
 
     return PopScope(
       canPop: defaultCanPop,
@@ -57,45 +119,9 @@ class ChatScaffold extends StatelessWidget {
       },
       child: Scaffold(
         resizeToAvoidBottomInset: false,
-        backgroundColor: backgroundColor ?? Theme.of(context).scaffoldBackgroundColor,
-        body: Stack(
-          fit: StackFit.expand,
-          children: [
-            // 1. Wallpaper background layer
-            _buildBackground(context),
-
-            // 2. Main content layer
-            Positioned.fill(
-              child: Column(
-                children: [
-                  Expanded(child: body),
-                  if (bottomBar != null) bottomBar!,
-                ],
-              ),
-            ),
-
-            // 3. Status bar blur layer (inspire_blur)
-            if (enableStatusBarBlur)
-              _buildStatusBarBlur(context),
-
-            // 4. Floating AppBar layer
-            if (appBar != null)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: appBar!,
-              ),
-
-            // 5. Floating Action Button layer
-            if (floatingActionButton != null)
-              Positioned(
-                right: 16,
-                bottom: bottomInset + 80,
-                child: floatingActionButton!,
-              ),
-          ],
-        ),
+        backgroundColor:
+            backgroundColor ?? Theme.of(context).scaffoldBackgroundColor,
+        body: scaffoldBody,
       ),
     );
   }
@@ -124,6 +150,12 @@ class ChatScaffold extends StatelessWidget {
   }
 
   Widget _buildBackground(BuildContext context) {
+    return Positioned.fill(
+      child: _buildBackgroundContent(context),
+    );
+  }
+
+  Widget _buildBackgroundContent(BuildContext context) {
     if (customBackground != null) {
       return customBackground!;
     }
@@ -132,11 +164,9 @@ class ChatScaffold extends StatelessWidget {
     if (wallpaperPath != null && wallpaperPath.isNotEmpty) {
       final file = File(wallpaperPath);
       if (file.existsSync()) {
-        return Positioned.fill(
-          child: Image.file(
-            file,
-            fit: BoxFit.cover,
-          ),
+        return Image.file(
+          file,
+          fit: BoxFit.cover,
         );
       }
     }

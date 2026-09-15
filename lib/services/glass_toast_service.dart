@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:provider/provider.dart';
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import '../theme/liquid_glass_styles.dart';
 import 'liquid_glass_provider.dart';
 
 /// Service to show beautiful glass toasts ("clouds") throughout the app.
@@ -67,7 +68,6 @@ class _GlassToastWidget extends StatefulWidget {
 class _GlassToastWidgetState extends State<_GlassToastWidget> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _opacity;
-  late Animation<Offset> _offset;
 
   @override
   void initState() {
@@ -80,8 +80,6 @@ class _GlassToastWidgetState extends State<_GlassToastWidget> with SingleTickerP
     _opacity = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeIn),
     );
-
-    _offset = ConstantTween<Offset>(Offset.zero).animate(_controller);
 
     _controller.forward();
   }
@@ -130,21 +128,10 @@ class _GlassToastWidgetState extends State<_GlassToastWidget> with SingleTickerP
     );
   }
 
-  /// Matte glass effect using LiquidGlass (for Glass design)
+  /// Matte glass effect using LiquidGlassLens (for Glass design)
   Widget _buildMatteGlass(bool isDark, ThemeData theme) {
-    final glassSettings = LiquidGlassSettings(
-      blur: 25,
-      thickness: 15,
-      refractiveIndex: 1.05,
-      saturation: 1.2,
-      glassColor: isDark 
-          ? Colors.black.withValues(alpha: 0.5) 
-          : Colors.white.withValues(alpha: 0.5),
-    );
-
-    return LiquidGlass.withOwnLayer(
-      settings: glassSettings,
-      shape: const LiquidRoundedSuperellipse(borderRadius: 24),
+    return LiquidGlassLens(
+      style: LiquidGlassStyles.toastStyle(isDark),
       child: _buildContent(theme),
     );
   }

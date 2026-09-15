@@ -9,8 +9,10 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:inspire_blur/inspire_blur.dart';
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:provider/provider.dart';
+
+import '../../theme/liquid_glass_styles.dart';
 
 import '../../services/account_manager.dart';
 import '../../services/auth_service.dart';
@@ -1001,30 +1003,21 @@ class ProfileScreenState extends State<ProfileScreen>
       _expandFactor,
     );
 
-    final glassSettings = LiquidGlassSettings(
-      refractiveIndex: 1.25,
-      thickness: 10,
-      blur: 6,
-      saturation: 1.4,
-      lightIntensity: isDark ? 0.6 : 0.9,
-      ambientStrength: isDark ? 0.15 : 0.35,
-      lightAngle: math.pi / 2,
-      glassColor: isDark
-          ? const Color.fromARGB(20, 20, 20, 35)
-          : const Color.fromARGB(25, 240, 240, 250),
-    );
-
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: overlayStyle,
       child: Scaffold(
         backgroundColor: backgroundColor,
         body: _isLoading
             ? const Center(child: CircularProgressIndicator(color: Color(0xFF0088CC)))
-            : GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onVerticalDragUpdate: _handleVerticalDragUpdate,
-          onVerticalDragEnd: _handleVerticalDragEnd,
-          child: Stack(
+            : LiquidGlassView(
+                backgroundWidget: Container(
+                  color: backgroundColor,
+                ),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onVerticalDragUpdate: _handleVerticalDragUpdate,
+                  onVerticalDragEnd: _handleVerticalDragEnd,
+                  child: Stack(
             children: [
               // 1. Основной фон экрана (адаптивный, включая цвет профиля)
               AnimatedContainer(
@@ -1224,68 +1217,62 @@ class ProfileScreenState extends State<ProfileScreen>
                       offset: Offset(0, contentTranslation),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: LiquidGlassLayer(
-                          settings: glassSettings,
-                          child: LiquidGlassBlendGroup(
-                            blend: 10,
-                            child: SingleChildScrollView(
-                              padding: const EdgeInsets.only(bottom: 32),
-                              child: Column(
-                                children: [
-                                  LiquidGlassProfileButtons(
-                                    enabled: true,
-                                    isLite: isLite,
-                                    onChoosePhoto: _pickImage,
-                                    onQrCode: _showQrCode,
-                                    onEdit: _openEditProfile,
-                                    onDeletePhoto: _deleteAvatar,
-                                    hasAvatar: _avatarUrl != null || _avatarFile != null,
-                                    collapseProgress: (scrollOffset / 180.0).clamp(0.0, 1.0),
-                                    choosePhotoLabel: l10n.translate('profile_choose_photo'),
-                                    qrCodeLabel: l10n.translate('profile_qr_code'),
-                                    editLabel: l10n.translate('profile_edit_btn'),
-                                    deletePhotoLabel: l10n.translate('profile_delete_photo'),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  LiquidGlassMusicStatus(
-                                    enabled: true,
-                                    isLite: isLite,
-                                    trackTitle: null,
-                                    trackAuthor: null,
-                                    musicLabel: l10n.translate('profile_music'),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  LiquidGlassInfoPanel(
-                                    enabled: true,
-                                    isLite: isLite,
-                                    phone: _phoneController.text.isNotEmpty ? _phoneController.text : null,
-                                    bio: null,
-                                    username: _usernameController.text.isNotEmpty ? _usernameController.text : null,
-                                    birthday: null,
-                                    age: null,
-                                    phoneLabel: l10n.translate('profile_phone'),
-                                    bioLabel: l10n.translate('profile_bio'),
-                                    usernameLabel: l10n.translate('profile_username'),
-                                    birthdayLabel: l10n.translate('profile_birthday'),
-                                    ageLabel: l10n.translate('profile_age'),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  ProfileSegmentedControl(
-                                    enabled: true,
-                                    isLite: isLite,
-                                    selectedIndex: _selectedSegment,
-                                    onTabChanged: (index) {
-                                      setState(() {
-                                        _selectedSegment = index;
-                                      });
-                                    },
-                                    wallLabel: l10n.translate('profile_tab_wall'),
-                                    giftsLabel: l10n.translate('profile_tab_gifts'),
-                                  ),
-                                  SizedBox(height: math.max(250.0, MediaQuery.of(context).size.height * 0.6)),
-                                ],
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.only(bottom: 32),
+                          child: Column(
+                            children: [
+                              LiquidGlassProfileButtons(
+                                enabled: true,
+                                isLite: isLite,
+                                onChoosePhoto: _pickImage,
+                                onQrCode: _showQrCode,
+                                onEdit: _openEditProfile,
+                                onDeletePhoto: _deleteAvatar,
+                                hasAvatar: _avatarUrl != null || _avatarFile != null,
+                                collapseProgress: (scrollOffset / 180.0).clamp(0.0, 1.0),
+                                choosePhotoLabel: l10n.translate('profile_choose_photo'),
+                                qrCodeLabel: l10n.translate('profile_qr_code'),
+                                editLabel: l10n.translate('profile_edit_btn'),
+                                deletePhotoLabel: l10n.translate('profile_delete_photo'),
                               ),
-                            ),
+                              const SizedBox(height: 12),
+                              LiquidGlassMusicStatus(
+                                enabled: true,
+                                isLite: isLite,
+                                trackTitle: null,
+                                trackAuthor: null,
+                                musicLabel: l10n.translate('profile_music'),
+                              ),
+                              const SizedBox(height: 12),
+                              LiquidGlassInfoPanel(
+                                enabled: true,
+                                isLite: isLite,
+                                phone: _phoneController.text.isNotEmpty ? _phoneController.text : null,
+                                bio: null,
+                                username: _usernameController.text.isNotEmpty ? _usernameController.text : null,
+                                birthday: null,
+                                age: null,
+                                phoneLabel: l10n.translate('profile_phone'),
+                                bioLabel: l10n.translate('profile_bio'),
+                                usernameLabel: l10n.translate('profile_username'),
+                                birthdayLabel: l10n.translate('profile_birthday'),
+                                ageLabel: l10n.translate('profile_age'),
+                              ),
+                              const SizedBox(height: 12),
+                              ProfileSegmentedControl(
+                                enabled: true,
+                                isLite: isLite,
+                                selectedIndex: _selectedSegment,
+                                onTabChanged: (index) {
+                                  setState(() {
+                                    _selectedSegment = index;
+                                  });
+                                },
+                                wallLabel: l10n.translate('profile_tab_wall'),
+                                giftsLabel: l10n.translate('profile_tab_gifts'),
+                              ),
+                              SizedBox(height: math.max(250.0, MediaQuery.of(context).size.height * 0.6)),
+                            ],
                           ),
                         ),
                       ),
@@ -1343,8 +1330,9 @@ class ProfileScreenState extends State<ProfileScreen>
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   // ============================================================
   // Современный дизайн БЕЗ Liquid Glass
@@ -1823,54 +1811,51 @@ class _RoundHeaderButton extends StatelessWidget {
     Widget buttonContent;
 
     if (glassEnabled) {
-      // Liquid Glass / FakeGlass более прозрачный вариант
-      final glassChild = GlassGlow(
-        child: Container(
-          width: size,
-          height: size,
-          alignment: Alignment.center,
-          decoration: isDark
-              ? null
-              : BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.black.withValues(alpha: 0.04),
-                    width: 0.5,
-                  ),
-                ),
-          child: Icon(icon, size: 22, color: iconColor),
+      final style = LiquidGlassStyle(
+        shape: const LiquidGlassShape.roundedRectangle(
+          cornerRadius: 21,
+          borderType: OpticalBorder(
+            borderSaturation: 1.1,
+            ambientIntensity: 1.1,
+            borderSolidity: 0.1,
+          ),
         ),
+        appearance: LiquidGlassAppearance(
+          color: isDark
+              ? const Color.fromARGB(35, 20, 20, 35)
+              : const Color.fromARGB(45, 240, 240, 250),
+          shadow: const LiquidGlassShadow(blur: 6, opacity: 0.1),
+        ),
+        refraction: const LiquidGlassRefraction(
+          distortion: 0.10,
+          distortionWidth: 16,
+        ),
+        liteGlass: isLite ? LiquidGlassLitePickup.backdrop : null,
       );
 
-      final glassSettings = LiquidGlassSettings(
-        refractiveIndex: 1.25,
-        thickness: 10,
-        blur: 6,
-        glassColor: isDark
-            ? const Color.fromARGB(12, 20, 20, 35)
-            : const Color.fromARGB(15, 240, 240, 250),
+      final iconWidget = Container(
+        width: size,
+        height: size,
+        alignment: Alignment.center,
+        decoration: isDark
+            ? null
+            : BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  width: 0.5,
+                ),
+              ),
+        child: Icon(icon, size: 22, color: iconColor),
       );
 
-      buttonContent = isLite
-          ? FakeGlass(
-              shape: const LiquidOval(),
-              settings: glassSettings,
-              child: glassChild,
-            )
-          : LiquidGlass.withOwnLayer(
-              shape: const LiquidOval(),
-              settings: glassSettings,
-              child: glassChild,
-            );
-
-      // В стеклянном режиме включаем LiquidStretch
-      return LiquidStretch(
-        stretch: 0.3,
-        interactionScale: 1.06,
-        child: GestureDetector(
-          onTap: onTap,
-          behavior: HitTestBehavior.opaque,
-          child: buttonContent,
+      return GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: LiquidGlassLens(
+          style: style,
+          touch: LiquidGlassStyles.touchDefault,
+          child: iconWidget,
         ),
       );
     } else {
@@ -2244,60 +2229,57 @@ class _MorphingHeaderMenuButtonState extends State<_MorphingHeaderMenuButton>
                   Widget containerWidget;
 
                   if (widget.glassEnabled) {
-                    final glassThickness = ui.lerpDouble(10.0, 12.0, progress)!;
-                    final glassBlur = ui.lerpDouble(6.0, 10.0, progress)!;
                     final glassAlpha = widget.isDark
-                        ? ui.lerpDouble(12.0, 22.0, progress)!.round()
-                        : ui.lerpDouble(15.0, 35.0, progress)!.round();
+                        ? ui.lerpDouble(20.0, 35.0, progress)!.round()
+                        : ui.lerpDouble(30.0, 55.0, progress)!.round();
 
-                    final glassChild = GlassGlow(
-                      child: Container(
-                        width: width,
-                        height: height,
-                        decoration: widget.isDark
-                            ? BoxDecoration(
-                                borderRadius: BorderRadius.circular(borderRadius),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: ui.lerpDouble(0.0, 0.12, progress)!),
-                                  width: 0.5,
-                                ),
-                              )
-                            : BoxDecoration(
-                                borderRadius: BorderRadius.circular(borderRadius),
-                                border: Border.all(
-                                  color: Colors.black.withValues(alpha: ui.lerpDouble(0.04, 0.08, progress)!),
-                                  width: 0.5,
-                                ),
-                              ),
-                        child: restIcon,
+                    final glassStyle = LiquidGlassStyle(
+                      shape: LiquidGlassShape.continuousRoundedRectangle(
+                        cornerRadius: borderRadius,
+                        borderType: const OpticalBorder(
+                          borderSaturation: 1.1,
+                          ambientIntensity: 1.1,
+                          borderSolidity: 0.1,
+                        ),
                       ),
+                      appearance: LiquidGlassAppearance(
+                        color: widget.isDark
+                            ? Color.fromARGB(glassAlpha, 20, 20, 35)
+                            : Color.fromARGB(glassAlpha, 240, 240, 250),
+                        shadow: const LiquidGlassShadow(blur: 8, opacity: 0.12),
+                      ),
+                      refraction: const LiquidGlassRefraction(
+                        distortion: 0.10,
+                        distortionWidth: 16,
+                      ),
+                      liteGlass: widget.isLite ? LiquidGlassLitePickup.backdrop : null,
                     );
 
-                    final glassSettings = LiquidGlassSettings(
-                      refractiveIndex: 1.25,
-                      thickness: glassThickness,
-                      blur: glassBlur,
-                      glassColor: widget.isDark
-                          ? Color.fromARGB(glassAlpha, 20, 20, 35)
-                          : Color.fromARGB(glassAlpha, 240, 240, 250),
+                    final contentBox = Container(
+                      width: width,
+                      height: height,
+                      decoration: widget.isDark
+                          ? BoxDecoration(
+                              borderRadius: BorderRadius.circular(borderRadius),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: ui.lerpDouble(0.0, 0.12, progress)!),
+                                width: 0.5,
+                              ),
+                            )
+                          : BoxDecoration(
+                              borderRadius: BorderRadius.circular(borderRadius),
+                              border: Border.all(
+                                color: Colors.black.withValues(alpha: ui.lerpDouble(0.04, 0.08, progress)!),
+                                width: 0.5,
+                              ),
+                            ),
+                      child: restIcon,
                     );
 
-                    final glassWidget = widget.isLite
-                        ? FakeGlass(
-                            shape: LiquidRoundedSuperellipse(borderRadius: borderRadius),
-                            settings: glassSettings,
-                            child: glassChild,
-                          )
-                        : LiquidGlass.withOwnLayer(
-                            shape: LiquidRoundedSuperellipse(borderRadius: borderRadius),
-                            settings: glassSettings,
-                            child: glassChild,
-                          );
-
-                    containerWidget = LiquidStretch(
-                      stretch: 0.15,
-                      interactionScale: 1.02,
-                      child: glassWidget,
+                    containerWidget = LiquidGlassLens(
+                      style: glassStyle,
+                      touch: LiquidGlassStyles.touchDefault,
+                      child: contentBox,
                     );
                   } else {
                     final darkAlpha = ui.lerpDouble(180.0, 245.0, progress)!.round();

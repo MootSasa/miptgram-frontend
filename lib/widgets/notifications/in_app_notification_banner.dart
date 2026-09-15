@@ -2,7 +2,8 @@ import '../../utils/image_utils.dart';
 import 'package:flutter/material.dart';
 import '../../services/liquid_glass_provider.dart';
 import 'package:provider/provider.dart';
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
+import '../../theme/liquid_glass_styles.dart';
 
 /// Модель данных для in-app баннера уведомления
 class InAppNotificationData {
@@ -192,13 +193,9 @@ class _InAppNotificationBannerState extends State<InAppNotificationBanner>
   }
 
   Widget _buildGlassBanner(BuildContext context) {
-    return LiquidGlass.withOwnLayer(
-      settings: const LiquidGlassSettings(
-        thickness: 15,
-        blur: 10,
-        refractiveIndex: 1.15,
-      ),
-      shape: const LiquidRoundedSuperellipse(borderRadius: 16),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return LiquidGlassLens(
+      style: LiquidGlassStyles.menuStyle(isDark),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: _buildBannerContent(context),

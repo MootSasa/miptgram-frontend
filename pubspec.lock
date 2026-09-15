@@ -965,14 +965,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.1"
-  liquid_glass_renderer:
+  liquid_glass_easy:
     dependency: "direct main"
     description:
-      name: liquid_glass_renderer
-      sha256: "789be157494b38cdef7607bb9b63e7fe3fab76fae16149e52fa313c2d858cb3f"
+      name: liquid_glass_easy
+      sha256: "5b3f01c8bea8f4f2b88387be9426eef61657cb29a26297ae431a02fed2ac6b95"
       url: "https://pub.dev"
     source: hosted
-    version: "0.2.0-dev.4"
+    version: "4.3.1"
   local_auth:
     dependency: "direct main"
     description:

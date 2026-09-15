@@ -17,6 +17,7 @@ import 'services/push_service_detector.dart';
 import 'services/privacy_settings_provider.dart';
 import 'services/banking_cards_provider.dart';
 import 'services/wallet_security_provider.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'services/wallpaper_provider.dart';
 import 'services/profile_theme_provider.dart';
 import 'utils/emoji_utils.dart';
@@ -25,6 +26,13 @@ import 'l10n/app_localizations.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   print('DEBUG: main() started');
+
+  // Pre-load and compile Liquid Glass shaders
+  try {
+    await LiquidGlassShaders.ensureLoaded();
+  } catch (e) {
+    debugPrint('LiquidGlassShaders initialization skipped: $e');
+  }
 
   // Initialize AppConfig (4-tier dynamic environment configuration)
   await AppConfig.init();

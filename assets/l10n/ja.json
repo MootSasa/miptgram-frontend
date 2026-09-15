@@ -589,6 +589,7 @@
   "settings_glass_off": "オフ",
   "settings_glass_lite": "ライト",
   "settings_glass_full": "フル",
+  "settings_glass_blur": "ブラーの強さ",
   "chat_menu_view_profile": "プロフィールを表示",
   "chat_menu_auto_delete": "メッセージの自動削除",
   "chat_menu_export": "チャットをエクスポート",

@@ -7,6 +7,9 @@ import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 class LiquidGlassStyles {
   LiquidGlassStyles._();
 
+  /// Default blur strength applied across liquid glass components.
+  static double defaultBlur = 12.0;
+
   // ---------------------------------------------------------------------------
   // Touch physics presets
   // ---------------------------------------------------------------------------
@@ -25,7 +28,8 @@ class LiquidGlassStyles {
   // ---------------------------------------------------------------------------
   // Floating Glass AppBar (Chat header)
   // ---------------------------------------------------------------------------
-  static LiquidGlassStyle appBarStyle(bool isDark, {bool isLite = false}) {
+  static LiquidGlassStyle appBarStyle(bool isDark, {bool isLite = false, double? blur}) {
+    final b = blur ?? defaultBlur;
     return LiquidGlassStyle(
       shape: const LiquidGlassShape.continuousRoundedRectangle(
         cornerRadius: 27,
@@ -43,6 +47,7 @@ class LiquidGlassStyles {
           blur: 8.0,
           opacity: 0.12,
         ),
+        blur: LiquidGlassBlur(sigmaX: b, sigmaY: b),
       ),
       refraction: const LiquidGlassRefraction(
         distortion: 0.12,
@@ -56,7 +61,8 @@ class LiquidGlassStyles {
   // ---------------------------------------------------------------------------
   // Chat Input Field
   // ---------------------------------------------------------------------------
-  static LiquidGlassStyle inputStyle(bool isDark, {bool isLite = false}) {
+  static LiquidGlassStyle inputStyle(bool isDark, {bool isLite = false, double? blur}) {
+    final b = blur ?? defaultBlur;
     return LiquidGlassStyle(
       shape: const LiquidGlassShape.continuousRoundedRectangle(
         cornerRadius: 24,
@@ -74,6 +80,7 @@ class LiquidGlassStyles {
           blur: 6.0,
           opacity: 0.10,
         ),
+        blur: LiquidGlassBlur(sigmaX: b, sigmaY: b),
       ),
       refraction: const LiquidGlassRefraction(
         distortion: 0.10,
@@ -87,7 +94,8 @@ class LiquidGlassStyles {
   // ---------------------------------------------------------------------------
   // Floating Action Button (Scroll to bottom)
   // ---------------------------------------------------------------------------
-  static LiquidGlassStyle fabStyle(bool isDark, {bool isLite = false}) {
+  static LiquidGlassStyle fabStyle(bool isDark, {bool isLite = false, double? blur}) {
+    final b = blur ?? defaultBlur;
     return LiquidGlassStyle(
       shape: const LiquidGlassShape.squircle(
         cornerRadius: 24,
@@ -105,6 +113,7 @@ class LiquidGlassStyles {
           blur: 10.0,
           opacity: 0.18,
         ),
+        blur: LiquidGlassBlur(sigmaX: b, sigmaY: b),
       ),
       refraction: const LiquidGlassRefraction(
         distortion: 0.15,
@@ -118,7 +127,8 @@ class LiquidGlassStyles {
   // ---------------------------------------------------------------------------
   // Reply / Quote Preview Bar
   // ---------------------------------------------------------------------------
-  static LiquidGlassStyle replyPreviewStyle(bool isDark, {bool isLite = false}) {
+  static LiquidGlassStyle replyPreviewStyle(bool isDark, {bool isLite = false, double? blur}) {
+    final b = blur ?? defaultBlur;
     return LiquidGlassStyle(
       shape: const LiquidGlassShape.continuousRoundedRectangle(
         cornerRadius: 16,
@@ -135,6 +145,7 @@ class LiquidGlassStyles {
           blur: 5.0,
           opacity: 0.08,
         ),
+        blur: LiquidGlassBlur(sigmaX: b, sigmaY: b),
       ),
       refraction: const LiquidGlassRefraction(
         distortion: 0.08,
@@ -148,7 +159,8 @@ class LiquidGlassStyles {
   // ---------------------------------------------------------------------------
   // Chat Context / Header Menu
   // ---------------------------------------------------------------------------
-  static LiquidGlassStyle menuStyle(bool isDark, {bool isLite = false}) {
+  static LiquidGlassStyle menuStyle(bool isDark, {bool isLite = false, double? blur}) {
+    final b = blur ?? defaultBlur;
     return LiquidGlassStyle(
       shape: const LiquidGlassShape.continuousRoundedRectangle(
         cornerRadius: 28,
@@ -165,6 +177,7 @@ class LiquidGlassStyles {
           blur: 14.0,
           opacity: 0.20,
         ),
+        blur: LiquidGlassBlur(sigmaX: b, sigmaY: b),
       ),
       refraction: const LiquidGlassRefraction(
         distortion: 0.10,
@@ -178,8 +191,8 @@ class LiquidGlassStyles {
   // ---------------------------------------------------------------------------
   // Read-only system notification bottom bar
   // ---------------------------------------------------------------------------
-  static LiquidGlassStyle readOnlyBarStyle(bool isDark, {bool isLite = false}) {
-    return inputStyle(isDark, isLite: isLite);
+  static LiquidGlassStyle readOnlyBarStyle(bool isDark, {bool isLite = false, double? blur}) {
+    return inputStyle(isDark, isLite: isLite, blur: blur);
   }
 
   // ---------------------------------------------------------------------------
@@ -189,7 +202,9 @@ class LiquidGlassStyles {
     bool isDark, {
     bool isLite = false,
     bool isSelected = false,
+    double? blur,
   }) {
+    final b = blur ?? defaultBlur;
     return LiquidGlassStyle(
       shape: const LiquidGlassShape.continuousRoundedRectangle(
         cornerRadius: 18,
@@ -208,6 +223,7 @@ class LiquidGlassStyles {
           blur: 4.0,
           opacity: 0.08,
         ),
+        blur: LiquidGlassBlur(sigmaX: b, sigmaY: b),
       ),
       refraction: const LiquidGlassRefraction(
         distortion: 0.08,
@@ -220,7 +236,8 @@ class LiquidGlassStyles {
   // ---------------------------------------------------------------------------
   // Profile Action Buttons (Round 58x58)
   // ---------------------------------------------------------------------------
-  static LiquidGlassStyle profileButtonStyle(bool isDark, {bool isLite = false}) {
+  static LiquidGlassStyle profileButtonStyle(bool isDark, {bool isLite = false, double? blur}) {
+    final b = blur ?? defaultBlur;
     return LiquidGlassStyle(
       shape: const LiquidGlassShape.roundedRectangle(
         cornerRadius: 29,
@@ -238,6 +255,7 @@ class LiquidGlassStyles {
           blur: 8.0,
           opacity: 0.12,
         ),
+        blur: LiquidGlassBlur(sigmaX: b, sigmaY: b),
       ),
       refraction: const LiquidGlassRefraction(
         distortion: 0.12,
@@ -251,7 +269,8 @@ class LiquidGlassStyles {
   // ---------------------------------------------------------------------------
   // Segmented Control (Tabs)
   // ---------------------------------------------------------------------------
-  static LiquidGlassStyle segmentedControlStyle(bool isDark, {bool isLite = false}) {
+  static LiquidGlassStyle segmentedControlStyle(bool isDark, {bool isLite = false, double? blur}) {
+    final b = blur ?? defaultBlur;
     return LiquidGlassStyle(
       shape: const LiquidGlassShape.continuousRoundedRectangle(
         cornerRadius: 15,
@@ -269,6 +288,7 @@ class LiquidGlassStyles {
           blur: 6.0,
           opacity: 0.10,
         ),
+        blur: LiquidGlassBlur(sigmaX: b, sigmaY: b),
       ),
       refraction: const LiquidGlassRefraction(
         distortion: 0.10,
@@ -282,7 +302,8 @@ class LiquidGlassStyles {
   // ---------------------------------------------------------------------------
   // Glass Toast / Floating Notification
   // ---------------------------------------------------------------------------
-  static LiquidGlassStyle toastStyle(bool isDark, {bool isLite = false}) {
+  static LiquidGlassStyle toastStyle(bool isDark, {bool isLite = false, double? blur}) {
+    final b = blur ?? defaultBlur;
     return LiquidGlassStyle(
       shape: const LiquidGlassShape.continuousRoundedRectangle(
         cornerRadius: 24,
@@ -300,6 +321,7 @@ class LiquidGlassStyles {
           blur: 16.0,
           opacity: 0.20,
         ),
+        blur: LiquidGlassBlur(sigmaX: b, sigmaY: b),
       ),
       refraction: const LiquidGlassRefraction(
         distortion: 0.12,

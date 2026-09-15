@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:provider/provider.dart';
 import '../../services/liquid_glass_provider.dart';
 import '../../theme/theme_provider.dart';
@@ -39,6 +40,7 @@ class ChatSettingsScreen extends StatelessWidget {
             builder: (context, provider, _) {
               final isSupported = provider.isSupported;
               final mode = provider.mode;
+              final isDark = Theme.of(context).brightness == Brightness.dark;
 
               return Column(
                 children: [
@@ -91,6 +93,66 @@ class ChatSettingsScreen extends StatelessWidget {
                         ],
                       ),
                     ),
+                  if (isSupported && mode != GlassMode.disabled) ...[
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            l10n.translate('settings_glass_blur'),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          Text(
+                            '${provider.blur.round()} px',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          return LiquidGlassSlider(
+                            value: provider.blur.clamp(0.0, 30.0),
+                            minimumValue: 0.0,
+                            maximumValue: 30.0,
+                            width: constraints.maxWidth,
+                            activeColor: const Color(0xFF0088CC),
+                            inactiveColor: isDark
+                                ? Colors.white.withValues(alpha: 0.15)
+                                : Colors.black.withValues(alpha: 0.08),
+                            thumbColor: Colors.white,
+                            minimumIcon: Icon(
+                              Icons.blur_off,
+                              size: 18,
+                              color: isDark ? Colors.white60 : Colors.black54,
+                            ),
+                            maximumIcon: Icon(
+                              Icons.blur_on,
+                              size: 18,
+                              color: isDark ? Colors.white60 : Colors.black54,
+                            ),
+                            onChanged: (val) {
+                              provider.setBlur(val, save: false);
+                            },
+                            onChangeEnd: (val) {
+                              provider.saveBlur();
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 8),
                 ],
               );

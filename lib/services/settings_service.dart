@@ -17,6 +17,7 @@ class SettingsService {
   static const String _powerSavingKey = 'power_saving_settings';
   static const String _liquidGlassDesignKey = 'liquid_glass_design';
   static const String _glassModeKey = 'glass_mode';
+  static const String _glassBlurKey = 'glass_blur_strength';
   static const String _notificationSettingsKey = 'notification_settings';
   static const String _chatNotificationSettingsKey = 'chat_notification_settings';
 
@@ -27,6 +28,7 @@ class SettingsService {
   PowerSavingSettings? _cachedPowerSavingSettings;
   bool? _cachedLiquidGlassDesign;
   GlassMode? _cachedGlassMode;
+  double? _cachedGlassBlur;
   GlobalNotificationSettings? _cachedNotificationSettings;
   Map<String, ChatNotificationSettings>? _cachedChatNotificationSettings;
 
@@ -80,6 +82,9 @@ class SettingsService {
     } else {
       _cachedGlassMode = GlassMode.disabled;
     }
+
+    // Загрузка силы размытия Liquid Glass (по умолчанию 12.0)
+    _cachedGlassBlur = _prefs.getDouble(_glassBlurKey) ?? 12.0;
 
     // Загрузка глобальных настроек уведомлений
     final notifJson = _prefs.getString(_notificationSettingsKey);
@@ -268,6 +273,15 @@ class SettingsService {
     await _prefs.setInt(_glassModeKey, _cachedGlassMode!.index);
   }
 
+  /// Получить силу размытия Liquid Glass (0.0 .. 30.0)
+  double get glassBlur => _cachedGlassBlur ?? 12.0;
+
+  /// Сохранить силу размытия Liquid Glass
+  Future<void> saveGlassBlur(double value) async {
+    _cachedGlassBlur = value;
+    await _prefs.setDouble(_glassBlurKey, value);
+  }
+
   // ============ Глобальные настройки уведомлений ============
 
   /// Получить глобальные настройки уведомлений
@@ -353,6 +367,7 @@ class SettingsService {
     _cachedPowerSavingSettings = null;
     _cachedLiquidGlassDesign = null;
     _cachedGlassMode = null;
+    _cachedGlassBlur = null;
     _cachedNotificationSettings = null;
     _cachedChatNotificationSettings = null;
     await _prefs.remove(_profileKey);
@@ -361,6 +376,7 @@ class SettingsService {
     await _prefs.remove(_powerSavingKey);
     await _prefs.remove(_liquidGlassDesignKey);
     await _prefs.remove(_glassModeKey);
+    await _prefs.remove(_glassBlurKey);
     await _prefs.remove(_notificationSettingsKey);
     await _prefs.remove(_chatNotificationSettingsKey);
   }

@@ -589,6 +589,7 @@
   "settings_glass_off": "Aus",
   "settings_glass_lite": "Leicht",
   "settings_glass_full": "Vollständig",
+  "settings_glass_blur": "Unschärfestärke",
   "chat_menu_view_profile": "Profil anzeigen",
   "chat_menu_auto_delete": "Nachrichten automatisch löschen",
   "chat_menu_export": "Chat exportieren",

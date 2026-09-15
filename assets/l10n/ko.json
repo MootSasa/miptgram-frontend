@@ -589,6 +589,7 @@
   "settings_glass_off": "꺼짐",
   "settings_glass_lite": "라이트",
   "settings_glass_full": "전체",
+  "settings_glass_blur": "블러 강도",
   "chat_menu_view_profile": "프로필 보기",
   "chat_menu_auto_delete": "메시지 자동 삭제",
   "chat_menu_export": "대화 내보내기",

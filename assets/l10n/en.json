@@ -454,6 +454,7 @@
   "settings_glass_off": "Off",
   "settings_glass_lite": "Lite",
   "settings_glass_full": "Full",
+  "settings_glass_blur": "Blur strength",
   "chat_menu_view_profile": "View profile",
   "chat_menu_mute": "Mute",
   "chat_menu_unmute": "Unmute",

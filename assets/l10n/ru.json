@@ -454,6 +454,7 @@
   "settings_glass_off": "Выкл",
   "settings_glass_lite": "Облегчённый",
   "settings_glass_full": "Полный",
+  "settings_glass_blur": "Сила размытия",
   "chat_menu_view_profile": "Просмотр профиля",
   "chat_menu_mute": "Без звука",
   "chat_menu_unmute": "Со звуком",

@@ -589,6 +589,7 @@
   "settings_glass_off": "Desativado",
   "settings_glass_lite": "Leve",
   "settings_glass_full": "Completo",
+  "settings_glass_blur": "Intensidade do desfoque",
   "chat_menu_view_profile": "Ver perfil",
   "chat_menu_auto_delete": "Autoexclusão de mensagens",
   "chat_menu_export": "Exportar conversa",

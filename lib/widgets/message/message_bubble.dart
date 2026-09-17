@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:provider/provider.dart';
 import '../../config/app_config.dart';
@@ -724,7 +725,8 @@ class MessageBubble extends StatelessWidget {
     final bool isBigEmoji = !hasMedia && _isSingleEmoji;
     final Alignment alignment = isMe ? Alignment.centerRight : Alignment.centerLeft;
 
-    final Color backgroundColor = (isBigEmoji || _isRoundVideo)
+    final bool isPureMedia = hasMedia && !hasCaption && !_isAudio && !_isVoice;
+    final Color backgroundColor = (isBigEmoji || _isRoundVideo || isPureMedia)
         ? Colors.transparent
         : (isMe
             ? Theme.of(context).colorScheme.primary
@@ -1282,6 +1284,7 @@ class MessageBubble extends StatelessWidget {
       return _SingleMediaBubbleWidget(
         url: resolvedUrl,
         thumbBase64: message.thumbBase64,
+        thumbUrl: message.thumbUrl,
         fileSize: message.mediaFileSize,
         duration: message.mediaDuration ?? message.duration,
         isVideo: true,
@@ -1418,6 +1421,7 @@ class MessageBubble extends StatelessWidget {
 class _SingleMediaBubbleWidget extends StatefulWidget {
   final String url;
   final String? thumbBase64;
+  final String? thumbUrl;
   final int? fileSize;
   final int? duration;
   final bool isVideo;
@@ -1430,6 +1434,7 @@ class _SingleMediaBubbleWidget extends StatefulWidget {
     Key? key,
     required this.url,
     this.thumbBase64,
+    this.thumbUrl,
     this.fileSize,
     this.duration,
     required this.isVideo,
@@ -1446,6 +1451,7 @@ class _SingleMediaBubbleWidget extends StatefulWidget {
 
 class _SingleMediaBubbleWidgetState extends State<_SingleMediaBubbleWidget> {
   File? _cachedFile;
+  Uint8List? _cachedFirstFrame;
   bool _isPlayingInline = false;
 
   @override
@@ -1459,8 +1465,27 @@ class _SingleMediaBubbleWidgetState extends State<_SingleMediaBubbleWidget> {
       final f = await MediaCacheManager.instance.getCachedFile(widget.url);
       if (mounted && f != null) {
         setState(() => _cachedFile = f);
+        if (widget.isVideo && _cachedFirstFrame == null) {
+          _extractLocalFirstFrame(f.path);
+        }
       }
     }
+  }
+
+  Future<void> _extractLocalFirstFrame(String filePath) async {
+    if (!Platform.isAndroid) return;
+    try {
+      const channel = MethodChannel('com.example.app/media_muxer');
+      final res = await channel.invokeMethod<Map<dynamic, dynamic>>(
+        'getVideoThumbnail',
+        {'videoPath': filePath},
+      );
+      if (res != null && res['thumbnail'] != null && mounted) {
+        setState(() {
+          _cachedFirstFrame = res['thumbnail'] as Uint8List?;
+        });
+      }
+    } catch (_) {}
   }
 
   String _formatDuration(int seconds) {
@@ -1472,6 +1497,9 @@ class _SingleMediaBubbleWidgetState extends State<_SingleMediaBubbleWidget> {
   @override
   Widget build(BuildContext context) {
     final isCached = _cachedFile != null;
+    final resolvedThumbUrl = widget.thumbUrl != null && widget.thumbUrl!.isNotEmpty
+        ? (AppConfig.resolveMediaUrl(widget.thumbUrl!) ?? widget.thumbUrl!)
+        : null;
 
     // If video is cached or auto-download allowed, and user tapped play inline:
     if (widget.isVideo &&
@@ -1504,9 +1532,10 @@ class _SingleMediaBubbleWidgetState extends State<_SingleMediaBubbleWidget> {
       },
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12.0),
-        child: SizedBox(
+        child: Container(
           width: widget.maxWidth,
           height: 220,
+          color: const Color(0xFF181818),
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -1516,7 +1545,28 @@ class _SingleMediaBubbleWidgetState extends State<_SingleMediaBubbleWidget> {
                 fit: BoxFit.cover,
               ),
 
-              // 2. Full image (if photo and (cached or auto-download enabled))
+              // 2. Real first frame for video (replaces blurred preview when loaded)
+              if (widget.isVideo) ...[
+                if (_cachedFirstFrame != null)
+                  Image.memory(
+                    _cachedFirstFrame!,
+                    width: widget.maxWidth,
+                    fit: BoxFit.cover,
+                  )
+                else if (resolvedThumbUrl != null && resolvedThumbUrl.isNotEmpty)
+                  Image.network(
+                    resolvedThumbUrl,
+                    width: widget.maxWidth,
+                    fit: BoxFit.cover,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return const SizedBox.shrink();
+                    },
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  ),
+              ],
+
+              // 3. Full image (if photo and (cached or auto-download enabled))
               if (!widget.isVideo) ...[
                 if (_cachedFile != null)
                   Hero(
@@ -1539,10 +1589,7 @@ class _SingleMediaBubbleWidgetState extends State<_SingleMediaBubbleWidget> {
                       fit: BoxFit.cover,
                       loadingBuilder: (context, child, loadingProgress) {
                         if (loadingProgress == null) return child;
-                        return BlurredMediaPlaceholder(
-                          thumbBase64: widget.thumbBase64,
-                          fit: BoxFit.cover,
-                        );
+                        return const SizedBox.shrink();
                       },
                       errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                     ),

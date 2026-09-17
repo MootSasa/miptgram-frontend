@@ -1052,6 +1052,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
 
           final itemMediaPayload = {
             if (uploadResult.thumbBase64 != null) 'thumb_base64': uploadResult.thumbBase64,
+            if (uploadResult.thumbUrl != null) 'thumb_url': uploadResult.thumbUrl,
             if (uploadResult.width > 0) 'width': uploadResult.width,
             if (uploadResult.height > 0) 'height': uploadResult.height,
             if (uploadResult.duration > 0) 'duration': uploadResult.duration,
@@ -1183,6 +1184,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
 
         singleMediaPayload = {
           if (uploadResult.thumbBase64 != null) 'thumb_base64': uploadResult.thumbBase64,
+          if (uploadResult.thumbUrl != null) 'thumb_url': uploadResult.thumbUrl,
           if (uploadResult.width > 0) 'width': uploadResult.width,
           if (uploadResult.height > 0) 'height': uploadResult.height,
           if (uploadResult.duration > 0) 'duration': uploadResult.duration,

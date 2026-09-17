@@ -41,32 +41,34 @@ class BlurredMediaPlaceholder extends StatelessWidget {
       content = Stack(
         fit: StackFit.expand,
         children: [
-          ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-            child: Image.memory(
-              bytes,
-              fit: fit,
-              gaplessPlayback: true,
-              filterQuality: FilterQuality.low,
+          // 1. Dark neutral base so parent bubble color NEVER bleeds through
+          const ColoredBox(color: Color(0xFF181818)),
+
+          // 2. Slightly overscaled and clipped blurred thumbnail with gentle blur
+          ClipRect(
+            child: Transform.scale(
+              scale: 1.15,
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: 4.0, sigmaY: 4.0),
+                child: Image.memory(
+                  bytes,
+                  fit: fit,
+                  gaplessPlayback: true,
+                  filterQuality: FilterQuality.medium,
+                ),
+              ),
             ),
           ),
+
+          // 3. Subtle darkening overlay for download button contrast
           Container(
-            color: Colors.black.withValues(alpha: 0.15),
+            color: Colors.black.withValues(alpha: 0.12),
           ),
         ],
       );
     } else {
       content = Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.grey.shade800,
-              Colors.grey.shade900,
-            ],
-          ),
-        ),
+        color: const Color(0xFF181818),
         child: const Center(
           child: Icon(
             Icons.image_outlined,

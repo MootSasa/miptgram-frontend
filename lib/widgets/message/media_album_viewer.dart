@@ -296,6 +296,10 @@ class _MediaAlbumViewerState extends State<MediaAlbumViewer> {
   Widget _buildVideoItem(MediaAlbumItem item, int index) {
     final controller = _videoControllers[index];
     if (controller == null || !controller.value.isInitialized) {
+      final rawThumb = item.thumbUrl ?? '';
+      final resolvedThumb = rawThumb.isNotEmpty
+          ? (AppConfig.resolveMediaUrl(rawThumb) ?? rawThumb)
+          : null;
       return Center(
         child: Stack(
           alignment: Alignment.center,
@@ -304,6 +308,12 @@ class _MediaAlbumViewerState extends State<MediaAlbumViewer> {
               thumbBase64: item.thumbBase64,
               aspectRatio: item.aspectRatio,
             ),
+            if (resolvedThumb != null && resolvedThumb.isNotEmpty)
+              Image.network(
+                resolvedThumb,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
             const CircularProgressIndicator(color: Colors.white),
           ],
         ),

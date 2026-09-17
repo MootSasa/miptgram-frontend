@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import '../../config/app_config.dart';
 import '../../models/media_album.dart';
@@ -59,9 +60,11 @@ class MediaAlbumWidget extends StatelessWidget {
     );
 
     final theme = Theme.of(context);
-    final bubbleColor = isMe
-        ? theme.colorScheme.primary
-        : theme.colorScheme.secondaryContainer;
+    final showSender = !isMe && senderName != null && senderName!.isNotEmpty;
+    final hasTextBubble = album.hasCaption || showSender;
+    final bubbleColor = hasTextBubble
+        ? (isMe ? theme.colorScheme.primary : theme.colorScheme.secondaryContainer)
+        : Colors.transparent;
     final onBubbleColor = isMe
         ? theme.colorScheme.onPrimary
         : theme.colorScheme.onSecondaryContainer;
@@ -236,6 +239,7 @@ class _AlbumTileWidget extends StatefulWidget {
 
 class _AlbumTileWidgetState extends State<_AlbumTileWidget> {
   File? _cachedFile;
+  Uint8List? _cachedFirstFrame;
 
   @override
   void initState() {
@@ -250,8 +254,27 @@ class _AlbumTileWidgetState extends State<_AlbumTileWidget> {
       final f = await MediaCacheManager.instance.getCachedFile(resolvedUrl);
       if (mounted && f != null) {
         setState(() => _cachedFile = f);
+        if (widget.item.isVideo && _cachedFirstFrame == null) {
+          _extractLocalFirstFrame(f.path);
+        }
       }
     }
+  }
+
+  Future<void> _extractLocalFirstFrame(String filePath) async {
+    if (!Platform.isAndroid) return;
+    try {
+      const channel = MethodChannel('com.example.app/media_muxer');
+      final res = await channel.invokeMethod<Map<dynamic, dynamic>>(
+        'getVideoThumbnail',
+        {'videoPath': filePath},
+      );
+      if (res != null && res['thumbnail'] != null && mounted) {
+        setState(() {
+          _cachedFirstFrame = res['thumbnail'] as Uint8List?;
+        });
+      }
+    } catch (_) {}
   }
 
   String _formatDuration(int seconds) {
@@ -266,6 +289,10 @@ class _AlbumTileWidgetState extends State<_AlbumTileWidget> {
     final pos = widget.pos;
     final rawUrl = item.fileUrl ?? '';
     final resolvedUrl = AppConfig.resolveMediaUrl(rawUrl) ?? rawUrl;
+    final rawThumbUrl = item.thumbUrl ?? '';
+    final resolvedThumbUrl = rawThumbUrl.isNotEmpty
+        ? (AppConfig.resolveMediaUrl(rawThumbUrl) ?? rawThumbUrl)
+        : null;
     final autoDownload = MediaCacheManager.instance.shouldAutoDownload(
       messageType: item.isVideo ? 'video' : 'image',
       fileSize: item.fileSize,
@@ -278,88 +305,108 @@ class _AlbumTileWidgetState extends State<_AlbumTileWidget> {
       height: pos.height,
       child: ClipRRect(
         borderRadius: pos.borderRadius,
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              // 1. Blurred placeholder
-              BlurredMediaPlaceholder(
-                thumbBase64: item.thumbBase64,
-                aspectRatio: item.aspectRatio,
-              ),
+        child: Container(
+          color: const Color(0xFF181818),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // 1. Blurred placeholder
+                BlurredMediaPlaceholder(
+                  thumbBase64: item.thumbBase64,
+                  aspectRatio: item.aspectRatio,
+                ),
 
-              // 2. Display image if cached or auto-download allowed (for photos)
-              if (!item.isVideo) ...[
-                if (_cachedFile != null)
-                  Image.file(
-                    _cachedFile!,
-                    fit: BoxFit.cover,
-                  )
-                else if (resolvedUrl.isNotEmpty && autoDownload)
-                  Image.network(
-                    resolvedUrl,
-                    fit: BoxFit.cover,
-                    cacheWidth: 600,
-                    loadingBuilder: (context, child, progress) {
-                      if (progress == null) return child;
-                      return BlurredMediaPlaceholder(
-                        thumbBase64: item.thumbBase64,
-                        aspectRatio: item.aspectRatio,
-                      );
-                    },
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                // 2. Real first frame for video (replaces blurred preview when loaded)
+                if (item.isVideo) ...[
+                  if (_cachedFirstFrame != null)
+                    Image.memory(
+                      _cachedFirstFrame!,
+                      fit: BoxFit.cover,
+                    )
+                  else if (resolvedThumbUrl != null && resolvedThumbUrl.isNotEmpty)
+                    Image.network(
+                      resolvedThumbUrl,
+                      fit: BoxFit.cover,
+                      cacheWidth: 600,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+                        return const SizedBox.shrink();
+                      },
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    ),
+                ],
+
+                // 3. Display image if cached or auto-download allowed (for photos)
+                if (!item.isVideo) ...[
+                  if (_cachedFile != null)
+                    Image.file(
+                      _cachedFile!,
+                      fit: BoxFit.cover,
+                    )
+                  else if (resolvedUrl.isNotEmpty && autoDownload)
+                    Image.network(
+                      resolvedUrl,
+                      fit: BoxFit.cover,
+                      cacheWidth: 600,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+                        return const SizedBox.shrink();
+                      },
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    ),
+                ],
+
+                // 4. Download button / progress / size pill
+                if (resolvedUrl.isNotEmpty)
+                  MediaDownloadButton(
+                    url: resolvedUrl,
+                    fileSize: item.fileSize,
+                    isVideo: item.isVideo,
+                    onDownloaded: _checkCache,
+                    onPlayVideo: widget.onTap,
+                  ),
+
+                // 5. Video duration badge (top-left)
+                if (item.isVideo)
+                  Positioned(
+                    top: 6,
+                    left: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const iconoir.Play(
+                            color: Colors.white,
+                            width: 10,
+                            height: 10,
+                          ),
+                          if (item.duration != null && item.duration! > 0) ...[
+                            const SizedBox(width: 3),
+                            Text(
+                              _formatDuration(item.duration!),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   ),
               ],
-
-              // 3. Download button / progress / size pill
-              if (resolvedUrl.isNotEmpty)
-                MediaDownloadButton(
-                  url: resolvedUrl,
-                  fileSize: item.fileSize,
-                  isVideo: item.isVideo,
-                  onDownloaded: _checkCache,
-                  onPlayVideo: widget.onTap,
-                ),
-
-              // 4. Video duration badge (top-left)
-              if (item.isVideo)
-                Positioned(
-                  top: 6,
-                  left: 6,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 5,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const iconoir.Play(
-                          color: Colors.white,
-                          width: 10,
-                          height: 10,
-                        ),
-                        if (item.duration != null && item.duration! > 0) ...[
-                          const SizedBox(width: 3),
-                          Text(
-                            _formatDuration(item.duration!),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-            ],
+            ),
           ),
         ),
       ),

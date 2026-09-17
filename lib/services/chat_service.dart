@@ -408,6 +408,7 @@ class Message {
   bool get hasReply => replyToMessageId != null && replyToMessageId!.isNotEmpty;
 
   String? get thumbBase64 => mediaPayload?['thumb_base64'] as String?;
+  String? get thumbUrl => mediaPayload?['thumb_url'] as String? ?? mediaPayload?['thumbnail_url'] as String?;
   int? get mediaWidth => (mediaPayload?['width'] as num?)?.toInt();
   int? get mediaHeight => (mediaPayload?['height'] as num?)?.toInt();
   int? get mediaDuration => (mediaPayload?['duration'] as num?)?.toInt();

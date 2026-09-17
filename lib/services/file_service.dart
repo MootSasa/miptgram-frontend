@@ -537,6 +537,7 @@ class UploadResult {
   final String mimeType;
   final int size;
   final String? thumbBase64;
+  final String? thumbUrl;
   final int width;
   final int height;
   final int duration;
@@ -549,6 +550,7 @@ class UploadResult {
     required this.mimeType,
     required this.size,
     this.thumbBase64,
+    this.thumbUrl,
     this.width = 0,
     this.height = 0,
     this.duration = 0,
@@ -565,6 +567,7 @@ class UploadResult {
       mimeType: json['mime_type'] ?? '',
       size: json['size'] ?? 0,
       thumbBase64: json['thumb_base64'] as String?,
+      thumbUrl: json['thumb_url'] as String? ?? json['thumbnail_url'] as String?,
       width: (json['width'] as num?)?.toInt() ?? 0,
       height: (json['height'] as num?)?.toInt() ?? 0,
       duration: (json['duration'] as num?)?.toInt() ?? 0,

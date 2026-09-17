@@ -26,6 +26,7 @@ class MediaAlbumItem {
   Map<String, dynamic> get mediaPayload => message.mediaPayload ?? {};
 
   String? get thumbBase64 => mediaPayload['thumb_base64'] as String?;
+  String? get thumbUrl => mediaPayload['thumb_url'] as String? ?? mediaPayload['thumbnail_url'] as String?;
   int? get width => (mediaPayload['width'] as num?)?.toInt();
   int? get height => (mediaPayload['height'] as num?)?.toInt();
   int? get duration => (mediaPayload['duration'] as num?)?.toInt();

@@ -58,6 +58,7 @@ dependencies:
   google_fonts: ^6.2.1
   flutter_math_fork: ^0.7.2
   lottie: ^3.1.2
+  rive: ^0.13.1
   local_auth: ^2.2.0
   flutter_secure_storage: ^9.0.0
   encrypt: ^5.0.3

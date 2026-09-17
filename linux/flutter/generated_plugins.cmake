@@ -10,6 +10,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   ios_color_picker
   open_file_linux
   record_linux
+  rive_common
   sqlite3_flutter_libs
   url_launcher_linux
 )

@@ -12,6 +12,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   local_auth_windows
   permission_handler_windows
   record_windows
+  rive_common
   screen_brightness_windows
   share_plus
   sqlite3_flutter_libs

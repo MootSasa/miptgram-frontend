@@ -91,7 +91,7 @@ class FileService {
   Future<UploadResult> uploadFileChunked(
     File file, {
     void Function(double progress)? onProgress,
-    int chunkSize = 1024 * 1024, // 1 MB per chunk
+    int chunkSize = 256 * 1024, // 256 KB per chunk
   }) async {
     final fileName = path.basename(file.path);
     final totalSize = await file.length();

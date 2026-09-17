@@ -407,6 +407,12 @@ class Message {
   /// Whether this message has a reply or quote
   bool get hasReply => replyToMessageId != null && replyToMessageId!.isNotEmpty;
 
+  String? get thumbBase64 => mediaPayload?['thumb_base64'] as String?;
+  int? get mediaWidth => (mediaPayload?['width'] as num?)?.toInt();
+  int? get mediaHeight => (mediaPayload?['height'] as num?)?.toInt();
+  int? get mediaDuration => (mediaPayload?['duration'] as num?)?.toInt();
+  int? get mediaFileSize => (mediaPayload?['file_size'] as num?)?.toInt();
+
   factory Message.fromJson(Map<String, dynamic> json) {
     // Parse replyInfo from nested object or flat fields
     ReplyInfo? replyInfo;

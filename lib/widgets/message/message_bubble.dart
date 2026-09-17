@@ -17,9 +17,13 @@ import 'text_message_widget.dart';
 import 'fullscreen_photo_viewer.dart';
 import 'inline_video_player.dart';
 import 'document_message_widget.dart';
+import 'dart:io';
 import 'video_message_widget.dart';
 import 'voice_message_widget.dart';
 import 'link_preview_card.dart';
+import 'blurred_media_placeholder.dart';
+import 'media_download_button.dart';
+import '../../services/media_cache_manager.dart';
 import '../../l10n/app_localizations.dart';
 
 /// Радиус скругления "облачка" сообщения.
@@ -1244,7 +1248,20 @@ class MessageBubble extends StatelessWidget {
 
     if (_isImage) {
       final heroTag = 'msg_photo_${message.id}_$resolvedUrl';
-      return GestureDetector(
+      final thumbBase64 = message.thumbBase64;
+      final autoDownload = MediaCacheManager.instance.shouldAutoDownload(
+        messageType: 'image',
+        fileSize: message.mediaFileSize,
+      );
+
+      return _SingleMediaBubbleWidget(
+        url: resolvedUrl,
+        thumbBase64: thumbBase64,
+        fileSize: message.mediaFileSize,
+        isVideo: false,
+        maxWidth: maxWidth,
+        autoDownload: autoDownload,
+        heroTag: heroTag,
         onTap: () {
           FullscreenPhotoViewer.open(context, resolvedUrl, tag: heroTag);
           onFileTap?.call(
@@ -1253,86 +1270,31 @@ class MessageBubble extends StatelessWidget {
             'image',
           );
         },
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12.0),
-          child: Hero(
-            tag: heroTag,
-            child: Image.network(
-              resolvedUrl,
-              width: maxWidth,
-              cacheWidth: (maxWidth * MediaQuery.devicePixelRatioOf(context)).round(),
-              fit: BoxFit.cover,
-              loadingBuilder: (context, child, loadingProgress) {
-                if (loadingProgress == null) return child;
-                return Container(
-                  width: maxWidth,
-                  height: 180,
-                  decoration: BoxDecoration(
-                    color: Colors.black12,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Center(
-                    child: CircularProgressIndicator(
-                      value: loadingProgress.expectedTotalBytes != null
-                          ? loadingProgress.cumulativeBytesLoaded /
-                              loadingProgress.expectedTotalBytes!
-                          : null,
-                      strokeWidth: 2.0,
-                    ),
-                  ),
-                );
-              },
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  width: maxWidth,
-                  height: 140,
-                  decoration: BoxDecoration(
-                    color: Colors.black12,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      iconoir.MediaImage(
-                        width: 36,
-                        height: 36,
-                        color: isMe
-                            ? Colors.white70
-                            : Theme.of(context)
-                                .colorScheme
-                                .onSecondaryContainer
-                                .withValues(alpha: 0.6),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        context.l10n.translate('chat_file_not_found'),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isMe
-                              ? Colors.white70
-                              : Theme.of(context)
-                                  .colorScheme
-                                  .onSecondaryContainer
-                                  .withValues(alpha: 0.7),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
       );
     }
 
     if (_isVideo) {
-      return ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: maxWidth,
-          maxHeight: 280,
-        ),
-        child: InlineVideoPlayer(url: resolvedUrl),
+      final autoDownload = MediaCacheManager.instance.shouldAutoDownload(
+        messageType: 'video',
+        fileSize: message.mediaFileSize,
+      );
+
+      return _SingleMediaBubbleWidget(
+        url: resolvedUrl,
+        thumbBase64: message.thumbBase64,
+        fileSize: message.mediaFileSize,
+        duration: message.mediaDuration ?? message.duration,
+        isVideo: true,
+        maxWidth: maxWidth,
+        autoDownload: autoDownload,
+        heroTag: 'msg_video_${message.id}_$resolvedUrl',
+        onTap: () {
+          onFileTap?.call(
+            resolvedUrl,
+            message.fileName ?? 'video.mp4',
+            'video',
+          );
+        },
       );
     }
 
@@ -1450,6 +1412,195 @@ class MessageBubble extends StatelessWidget {
     }
 
     return width.ceilToDouble();
+  }
+}
+
+class _SingleMediaBubbleWidget extends StatefulWidget {
+  final String url;
+  final String? thumbBase64;
+  final int? fileSize;
+  final int? duration;
+  final bool isVideo;
+  final double maxWidth;
+  final bool autoDownload;
+  final String heroTag;
+  final VoidCallback onTap;
+
+  const _SingleMediaBubbleWidget({
+    Key? key,
+    required this.url,
+    this.thumbBase64,
+    this.fileSize,
+    this.duration,
+    required this.isVideo,
+    required this.maxWidth,
+    required this.autoDownload,
+    required this.heroTag,
+    required this.onTap,
+  }) : super(key: key);
+
+  @override
+  State<_SingleMediaBubbleWidget> createState() =>
+      _SingleMediaBubbleWidgetState();
+}
+
+class _SingleMediaBubbleWidgetState extends State<_SingleMediaBubbleWidget> {
+  File? _cachedFile;
+  bool _isPlayingInline = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkCache();
+  }
+
+  Future<void> _checkCache() async {
+    if (widget.url.isNotEmpty) {
+      final f = await MediaCacheManager.instance.getCachedFile(widget.url);
+      if (mounted && f != null) {
+        setState(() => _cachedFile = f);
+      }
+    }
+  }
+
+  String _formatDuration(int seconds) {
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isCached = _cachedFile != null;
+
+    // If video is cached or auto-download allowed, and user tapped play inline:
+    if (widget.isVideo &&
+        (_isPlayingInline || (isCached && widget.autoDownload))) {
+      return ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: widget.maxWidth,
+          maxHeight: 280,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: InlineVideoPlayer(
+            url: _cachedFile != null ? _cachedFile!.path : widget.url,
+          ),
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: () {
+        if (!widget.isVideo) {
+          widget.onTap();
+        } else {
+          if (isCached) {
+            setState(() => _isPlayingInline = true);
+          } else {
+            widget.onTap();
+          }
+        }
+      },
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12.0),
+        child: SizedBox(
+          width: widget.maxWidth,
+          height: 220,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // 1. Blurred preview placeholder
+              BlurredMediaPlaceholder(
+                thumbBase64: widget.thumbBase64,
+                fit: BoxFit.cover,
+              ),
+
+              // 2. Full image (if photo and (cached or auto-download enabled))
+              if (!widget.isVideo) ...[
+                if (_cachedFile != null)
+                  Hero(
+                    tag: widget.heroTag,
+                    child: Image.file(
+                      _cachedFile!,
+                      width: widget.maxWidth,
+                      fit: BoxFit.cover,
+                    ),
+                  )
+                else if (widget.url.isNotEmpty && widget.autoDownload)
+                  Hero(
+                    tag: widget.heroTag,
+                    child: Image.network(
+                      widget.url,
+                      width: widget.maxWidth,
+                      cacheWidth: (widget.maxWidth *
+                              MediaQuery.devicePixelRatioOf(context))
+                          .round(),
+                      fit: BoxFit.cover,
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return BlurredMediaPlaceholder(
+                          thumbBase64: widget.thumbBase64,
+                          fit: BoxFit.cover,
+                        );
+                      },
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    ),
+                  ),
+              ],
+
+              // 3. Download button / progress / size pill overlay
+              if (widget.url.isNotEmpty && (!isCached || widget.isVideo))
+                MediaDownloadButton(
+                  url: widget.url,
+                  fileSize: widget.fileSize,
+                  isVideo: widget.isVideo,
+                  onDownloaded: _checkCache,
+                  onPlayVideo: () {
+                    setState(() => _isPlayingInline = true);
+                  },
+                ),
+
+              // 4. Video duration badge
+              if (widget.isVideo &&
+                  widget.duration != null &&
+                  widget.duration! > 0)
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const iconoir.Play(
+                          color: Colors.white,
+                          width: 10,
+                          height: 10,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _formatDuration(widget.duration!),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

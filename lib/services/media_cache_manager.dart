@@ -5,9 +5,36 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import '../config/app_config.dart';
 import 'auth_service.dart';
+import 'settings_service.dart';
 
-/// Manager for downloading and caching media files with progress tracking,
-/// cancel capability, and auto-download policy checks.
+/// Progress model containing received bytes, total expected bytes, and fraction (0.0 - 1.0).
+class DownloadByteProgress {
+  final int receivedBytes;
+  final int totalBytes;
+  final double fraction;
+
+  const DownloadByteProgress({
+    this.receivedBytes = 0,
+    this.totalBytes = 0,
+    this.fraction = 0.0,
+  });
+
+  /// Human-readable progress string, e.g. "4.2 MB / 400 MB" or "4.2 MB"
+  String formatProgress() {
+    if (totalBytes > 0) {
+      final rec = MediaCacheManager.formatBytes(receivedBytes);
+      final tot = MediaCacheManager.formatBytes(totalBytes);
+      return '$rec / $tot';
+    }
+    if (receivedBytes > 0) {
+      return MediaCacheManager.formatBytes(receivedBytes);
+    }
+    return '';
+  }
+}
+
+/// Manager for downloading and caching media files with resumable range downloads,
+/// byte progress tracking, cancel/pause capability, and auto-download policy checks.
 class MediaCacheManager {
   static final MediaCacheManager instance = MediaCacheManager._internal();
   MediaCacheManager._internal();
@@ -19,6 +46,7 @@ class MediaCacheManager {
 
   final Map<String, CancelToken> _cancelTokens = {};
   final Map<String, ValueNotifier<double>> _progressNotifiers = {};
+  final Map<String, ValueNotifier<DownloadByteProgress>> _byteProgressNotifiers = {};
   final Map<String, String> _localPathCache = {};
 
   /// Formats byte count into human-readable string (e.g. 14.2 MB)
@@ -34,25 +62,30 @@ class MediaCacheManager {
     return '${size.toStringAsFixed(decimals)} ${suffixes[i]}';
   }
 
-  /// Get or create a ValueNotifier for tracking download progress of a URL (0.0 - 1.0)
+  /// Get or create a ValueNotifier for tracking download fraction of a URL (0.0 - 1.0)
   ValueNotifier<double> getProgressNotifier(String url) {
     return _progressNotifiers.putIfAbsent(url, () => ValueNotifier<double>(0.0));
+  }
+
+  /// Get or create a ValueNotifier for tracking byte download progress of a URL
+  ValueNotifier<DownloadByteProgress> getByteProgressNotifier(String url) {
+    return _byteProgressNotifiers.putIfAbsent(
+      url,
+      () => ValueNotifier<DownloadByteProgress>(const DownloadByteProgress()),
+    );
   }
 
   bool isDownloading(String url) {
     return _cancelTokens.containsKey(url);
   }
 
-  /// Cancel an ongoing download
+  /// Cancel or pause an ongoing download without deleting the partial file or resetting progress
   void cancelDownload(String url) {
     final token = _cancelTokens.remove(url);
     if (token != null && !token.isCancelled) {
       token.cancel('User cancelled');
     }
-    final notifier = _progressNotifiers[url];
-    if (notifier != null) {
-      notifier.value = 0.0;
-    }
+    // Note: Do NOT reset notifiers to 0 so the paused progress state remains displayed
   }
 
   /// Checks if the file is cached locally on disk and exists
@@ -77,15 +110,69 @@ class MediaCacheManager {
     return null;
   }
 
-  /// Download a media file to local cache with progress tracking
+  /// Checks if a partial download file (.tmp) exists and returns its current progress
+  Future<DownloadByteProgress?> getPartialProgress(String url, {int? totalSize}) async {
+    if (url.isEmpty) return null;
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final sanitized = url.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+      final tempPath = path.join(dir.path, 'miptgram_media', '$sanitized.tmp');
+      final tempFile = File(tempPath);
+      if (await tempFile.exists()) {
+        final len = await tempFile.length();
+        if (len > 0) {
+          final tot = totalSize ?? len;
+          final fraction = tot > 0 ? (len / tot).clamp(0.0, 1.0) : 0.0;
+          final prog = DownloadByteProgress(
+            receivedBytes: len,
+            totalBytes: tot,
+            fraction: fraction,
+          );
+          _byteProgressNotifiers[url]?.value = prog;
+          _progressNotifiers[url]?.value = fraction;
+          return prog;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  void _emitProgress(
+    String url,
+    int received,
+    int total,
+    void Function(double fraction)? onProgress,
+    void Function(DownloadByteProgress progress)? onByteProgress,
+  ) {
+    final fraction = total > 0 ? (received / total).clamp(0.0, 1.0) : 0.0;
+    final prog = DownloadByteProgress(
+      receivedBytes: received,
+      totalBytes: total,
+      fraction: fraction,
+    );
+
+    final pNotifier = _progressNotifiers[url];
+    if (pNotifier != null) pNotifier.value = fraction;
+
+    final bNotifier = _byteProgressNotifiers[url];
+    if (bNotifier != null) bNotifier.value = prog;
+
+    onProgress?.call(fraction);
+    onByteProgress?.call(prog);
+  }
+
+  /// Download a media file to local cache with HTTP Range resume and byte progress tracking
   Future<File?> downloadMedia(
     String url, {
     void Function(double progress)? onProgress,
+    void Function(DownloadByteProgress progress)? onByteProgress,
+    int? expectedTotalSize,
   }) async {
     if (url.isEmpty) return null;
 
     final existing = await getCachedFile(url);
     if (existing != null) {
+      _emitProgress(url, await existing.length(), await existing.length(), onProgress, onByteProgress);
       return existing;
     }
 
@@ -96,8 +183,6 @@ class MediaCacheManager {
 
     final cancelToken = CancelToken();
     _cancelTokens[url] = cancelToken;
-    final notifier = getProgressNotifier(url);
-    notifier.value = 0.01;
 
     try {
       final dir = await getApplicationDocumentsDirectory();
@@ -109,34 +194,87 @@ class MediaCacheManager {
       final sanitized = url.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
       final targetPath = path.join(mediaDir.path, sanitized);
       final tempPath = '$targetPath.tmp';
+      final tempFile = File(tempPath);
+
+      int existingBytes = 0;
+      if (await tempFile.exists()) {
+        existingBytes = await tempFile.length();
+      }
 
       final resolvedUrl = AppConfig.resolveMediaUrl(url) ?? url;
       final token = await AuthService.getToken();
 
-      await _dio.download(
+      final headers = <String, dynamic>{
+        if (token != null) 'Authorization': 'Bearer $token',
+      };
+      if (existingBytes > 0) {
+        headers['Range'] = 'bytes=$existingBytes-';
+      }
+
+      final response = await _dio.get<ResponseBody>(
         resolvedUrl,
-        tempPath,
         cancelToken: cancelToken,
         options: Options(
-          headers: {
-            if (token != null) 'Authorization': 'Bearer $token',
-          },
+          headers: headers,
+          responseType: ResponseType.stream,
         ),
-        onReceiveProgress: (received, total) {
-          if (total > 0) {
-            final progress = (received / total).clamp(0.0, 1.0);
-            notifier.value = progress;
-            onProgress?.call(progress);
-          }
-        },
       );
 
-      final tempFile = File(tempPath);
+      final statusCode = response.statusCode ?? 200;
+      final isPartial = statusCode == 206;
+
+      int totalBytes = expectedTotalSize ?? -1;
+      if (isPartial) {
+        final contentRange = response.headers.value('content-range');
+        if (contentRange != null && contentRange.contains('/')) {
+          final totalStr = contentRange.split('/').last.trim();
+          totalBytes = int.tryParse(totalStr) ?? totalBytes;
+        }
+        if (totalBytes <= 0) {
+          final cl = int.tryParse(response.headers.value('content-length') ?? '') ?? -1;
+          if (cl > 0) {
+            totalBytes = existingBytes + cl;
+          }
+        }
+      } else {
+        existingBytes = 0;
+        final cl = int.tryParse(response.headers.value('content-length') ?? '') ?? -1;
+        if (cl > 0) {
+          totalBytes = cl;
+        }
+      }
+
+      int currentBytes = existingBytes;
+      _emitProgress(url, currentBytes, totalBytes, onProgress, onByteProgress);
+
+      final raf = await tempFile.open(
+        mode: isPartial ? FileMode.append : FileMode.write,
+      );
+
+      try {
+        await for (final chunk in response.data!.stream) {
+          if (cancelToken.isCancelled) break;
+          await raf.writeFrom(chunk);
+          currentBytes += chunk.length;
+          _emitProgress(url, currentBytes, totalBytes, onProgress, onByteProgress);
+        }
+      } finally {
+        await raf.close();
+      }
+
+      if (cancelToken.isCancelled) {
+        debugPrint('Media download paused/cancelled at $currentBytes bytes: $url');
+        return null;
+      }
+
       if (await tempFile.exists()) {
-        final finalFile = await tempFile.rename(targetPath);
-        _localPathCache[url] = targetPath;
-        notifier.value = 1.0;
-        return finalFile;
+        final actualLength = await tempFile.length();
+        if (totalBytes <= 0 || actualLength >= totalBytes) {
+          final finalFile = await tempFile.rename(targetPath);
+          _localPathCache[url] = targetPath;
+          _emitProgress(url, actualLength, actualLength, onProgress, onByteProgress);
+          return finalFile;
+        }
       }
     } catch (e) {
       if (cancelToken.isCancelled) {
@@ -150,23 +288,48 @@ class MediaCacheManager {
     return null;
   }
 
-  /// Evaluates whether media should auto-download based on type and size
+  /// Evaluates whether media should auto-download based on user Settings and size limits
   bool shouldAutoDownload({
     required String messageType,
     int? fileSize,
-    bool isWifi = true,
+    bool? isWifi,
   }) {
-    // Default Telegram rules:
-    // Photos: auto-download if <= 10MB
-    // Videos: auto-download if <= 15MB on Wi-Fi, 5MB on mobile
-    // Documents: manual download by default unless < 1MB
+    final settings = SettingsService().storageSettings;
+    final wifi = isWifi ?? true;
     final size = fileSize ?? 0;
+
     if (messageType == 'photo' || messageType == 'image') {
+      final allowed = wifi
+          ? settings.autoDownloadPhotosOnWifi
+          : settings.autoDownloadPhotosOnCellular;
+      if (!allowed) return false;
       return size <= 10 * 1024 * 1024;
     }
+
     if (messageType == 'video') {
-      return isWifi ? size <= 15 * 1024 * 1024 : size <= 5 * 1024 * 1024;
+      final allowed = wifi
+          ? settings.autoDownloadVideosOnWifi
+          : settings.autoDownloadVideosOnCellular;
+      if (!allowed) return false;
+      return wifi ? size <= 15 * 1024 * 1024 : size <= 5 * 1024 * 1024;
     }
-    return size <= 1024 * 1024;
+
+    if (messageType == 'file' || messageType == 'document') {
+      final allowed = wifi
+          ? settings.autoDownloadFilesOnWifi
+          : settings.autoDownloadFilesOnCellular;
+      if (!allowed) return false;
+      return size <= 3 * 1024 * 1024;
+    }
+
+    if (messageType == 'audio' || messageType == 'voice') {
+      final allowed = wifi
+          ? settings.autoDownloadAudioOnWifi
+          : settings.autoDownloadAudioOnCellular;
+      if (!allowed) return false;
+      return size <= 10 * 1024 * 1024;
+    }
+
+    return false;
   }
 }

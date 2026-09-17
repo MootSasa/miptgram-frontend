@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
+import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:http_parser/http_parser.dart';
@@ -193,6 +194,8 @@ class FileService {
       int height = 0;
       String? thumbBase64;
 
+      int duration = 0;
+
       if (!isVideo) {
         final bytes = await file.readAsBytes();
         final buffer = await ui.instantiateImageCodec(bytes);
@@ -212,12 +215,55 @@ class FileService {
             thumbBase64 = 'data:image/jpeg;base64,${base64Encode(compressed)}';
           }
         } catch (_) {}
+      } else {
+        // Video: extract thumbnail frame, dimensions, and duration
+        Uint8List? thumbBytes;
+        if (Platform.isAndroid) {
+          try {
+            const channel = MethodChannel('com.example.app/media_muxer');
+            final dynamic res = await channel.invokeMethod('getVideoThumbnail', {'videoPath': file.path});
+            if (res is Map) {
+              final rawThumb = res['thumbnail'];
+              if (rawThumb is Uint8List) {
+                thumbBytes = rawThumb;
+              } else if (rawThumb is List) {
+                thumbBytes = Uint8List.fromList(List<int>.from(rawThumb));
+              }
+              width = (res['width'] as num?)?.toInt() ?? 0;
+              height = (res['height'] as num?)?.toInt() ?? 0;
+              duration = (res['duration'] as num?)?.toInt() ?? 0;
+            }
+          } catch (_) {}
+        }
+        if (thumbBytes == null || thumbBytes.isEmpty) {
+          final thumbCandidate = File('${file.path}.thumb.jpg');
+          if (await thumbCandidate.exists()) {
+            thumbBytes = await thumbCandidate.readAsBytes();
+          }
+        }
+        if (thumbBytes != null && thumbBytes.isNotEmpty) {
+          try {
+            final compressed = await FlutterImageCompress.compressWithList(
+              thumbBytes,
+              minWidth: 20,
+              minHeight: 20,
+              quality: 25,
+              format: CompressFormat.jpeg,
+            );
+            if (compressed.isNotEmpty) {
+              thumbBase64 = 'data:image/jpeg;base64,${base64Encode(compressed)}';
+            }
+          } catch (_) {
+            thumbBase64 = 'data:image/jpeg;base64,${base64Encode(thumbBytes)}';
+          }
+        }
       }
 
       return {
         if (thumbBase64 != null) 'thumb_base64': thumbBase64,
         if (width > 0) 'width': width,
         if (height > 0) 'height': height,
+        if (duration > 0) 'duration': duration,
         'file_size': totalSize,
         'is_video': isVideo,
       };

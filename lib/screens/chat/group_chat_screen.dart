@@ -1056,7 +1056,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
             'file_url': uploadResult.url,
             'file_name': uploadResult.fileName,
             'file_size': uploadResult.fileSize,
-            'message_type': isVideo ? 'video' : 'photo',
+            'message_type': isVideo ? 'video' : 'image',
             'media_payload': mediaPayload,
           });
         }
@@ -1134,7 +1134,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
             }
           });
 
-          final fileMessageType = isVideo ? 'video' : (isImg ? 'photo' : _getMessageTypeFromMimeType(uploadResult.mimeType));
+          final fileMessageType = isVideo ? 'video' : (isImg ? 'image' : _getMessageTypeFromMimeType(uploadResult.mimeType));
           final fileCaption = (i == 0 && effectiveContentText.isNotEmpty) ? effectiveContentText : '';
           await ChatService.sendMessage(
             chatId: widget.chatId,

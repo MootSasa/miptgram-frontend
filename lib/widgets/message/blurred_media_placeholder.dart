@@ -41,16 +41,17 @@ class BlurredMediaPlaceholder extends StatelessWidget {
       content = Stack(
         fit: StackFit.expand,
         children: [
-          Image.memory(
-            bytes,
-            fit: fit,
-            gaplessPlayback: true,
-          ),
-          BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-            child: Container(
-              color: Colors.black.withValues(alpha: 0.15),
+          ImageFiltered(
+            imageFilter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: Image.memory(
+              bytes,
+              fit: fit,
+              gaplessPlayback: true,
+              filterQuality: FilterQuality.low,
             ),
+          ),
+          Container(
+            color: Colors.black.withValues(alpha: 0.15),
           ),
         ],
       );
@@ -64,6 +65,13 @@ class BlurredMediaPlaceholder extends StatelessWidget {
               Colors.grey.shade800,
               Colors.grey.shade900,
             ],
+          ),
+        ),
+        child: const Center(
+          child: Icon(
+            Icons.image_outlined,
+            color: Colors.white24,
+            size: 32,
           ),
         ),
       );

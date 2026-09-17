@@ -4,8 +4,9 @@ import 'package:rive/rive.dart';
 import '../../services/media_cache_manager.dart';
 
 /// Interactive Telegram-style download button for media files.
-/// Displays file size pill (e.g. 14.2 MB), animated circular progress,
-/// and cancel button during active download with Rive download-to-cross animation.
+/// Displays downloaded byte progress (e.g. "4.2 MB / 400 MB" or "400 MB"),
+/// animated circular progress, and cancel button during active download with
+/// smooth Rive download-to-cross icon morphing.
 class MediaDownloadButton extends StatefulWidget {
   final String url;
   final int? fileSize;
@@ -26,15 +27,16 @@ class MediaDownloadButton extends StatefulWidget {
   State<MediaDownloadButton> createState() => _MediaDownloadButtonState();
 }
 
-class _MediaDownloadButtonState extends State<MediaDownloadButton>
-    with SingleTickerProviderStateMixin {
+class _MediaDownloadButtonState extends State<MediaDownloadButton> {
   bool _isDownloaded = false;
   bool _isDownloading = false;
   double _progress = 0.0;
-  ValueNotifier<double>? _notifier;
+  String _progressByteText = '';
 
-  StateMachineController? _riveController;
-  SMIBool? _isDownloadInput;
+  ValueNotifier<DownloadByteProgress>? _byteNotifier;
+  Artboard? _artboard;
+  RiveAnimationController? _currentRiveController;
+  String _currentAnimName = 'idle_download';
 
   @override
   void initState() {
@@ -43,20 +45,44 @@ class _MediaDownloadButtonState extends State<MediaDownloadButton>
   }
 
   void _onRiveInit(Artboard artboard) {
-    _riveController = StateMachineController.fromArtboard(
-      artboard,
-      'State Machine 1',
-    );
-    if (_riveController != null) {
-      artboard.addController(_riveController!);
-      _isDownloadInput =
-          _riveController!.findInput<bool>('isDownload') as SMIBool?;
-      _isDownloadInput?.value = _isDownloading;
-    }
+    _artboard = artboard;
+    final initialAnim = _isDownloading ? 'idle_cross' : 'idle_download';
+    _setRiveAnimation(initialAnim);
   }
 
-  void _updateRiveState(bool isDownloading) {
-    _isDownloadInput?.value = isDownloading;
+  void _setRiveAnimation(String animationName) {
+    if (_artboard == null) return;
+    if (_currentRiveController != null) {
+      _artboard!.removeController(_currentRiveController!);
+      _currentRiveController!.dispose();
+      _currentRiveController = null;
+    }
+    _currentAnimName = animationName;
+    _currentRiveController = SimpleAnimation(animationName);
+    _artboard!.addController(_currentRiveController!);
+  }
+
+  void _triggerMorph(bool toDownloading) {
+    if (_artboard == null) return;
+    if (_currentRiveController != null) {
+      _artboard!.removeController(_currentRiveController!);
+      _currentRiveController!.dispose();
+      _currentRiveController = null;
+    }
+    final animName = toDownloading ? 'download_to_cross' : 'cross_to_download';
+    final targetIdle = toDownloading ? 'idle_cross' : 'idle_download';
+    _currentAnimName = animName;
+
+    _currentRiveController = OneShotAnimation(
+      animName,
+      autoplay: true,
+      onStop: () {
+        if (mounted && _currentAnimName == animName) {
+          _setRiveAnimation(targetIdle);
+        }
+      },
+    );
+    _artboard!.addController(_currentRiveController!);
   }
 
   @override
@@ -74,36 +100,65 @@ class _MediaDownloadButtonState extends State<MediaDownloadButton>
       setState(() {
         _isDownloaded = true;
         _isDownloading = false;
+        _progress = 1.0;
+        _progressByteText = '';
       });
-      _updateRiveState(false);
       return;
     }
 
     final downloading = MediaCacheManager.instance.isDownloading(widget.url);
-    _notifier = MediaCacheManager.instance.getProgressNotifier(widget.url);
-    _notifier?.removeListener(_onProgressListener);
-    _notifier?.addListener(_onProgressListener);
+    _byteNotifier?.removeListener(_onProgressListener);
+    _byteNotifier = MediaCacheManager.instance.getByteProgressNotifier(widget.url);
+    _byteNotifier?.addListener(_onProgressListener);
+
+    // Also check if partial file exists on disk to show saved progress when paused
+    final partial = await MediaCacheManager.instance.getPartialProgress(
+      widget.url,
+      totalSize: widget.fileSize,
+    );
+
+    if (!mounted) return;
+
+    final currentFraction = downloading
+        ? (_byteNotifier?.value.fraction ?? 0.0)
+        : (partial?.fraction ?? _byteNotifier?.value.fraction ?? 0.0);
+    final currentText = downloading
+        ? (_byteNotifier?.value.formatProgress() ?? '')
+        : (partial?.formatProgress() ?? _byteNotifier?.value.formatProgress() ?? '');
 
     setState(() {
       _isDownloaded = false;
       _isDownloading = downloading;
-      _progress = _notifier?.value ?? 0.0;
+      _progress = currentFraction;
+      _progressByteText = currentText;
     });
-    _updateRiveState(downloading);
+
+    if (downloading) {
+      _setRiveAnimation('idle_cross');
+    } else {
+      _setRiveAnimation('idle_download');
+    }
   }
 
   void _onProgressListener() {
     if (!mounted) return;
-    final val = _notifier?.value ?? 0.0;
-    final downloading = val > 0.0 && val < 1.0;
+    final bp = _byteNotifier?.value;
+    if (bp == null) return;
+
+    final val = bp.fraction;
+    final downloading = val > 0.0 && val < 1.0 && MediaCacheManager.instance.isDownloading(widget.url);
+
     if (_isDownloading != downloading) {
-      _updateRiveState(downloading);
+      _triggerMorph(downloading);
     }
+
     setState(() {
       _progress = val;
+      _progressByteText = bp.formatProgress();
       _isDownloading = downloading;
       if (val >= 1.0) {
         _isDownloaded = true;
+        _progressByteText = '';
         widget.onDownloaded?.call();
       }
     });
@@ -111,24 +166,33 @@ class _MediaDownloadButtonState extends State<MediaDownloadButton>
 
   @override
   void dispose() {
-    _notifier?.removeListener(_onProgressListener);
-    _riveController?.dispose();
+    _byteNotifier?.removeListener(_onProgressListener);
+    _currentRiveController?.dispose();
     super.dispose();
   }
 
   Future<void> _startDownload() async {
     setState(() {
       _isDownloading = true;
-      _progress = 0.01;
+      if (_progress <= 0.0) _progress = 0.01;
     });
-    _updateRiveState(true);
+    _triggerMorph(true);
 
     final file = await MediaCacheManager.instance.downloadMedia(
       widget.url,
+      expectedTotalSize: widget.fileSize,
       onProgress: (p) {
         if (mounted) {
           setState(() {
             _progress = p;
+          });
+        }
+      },
+      onByteProgress: (bp) {
+        if (mounted) {
+          setState(() {
+            _progress = bp.fraction;
+            _progressByteText = bp.formatProgress();
           });
         }
       },
@@ -139,14 +203,15 @@ class _MediaDownloadButtonState extends State<MediaDownloadButton>
       setState(() {
         _isDownloaded = true;
         _isDownloading = false;
+        _progress = 1.0;
+        _progressByteText = '';
       });
-      _updateRiveState(false);
       widget.onDownloaded?.call();
     } else {
       setState(() {
         _isDownloading = false;
       });
-      _updateRiveState(false);
+      _triggerMorph(false);
     }
   }
 
@@ -155,9 +220,8 @@ class _MediaDownloadButtonState extends State<MediaDownloadButton>
     if (mounted) {
       setState(() {
         _isDownloading = false;
-        _progress = 0.0;
       });
-      _updateRiveState(false);
+      _triggerMorph(false);
     }
   }
 
@@ -176,7 +240,6 @@ class _MediaDownloadButtonState extends State<MediaDownloadButton>
       child: RiveAnimation.asset(
         'assets/animations/download_to_cross.riv',
         fit: BoxFit.contain,
-        stateMachines: const ['State Machine 1'],
         onInit: _onRiveInit,
         placeHolder: _isDownloading
             ? const iconoir.Xmark(
@@ -200,9 +263,19 @@ class _MediaDownloadButtonState extends State<MediaDownloadButton>
       return const SizedBox.shrink();
     }
 
-    final sizeText = widget.fileSize != null && widget.fileSize! > 0
-        ? MediaCacheManager.formatBytes(widget.fileSize!)
-        : '';
+    // Determine label: "4.2 MB / 400 MB" during download/paused, or total size "400 MB"
+    String displayText = '';
+    if (_isDownloading || _progress > 0.0) {
+      if (_progressByteText.isNotEmpty) {
+        displayText = _progressByteText;
+      } else if (widget.fileSize != null && widget.fileSize! > 0) {
+        final rec = (_progress * widget.fileSize!).round();
+        displayText =
+            '${MediaCacheManager.formatBytes(rec)} / ${MediaCacheManager.formatBytes(widget.fileSize!)}';
+      }
+    } else if (widget.fileSize != null && widget.fileSize! > 0) {
+      displayText = MediaCacheManager.formatBytes(widget.fileSize!);
+    }
 
     return Center(
       child: Material(
@@ -237,7 +310,7 @@ class _MediaDownloadButtonState extends State<MediaDownloadButton>
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      if (_isDownloading)
+                      if (_isDownloading || (_progress > 0.0 && !_isDownloaded))
                         CircularProgressIndicator(
                           value: _progress.clamp(0.05, 1.0),
                           strokeWidth: 2.5,
@@ -250,10 +323,10 @@ class _MediaDownloadButtonState extends State<MediaDownloadButton>
                     ],
                   ),
                 ),
-                if (sizeText.isNotEmpty && !_isDownloaded) ...[
+                if (displayText.isNotEmpty && !_isDownloaded) ...[
                   const SizedBox(width: 6),
                   Text(
-                    sizeText,
+                    displayText,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 12,

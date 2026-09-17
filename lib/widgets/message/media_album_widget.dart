@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import '../../config/app_config.dart';
@@ -29,12 +30,6 @@ class MediaAlbumWidget extends StatelessWidget {
     this.formatTime,
     this.onFileTap,
   }) : super(key: key);
-
-  String _formatDuration(int seconds) {
-    final m = seconds ~/ 60;
-    final s = seconds % 60;
-    return '$m:${s.toString().padLeft(2, '0')}';
-  }
 
   void _openViewer(BuildContext context, int index) {
     Navigator.of(context).push(
@@ -187,10 +182,92 @@ class MediaAlbumWidget extends StatelessWidget {
     AlbumTilePosition pos,
     int index,
   ) {
+    return _AlbumTileWidget(
+      item: item,
+      pos: pos,
+      index: index,
+      onTap: () => _openViewer(context, index),
+    );
+  }
+
+  String _getTimeString() {
+    try {
+      if (formatTime != null) return formatTime!(album.createdAt);
+      final dt = DateTime.parse(album.createdAt);
+      final hour = dt.hour.toString().padLeft(2, '0');
+      final minute = dt.minute.toString().padLeft(2, '0');
+      return '$hour:$minute';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  Widget _buildStatusIcon({Color color = Colors.white}) {
+    if (album.sendStatus == MessageSendStatus.sending.index) {
+      return Icon(Icons.access_time, size: 12, color: color);
+    }
+    if (album.sendStatus == MessageSendStatus.failed.index) {
+      return const Icon(Icons.error_outline, size: 12, color: Colors.redAccent);
+    }
+    if (album.isRead) {
+      return Icon(Icons.done_all, size: 13, color: color);
+    }
+    return Icon(Icons.done, size: 13, color: color);
+  }
+}
+
+class _AlbumTileWidget extends StatefulWidget {
+  final MediaAlbumItem item;
+  final AlbumTilePosition pos;
+  final int index;
+  final VoidCallback onTap;
+
+  const _AlbumTileWidget({
+    Key? key,
+    required this.item,
+    required this.pos,
+    required this.index,
+    required this.onTap,
+  }) : super(key: key);
+
+  @override
+  State<_AlbumTileWidget> createState() => _AlbumTileWidgetState();
+}
+
+class _AlbumTileWidgetState extends State<_AlbumTileWidget> {
+  File? _cachedFile;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkCache();
+  }
+
+  Future<void> _checkCache() async {
+    final rawUrl = widget.item.fileUrl ?? '';
+    final resolvedUrl = AppConfig.resolveMediaUrl(rawUrl) ?? rawUrl;
+    if (resolvedUrl.isNotEmpty) {
+      final f = await MediaCacheManager.instance.getCachedFile(resolvedUrl);
+      if (mounted && f != null) {
+        setState(() => _cachedFile = f);
+      }
+    }
+  }
+
+  String _formatDuration(int seconds) {
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.item;
+    final pos = widget.pos;
     final rawUrl = item.fileUrl ?? '';
     final resolvedUrl = AppConfig.resolveMediaUrl(rawUrl) ?? rawUrl;
     final autoDownload = MediaCacheManager.instance.shouldAutoDownload(
-      messageType: item.messageType,
+      messageType: item.isVideo ? 'video' : 'image',
       fileSize: item.fileSize,
     );
 
@@ -202,7 +279,7 @@ class MediaAlbumWidget extends StatelessWidget {
       child: ClipRRect(
         borderRadius: pos.borderRadius,
         child: GestureDetector(
-          onTap: () => _openViewer(context, index),
+          onTap: widget.onTap,
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -212,21 +289,28 @@ class MediaAlbumWidget extends StatelessWidget {
                 aspectRatio: item.aspectRatio,
               ),
 
-              // 2. Full network image (if auto-download or photo)
-              if (resolvedUrl.isNotEmpty && (autoDownload || !item.isVideo))
-                Image.network(
-                  resolvedUrl,
-                  fit: BoxFit.cover,
-                  cacheWidth: 600,
-                  loadingBuilder: (context, child, progress) {
-                    if (progress == null) return child;
-                    return BlurredMediaPlaceholder(
-                      thumbBase64: item.thumbBase64,
-                      aspectRatio: item.aspectRatio,
-                    );
-                  },
-                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                ),
+              // 2. Display image if cached or auto-download allowed (for photos)
+              if (!item.isVideo) ...[
+                if (_cachedFile != null)
+                  Image.file(
+                    _cachedFile!,
+                    fit: BoxFit.cover,
+                  )
+                else if (resolvedUrl.isNotEmpty && autoDownload)
+                  Image.network(
+                    resolvedUrl,
+                    fit: BoxFit.cover,
+                    cacheWidth: 600,
+                    loadingBuilder: (context, child, progress) {
+                      if (progress == null) return child;
+                      return BlurredMediaPlaceholder(
+                        thumbBase64: item.thumbBase64,
+                        aspectRatio: item.aspectRatio,
+                      );
+                    },
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  ),
+              ],
 
               // 3. Download button / progress / size pill
               if (resolvedUrl.isNotEmpty)
@@ -234,7 +318,8 @@ class MediaAlbumWidget extends StatelessWidget {
                   url: resolvedUrl,
                   fileSize: item.fileSize,
                   isVideo: item.isVideo,
-                  onPlayVideo: () => _openViewer(context, index),
+                  onDownloaded: _checkCache,
+                  onPlayVideo: widget.onTap,
                 ),
 
               // 4. Video duration badge (top-left)
@@ -279,30 +364,5 @@ class MediaAlbumWidget extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  String _getTimeString() {
-    try {
-      if (formatTime != null) return formatTime!(album.createdAt);
-      final dt = DateTime.parse(album.createdAt);
-      final hour = dt.hour.toString().padLeft(2, '0');
-      final minute = dt.minute.toString().padLeft(2, '0');
-      return '$hour:$minute';
-    } catch (_) {
-      return '';
-    }
-  }
-
-  Widget _buildStatusIcon({Color color = Colors.white}) {
-    if (album.sendStatus == MessageSendStatus.sending.index) {
-      return Icon(Icons.access_time, size: 12, color: color);
-    }
-    if (album.sendStatus == MessageSendStatus.failed.index) {
-      return const Icon(Icons.error_outline, size: 12, color: Colors.redAccent);
-    }
-    if (album.isRead) {
-      return Icon(Icons.done_all, size: 13, color: color);
-    }
-    return Icon(Icons.done, size: 13, color: color);
   }
 }

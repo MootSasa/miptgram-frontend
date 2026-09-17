@@ -1575,7 +1575,6 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         for (int i = 0; i < _attachedFiles.length; i++) {
           final file = _attachedFiles[i];
           final isVideo = _isVideoFile(file.path);
-          final mediaPayload = await FileService.extractMediaPayload(file, isVideo: isVideo);
 
           final uploadResult = await _fileService.uploadFileChunked(file, onProgress: (p) {
             if (mounted) {
@@ -1585,12 +1584,21 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             }
           });
 
+          final itemMediaPayload = {
+            if (uploadResult.thumbBase64 != null) 'thumb_base64': uploadResult.thumbBase64,
+            if (uploadResult.width > 0) 'width': uploadResult.width,
+            if (uploadResult.height > 0) 'height': uploadResult.height,
+            if (uploadResult.duration > 0) 'duration': uploadResult.duration,
+            'file_size': uploadResult.fileSize,
+            'is_video': isVideo,
+          };
+
           albumItems.add({
             'file_url': uploadResult.url,
             'file_name': uploadResult.fileName,
             'file_size': uploadResult.fileSize,
             'message_type': isVideo ? 'video' : 'image',
-            'media_payload': mediaPayload,
+            'media_payload': itemMediaPayload,
           });
         }
 
@@ -1697,11 +1705,19 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       if (_attachedFiles.isNotEmpty) {
         final file = _attachedFiles.first;
         final isVideo = _isVideoFile(file.path);
-        singleMediaPayload = await FileService.extractMediaPayload(file, isVideo: isVideo);
 
         final uploadResult = await _fileService.uploadFileChunked(file, onProgress: (p) {
           setState(() { _uploadProgress = p; });
         });
+
+        singleMediaPayload = {
+          if (uploadResult.thumbBase64 != null) 'thumb_base64': uploadResult.thumbBase64,
+          if (uploadResult.width > 0) 'width': uploadResult.width,
+          if (uploadResult.height > 0) 'height': uploadResult.height,
+          if (uploadResult.duration > 0) 'duration': uploadResult.duration,
+          'file_size': uploadResult.size,
+          'is_video': isVideo,
+        };
 
         setState(() {
           _isUploading = false;

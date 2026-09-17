@@ -1,10 +1,6 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
-import 'dart:ui' as ui;
-import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:path/path.dart' as path;
 import 'package:open_file/open_file.dart';
@@ -183,87 +179,15 @@ class FileService {
     }
   }
 
-  /// Generates a micro-thumbnail (base64) and extracts dimensions for instant blur preview
+  /// Extracts basic local file metadata (file size, is_video) before upload.
+  /// The blurred thumbnail and media dimensions are created on the server.
   static Future<Map<String, dynamic>> extractMediaPayload(
     File file, {
     bool isVideo = false,
   }) async {
     try {
       final totalSize = await file.length();
-      int width = 0;
-      int height = 0;
-      String? thumbBase64;
-
-      int duration = 0;
-
-      if (!isVideo) {
-        final bytes = await file.readAsBytes();
-        final buffer = await ui.instantiateImageCodec(bytes);
-        final frameInfo = await buffer.getNextFrame();
-        width = frameInfo.image.width;
-        height = frameInfo.image.height;
-
-        try {
-          final compressed = await FlutterImageCompress.compressWithList(
-            bytes,
-            minWidth: 20,
-            minHeight: 20,
-            quality: 25,
-            format: CompressFormat.jpeg,
-          );
-          if (compressed.isNotEmpty) {
-            thumbBase64 = 'data:image/jpeg;base64,${base64Encode(compressed)}';
-          }
-        } catch (_) {}
-      } else {
-        // Video: extract thumbnail frame, dimensions, and duration
-        Uint8List? thumbBytes;
-        if (Platform.isAndroid) {
-          try {
-            const channel = MethodChannel('com.example.app/media_muxer');
-            final dynamic res = await channel.invokeMethod('getVideoThumbnail', {'videoPath': file.path});
-            if (res is Map) {
-              final rawThumb = res['thumbnail'];
-              if (rawThumb is Uint8List) {
-                thumbBytes = rawThumb;
-              } else if (rawThumb is List) {
-                thumbBytes = Uint8List.fromList(List<int>.from(rawThumb));
-              }
-              width = (res['width'] as num?)?.toInt() ?? 0;
-              height = (res['height'] as num?)?.toInt() ?? 0;
-              duration = (res['duration'] as num?)?.toInt() ?? 0;
-            }
-          } catch (_) {}
-        }
-        if (thumbBytes == null || thumbBytes.isEmpty) {
-          final thumbCandidate = File('${file.path}.thumb.jpg');
-          if (await thumbCandidate.exists()) {
-            thumbBytes = await thumbCandidate.readAsBytes();
-          }
-        }
-        if (thumbBytes != null && thumbBytes.isNotEmpty) {
-          try {
-            final compressed = await FlutterImageCompress.compressWithList(
-              thumbBytes,
-              minWidth: 20,
-              minHeight: 20,
-              quality: 25,
-              format: CompressFormat.jpeg,
-            );
-            if (compressed.isNotEmpty) {
-              thumbBase64 = 'data:image/jpeg;base64,${base64Encode(compressed)}';
-            }
-          } catch (_) {
-            thumbBase64 = 'data:image/jpeg;base64,${base64Encode(thumbBytes)}';
-          }
-        }
-      }
-
       return {
-        if (thumbBase64 != null) 'thumb_base64': thumbBase64,
-        if (width > 0) 'width': width,
-        if (height > 0) 'height': height,
-        if (duration > 0) 'duration': duration,
         'file_size': totalSize,
         'is_video': isVideo,
       };
@@ -612,6 +536,10 @@ class UploadResult {
   final String fileName;
   final String mimeType;
   final int size;
+  final String? thumbBase64;
+  final int width;
+  final int height;
+  final int duration;
 
   UploadResult({
     required this.fileId,
@@ -620,6 +548,10 @@ class UploadResult {
     required this.fileName,
     required this.mimeType,
     required this.size,
+    this.thumbBase64,
+    this.width = 0,
+    this.height = 0,
+    this.duration = 0,
   });
 
   int get fileSize => size;
@@ -632,6 +564,10 @@ class UploadResult {
       fileName: json['file_name'] ?? '',
       mimeType: json['mime_type'] ?? '',
       size: json['size'] ?? 0,
+      thumbBase64: json['thumb_base64'] as String?,
+      width: (json['width'] as num?)?.toInt() ?? 0,
+      height: (json['height'] as num?)?.toInt() ?? 0,
+      duration: (json['duration'] as num?)?.toInt() ?? 0,
     );
   }
 }

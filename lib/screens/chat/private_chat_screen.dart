@@ -158,6 +158,20 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         clean.endsWith('.webm');
   }
 
+  bool _isImageFile(String filePath) {
+    final clean = filePath.split('?').first.toLowerCase();
+    return clean.endsWith('.jpg') ||
+        clean.endsWith('.jpeg') ||
+        clean.endsWith('.png') ||
+        clean.endsWith('.webp') ||
+        clean.endsWith('.heic') ||
+        clean.endsWith('.gif') ||
+        clean.endsWith('.bmp');
+  }
+
+  bool _isMediaFile(String filePath) =>
+      _isImageFile(filePath) || _isVideoFile(filePath);
+
   // Reply / Quote state
   Message? _replyToMessage;     // Message being replied to
   bool _isQuote = false;        // Whether this is a quote (partial text)
@@ -498,6 +512,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             localId: _messages[existingIndex].localId ?? message.localId,
             sendStatus: 1,
             replyInfo: message.replyInfo ?? _messages[existingIndex].replyInfo,
+            groupedId: message.groupedId ?? _messages[existingIndex].groupedId,
           );
         });
       }
@@ -1416,9 +1431,19 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             }))
           : const Value.absent(),
       isRound: Value(msg.isRound),
-      // isForward: Value(msg.isForward),
-      // forwardFromId: Value(msg.forwardFromId),
-      // forwardFromName: Value(msg.forwardFromName),
+      groupedId: Value(msg.groupedId),
+      entities: msg.entities.isNotEmpty
+          ? Value(jsonEncode(msg.entities.map((e) => e.toJson()).toList()))
+          : const Value.absent(),
+      linkPreviewOptions: msg.mediaPayload != null && msg.mediaPayload!.isNotEmpty
+          ? Value(jsonEncode(msg.mediaPayload))
+          : (msg.linkPreviewOptions != null
+              ? Value(jsonEncode(msg.linkPreviewOptions!.toJson()))
+              : const Value.absent()),
+      invertMedia: Value(msg.invertMedia),
+      isForward: Value(msg.isForward),
+      forwardFromId: Value(msg.forwardFromId),
+      forwardFromName: Value(msg.forwardFromName),
     );
   }
 
@@ -1542,8 +1567,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       final List<MessageEntity>? effectiveEntities =
           entities ?? (parsed?.entities.isNotEmpty == true ? parsed!.entities : null);
 
-      // CASE 1: MULTIPLE ATTACHMENTS (ALBUM: 2-10 items)
-      if (_attachedFiles.length >= 2) {
+      // CASE 1: MULTIPLE VISUAL ATTACHMENTS (ALBUM: 2-10 items)
+      if (_attachedFiles.length >= 2 && _attachedFiles.every((f) => _isMediaFile(f.path))) {
         final albumItems = <Map<String, dynamic>>[];
         final albumGroupedId = 'album_${DateTime.now().millisecondsSinceEpoch}_${const Uuid().v4().substring(0, 8)}';
 
@@ -1552,18 +1577,13 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           final isVideo = _isVideoFile(file.path);
           final mediaPayload = await FileService.extractMediaPayload(file, isVideo: isVideo);
 
-          final fileSize = await file.length();
-          final uploadResult = (fileSize > 5 * 1024 * 1024 || isVideo)
-              ? await _fileService.uploadFileChunked(file, onProgress: (p) {
-                  setState(() {
-                    _uploadProgress = (i + p) / _attachedFiles.length;
-                  });
-                })
-              : await _fileService.uploadFile(file, onProgress: (p) {
-                  setState(() {
-                    _uploadProgress = (i + p) / _attachedFiles.length;
-                  });
-                });
+          final uploadResult = await _fileService.uploadFileChunked(file, onProgress: (p) {
+            if (mounted) {
+              setState(() {
+                _uploadProgress = (i + p) / _attachedFiles.length;
+              });
+            }
+          });
 
           albumItems.add({
             'file_url': uploadResult.url,
@@ -1593,12 +1613,22 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
         if (res['success'] == true) {
           final rawMessages = res['messages'] as List<dynamic>? ?? [];
+          final newMsgs = <Message>[];
           for (final raw in rawMessages) {
             final msg = raw is Message ? raw : Message.fromJson(raw as Map<String, dynamic>);
-            if (!_messages.any((m) => m.id == msg.id)) {
+            newMsgs.add(msg);
+          }
+          for (final msg in newMsgs) {
+            final existingIdx = _messages.indexWhere((m) => m.id == msg.id);
+            if (existingIdx != -1) {
+              _messages[existingIdx] = msg;
+            } else {
               _messages.insert(0, msg);
             }
           }
+          final db = AppDatabase();
+          await db.saveMessages(
+              newMsgs.map((m) => _messageToCompanion(m)).toList());
           if (mounted) {
             setState(() {
               _isSending = false;
@@ -1618,7 +1648,46 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         return;
       }
 
-      // CASE 2: SINGLE ATTACHMENT OR TEXT
+      // CASE 2: MULTIPLE DOCUMENTS OR NON-VISUAL ATTACHMENTS (Send individually)
+      if (_attachedFiles.length >= 2) {
+        final filesToSend = List<File>.from(_attachedFiles);
+        _clearAttachedFiles();
+        for (int i = 0; i < filesToSend.length; i++) {
+          final file = filesToSend[i];
+          final isVideo = _isVideoFile(file.path);
+          final isImg = _isImageFile(file.path);
+          final uploadResult = await _fileService.uploadFileChunked(file, onProgress: (p) {
+            if (mounted) {
+              setState(() {
+                _uploadProgress = (i + p) / filesToSend.length;
+              });
+            }
+          });
+
+          final fileMessageType = isVideo ? 'video' : (isImg ? 'photo' : _getMessageTypeFromMimeType(uploadResult.mimeType));
+          final fileCaption = (i == 0 && effectiveContentText.isNotEmpty) ? effectiveContentText : '';
+          await ChatService.sendMessage(
+            chatId: widget.chatId,
+            content: fileCaption,
+            messageType: fileMessageType,
+            fileUrl: uploadResult.url,
+            fileName: uploadResult.fileName,
+            replyToMessageId: replyTo?.id,
+            entities: (i == 0) ? effectiveEntities : null,
+          );
+        }
+        if (mounted) {
+          setState(() {
+            _isUploading = false;
+            _uploadProgress = 0.0;
+            _isSending = false;
+          });
+          _scrollToBottom();
+        }
+        return;
+      }
+
+      // CASE 3: SINGLE ATTACHMENT OR TEXT
       String messageType = 'text';
       String content = effectiveContentText;
       String? fileUrl;
@@ -1630,14 +1699,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         final isVideo = _isVideoFile(file.path);
         singleMediaPayload = await FileService.extractMediaPayload(file, isVideo: isVideo);
 
-        final fileSize = await file.length();
-        final uploadResult = (fileSize > 5 * 1024 * 1024 || isVideo)
-            ? await _fileService.uploadFileChunked(file, onProgress: (p) {
-                setState(() { _uploadProgress = p; });
-              })
-            : await _fileService.uploadFile(file, onProgress: (p) {
-                setState(() { _uploadProgress = p; });
-              });
+        final uploadResult = await _fileService.uploadFileChunked(file, onProgress: (p) {
+          setState(() { _uploadProgress = p; });
+        });
 
         setState(() {
           _isUploading = false;
@@ -2972,7 +3036,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
       // 2. Upload file to MinIO storage
       setState(() => _isUploading = true);
-      final uploadResult = await _fileService.uploadFile(
+      final uploadResult = await _fileService.uploadFileChunked(
         file,
         onProgress: (progress) {
           if (mounted) setState(() => _uploadProgress = progress);
@@ -3263,10 +3327,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             ),
             ListTile(
               leading: iconoir.MediaImage(color: iconColor, width: 24, height: 24),
-              title: const Text('Photo from Gallery'),
+              title: const Text('Gallery (Photos & Videos)'),
               onTap: () {
                 Navigator.pop(context);
-                _pickMedia('image');
+                _pickMedia('media');
               },
             ),
             ListTile(
@@ -3310,31 +3374,44 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   /// Pick and send media (image or video)
   Future<void> _pickMedia(String type) async {
     try {
-      if (type == 'image') {
-        final List<XFile> pickedImages = await _imagePicker.pickMultiImage(
-          maxWidth: 1920,
-          maxHeight: 1920,
-          imageQuality: 85,
+      if (type == 'video') {
+        final result = await FilePicker.platform.pickFiles(
+          type: FileType.video,
+          allowMultiple: true,
         );
-        if (pickedImages.isNotEmpty) {
+        if (result != null && result.files.isNotEmpty) {
           setState(() {
-            for (final photo in pickedImages) {
-              if (_attachedFiles.length < 10) {
-                _attachedFiles.add(File(photo.path));
-                _attachedFileNames.add(photo.name);
+            for (final file in result.files) {
+              if (file.path != null && _attachedFiles.length < 10) {
+                _attachedFiles.add(File(file.path!));
+                _attachedFileNames.add(file.name);
               }
             }
           });
         }
       } else {
-        final XFile? pickedFile = await _imagePicker.pickVideo(
-          source: ImageSource.gallery,
-          maxDuration: const Duration(minutes: 10),
-        );
-        if (pickedFile != null && _attachedFiles.length < 10) {
+        List<XFile> pickedMedia = [];
+        try {
+          pickedMedia = await _imagePicker.pickMultipleMedia(
+            maxWidth: 1920,
+            maxHeight: 1920,
+            imageQuality: 85,
+          );
+        } catch (_) {
+          pickedMedia = await _imagePicker.pickMultiImage(
+            maxWidth: 1920,
+            maxHeight: 1920,
+            imageQuality: 85,
+          );
+        }
+        if (pickedMedia.isNotEmpty) {
           setState(() {
-            _attachedFiles.add(File(pickedFile.path));
-            _attachedFileNames.add(pickedFile.name);
+            for (final photo in pickedMedia) {
+              if (_attachedFiles.length < 10) {
+                _attachedFiles.add(File(photo.path));
+                _attachedFileNames.add(photo.name);
+              }
+            }
           });
         }
       }

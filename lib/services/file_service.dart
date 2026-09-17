@@ -132,25 +132,27 @@ class FileService {
         await raf.setPosition(start);
         final chunkBytes = await raf.read(currentChunkSize);
 
+        final partNumber = i + 1;
         final formData = FormData.fromMap({
           'upload_id': uploadId,
+          'part_number': partNumber.toString(),
           'chunk_index': i.toString(),
           'chunk': MultipartFile.fromBytes(
             chunkBytes,
-            filename: 'part_$i',
+            filename: 'part_$partNumber',
             contentType: MediaType.parse('application/octet-stream'),
           ),
         });
 
         final partResponse = await _dio.put(
-          '$baseUrl/api/files/upload/chunked/part',
+          '$baseUrl/api/files/upload/chunked/part?upload_id=$uploadId&part_number=$partNumber',
           data: formData,
           options: Options(headers: headers),
         );
 
         if (partResponse.statusCode != 200 || partResponse.data['success'] != true) {
           throw FileUploadException(
-            partResponse.data['message'] ?? 'Failed to upload chunk $i',
+            partResponse.data['message'] ?? 'Failed to upload chunk $partNumber',
           );
         }
 

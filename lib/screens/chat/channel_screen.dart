@@ -3,6 +3,7 @@ import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:provider/provider.dart';
 import 'dart:async';
+import 'dart:convert';
 import '../../services/chat_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/websocket_service.dart';
@@ -559,7 +560,26 @@ class _ChannelScreenState extends State<ChannelScreen> {
       senderName: Value(msg.senderName),
       senderAvatarUrl: Value(msg.senderAvatarUrl),
       createdAt: Value(msg.createdAt),
+      reactions: msg.reactions.isNotEmpty || msg.myReactions.isNotEmpty
+          ? Value(jsonEncode({
+              'reactions': msg.reactions,
+              'my_reactions': msg.myReactions.toList(),
+            }))
+          : const Value.absent(),
       isRound: Value(msg.isRound),
+      groupedId: Value(msg.groupedId),
+      entities: msg.entities.isNotEmpty
+          ? Value(jsonEncode(msg.entities.map((e) => e.toJson()).toList()))
+          : const Value.absent(),
+      linkPreviewOptions: msg.mediaPayload != null && msg.mediaPayload!.isNotEmpty
+          ? Value(jsonEncode(msg.mediaPayload))
+          : (msg.linkPreviewOptions != null
+              ? Value(jsonEncode(msg.linkPreviewOptions!.toJson()))
+              : const Value.absent()),
+      invertMedia: Value(msg.invertMedia),
+      isForward: Value(msg.isForward),
+      forwardFromId: Value(msg.forwardFromId),
+      forwardFromName: Value(msg.forwardFromName),
     );
   }
 

@@ -574,6 +574,8 @@ class UploadResult {
     required this.size,
   });
 
+  int get fileSize => size;
+
   factory UploadResult.fromJson(Map<String, dynamic> json) {
     return UploadResult(
       fileId: json['file_id'] ?? 0,

@@ -362,6 +362,9 @@ class Message {
   final List<int>? waveform;
   final int? duration;
 
+  // Media album & message extra payload (dimensions, thumb_base64, file_size, etc.)
+  final Map<String, dynamic>? mediaPayload;
+
   Message({
     required this.id,
     required this.chatId,
@@ -398,6 +401,7 @@ class Message {
     this.isRound = false,
     this.waveform,
     this.duration,
+    this.mediaPayload,
   });
 
   /// Whether this message has a reply or quote
@@ -519,6 +523,11 @@ class Message {
       isRound: json['is_round'] == true || json['message_type'] == 'round',
       waveform: waveform,
       duration: duration,
+      mediaPayload: json['media_payload'] is Map<String, dynamic>
+          ? json['media_payload'] as Map<String, dynamic>
+          : (json['media_payload'] is Map
+              ? Map<String, dynamic>.from(json['media_payload'] as Map)
+              : null),
     );
   }
 
@@ -601,6 +610,19 @@ class Message {
       } catch (_) {}
     }
 
+    Map<String, dynamic>? dbMediaPayload;
+    if (model.linkPreviewOptions != null &&
+        model.linkPreviewOptions!.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(model.linkPreviewOptions!);
+        if (decoded is Map<String, dynamic>) {
+          dbMediaPayload = decoded;
+        } else if (decoded is Map) {
+          dbMediaPayload = Map<String, dynamic>.from(decoded);
+        }
+      } catch (_) {}
+    }
+
     return Message(
       id: model.serverId ?? model.localId,
       chatId: model.chatId,
@@ -634,6 +656,7 @@ class Message {
       isRound: model.isRound,
       waveform: dbWaveform,
       duration: dbDuration,
+      mediaPayload: dbMediaPayload,
     );
   }
 
@@ -674,6 +697,7 @@ class Message {
     bool? isRound,
     List<int>? waveform,
     int? duration,
+    Map<String, dynamic>? mediaPayload,
   }) {
     return Message(
       id: id ?? this.id,
@@ -711,6 +735,7 @@ class Message {
       isRound: isRound ?? this.isRound,
       waveform: waveform ?? this.waveform,
       duration: duration ?? this.duration,
+      mediaPayload: mediaPayload ?? this.mediaPayload,
     );
   }
 }

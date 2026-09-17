@@ -1,10 +1,8 @@
-import 'dart:convert';
-import '../services/database/app_database.dart';
-import '../models/message_entity.dart';
+import '../services/chat_service.dart';
 
 /// Single item within a media album
 class MediaAlbumItem {
-  final DbMessage message;
+  final Message message;
   final int index;
   final int totalCount;
 
@@ -25,24 +23,13 @@ class MediaAlbumItem {
               message.fileUrl!.endsWith('.webm') ||
               message.fileUrl!.endsWith('.mkv')));
 
-  Map<String, dynamic> get mediaPayload {
-    if (message.linkPreviewOptions != null &&
-        message.linkPreviewOptions!.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(message.linkPreviewOptions!);
-        if (decoded is Map<String, dynamic>) {
-          return decoded;
-        }
-      } catch (_) {}
-    }
-    return {};
-  }
+  Map<String, dynamic> get mediaPayload => message.mediaPayload ?? {};
 
   String? get thumbBase64 => mediaPayload['thumb_base64'] as String?;
-  int? get width => mediaPayload['width'] as int?;
-  int? get height => mediaPayload['height'] as int?;
-  int? get duration => mediaPayload['duration'] as int?;
-  int? get fileSize => mediaPayload['file_size'] as int?;
+  int? get width => (mediaPayload['width'] as num?)?.toInt();
+  int? get height => (mediaPayload['height'] as num?)?.toInt();
+  int? get duration => (mediaPayload['duration'] as num?)?.toInt();
+  int? get fileSize => (mediaPayload['file_size'] as num?)?.toInt();
 
   double get aspectRatio {
     final w = width ?? 0;
@@ -58,7 +45,7 @@ class MediaAlbumItem {
 class MediaAlbum {
   final String groupedId;
   final List<MediaAlbumItem> items;
-  final DbMessage primaryMessage;
+  final Message primaryMessage;
   final String? caption;
   final List<MessageEntity> entities;
 
@@ -87,7 +74,7 @@ abstract class FeedItem {
 
 /// A standalone single message
 class FeedSingleItem extends FeedItem {
-  final DbMessage message;
+  final Message message;
 
   FeedSingleItem(this.message);
 
@@ -114,7 +101,7 @@ class FeedAlbumItem extends FeedItem {
 /// Utility to group consecutive messages sharing the same grouped_id into MediaAlbums.
 /// [isReversed] indicates if the feed is ordered newest first (index 0 is newest).
 List<FeedItem> groupMessagesIntoFeedItems(
-  List<DbMessage> messages, {
+  List<Message> messages, {
   bool isReversed = true,
 }) {
   if (messages.isEmpty) return const [];
@@ -133,7 +120,7 @@ List<FeedItem> groupMessagesIntoFeedItems(
     }
 
     // Collect all consecutive messages with the same groupedId
-    final List<DbMessage> group = [current];
+    final List<Message> group = [current];
     int j = i + 1;
     while (j < messages.length && messages[j].groupedId == gid) {
       group.add(messages[j]);
@@ -154,7 +141,7 @@ List<FeedItem> groupMessagesIntoFeedItems(
     // Find caption and entities: the item that has non-empty text
     String? caption;
     List<MessageEntity> entities = const [];
-    DbMessage primary = group.first;
+    Message primary = group.first;
 
     for (final m in orderedGroup) {
       final content = m.content.trim();
@@ -162,14 +149,7 @@ List<FeedItem> groupMessagesIntoFeedItems(
       final isFileurl = m.fileUrl != null && content == m.fileUrl;
       if (content.isNotEmpty && !isFilename && !isFileurl) {
         caption = content;
-        if (m.entities != null && m.entities!.isNotEmpty) {
-          try {
-            final decoded = jsonDecode(m.entities!) as List<dynamic>;
-            entities = decoded
-                .map((e) => MessageEntity.fromJson(e as Map<String, dynamic>))
-                .toList();
-          } catch (_) {}
-        }
+        entities = m.entities;
         primary = m;
         break;
       }

@@ -2186,18 +2186,13 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     if (item is FeedAlbumItem) {
       return _buildAlbumFeedItem(item.album, index);
     } else if (item is FeedSingleItem) {
-      final msg = item.message is Message
-          ? item.message as Message
-          : Message.fromDbMessage(item.message);
-      return _buildMessageItem(msg, index);
+      return _buildMessageItem(item.message, index);
     }
     return const SizedBox.shrink();
   }
 
   Widget _buildAlbumFeedItem(MediaAlbum album, int index) {
-    final primaryDb = album.primaryMessage;
-    final message =
-        primaryDb is Message ? primaryDb : Message.fromDbMessage(primaryDb);
+    final message = album.primaryMessage;
     final key = _messageKeys.putIfAbsent(message.id, () => GlobalKey());
     final bool isMe = message.senderId == _currentUserId;
 

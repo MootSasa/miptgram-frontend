@@ -38,6 +38,9 @@ import '../../services/message_context_menu_service.dart';
 import '../../services/glass_toast_service.dart';
 import '../../services/wallpaper_provider.dart';
 import '../../widgets/message/message_bubble.dart';
+import 'package:uuid/uuid.dart';
+import '../../models/media_album.dart';
+import '../../widgets/message/media_album_widget.dart';
 import '../../utils/swipe_back_route.dart';
 import '../../utils/entity_parser.dart';
 import 'group_chat_screen.dart';
@@ -142,6 +145,18 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   final List<String> _attachedFileNames = [];
   double _uploadProgress = 0.0;
   bool _isUploading = false;
+
+  List<FeedItem> get _feedItems =>
+      groupMessagesIntoFeedItems(_messages, isReversed: true);
+
+  bool _isVideoFile(String filePath) {
+    final clean = filePath.split('?').first.toLowerCase();
+    return clean.endsWith('.mp4') ||
+        clean.endsWith('.mov') ||
+        clean.endsWith('.avi') ||
+        clean.endsWith('.mkv') ||
+        clean.endsWith('.webm');
+  }
 
   // Reply / Quote state
   Message? _replyToMessage;     // Message being replied to
@@ -1522,42 +1537,120 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     });
 
     try {
-      // Upload files first if any
-      List<UploadResult> uploadResults = [];
-      for (int i = 0; i < _attachedFiles.length; i++) {
-        final result = await _fileService.uploadFile(
-          _attachedFiles[i],
-          onProgress: (progress) {
-            setState(() {
-              _uploadProgress = progress;
-            });
-          },
-        );
-        uploadResults.add(result);
-      }
-
-      setState(() {
-        _isUploading = false;
-        _uploadProgress = 0.0;
-      });
-
       final parsed = cleanText != null ? null : EntityParser.parseMarkdown(text);
       final String effectiveContentText = cleanText ?? parsed!.cleanText;
       final List<MessageEntity>? effectiveEntities =
           entities ?? (parsed?.entities.isNotEmpty == true ? parsed!.entities : null);
 
-      final String messageType = _attachedFiles.isNotEmpty
-          ? _getMessageTypeFromMimeType(uploadResults.first.mimeType)
-          : 'text';
-      final String content = _attachedFiles.isNotEmpty
-          ? (effectiveContentText.isNotEmpty ? effectiveContentText : uploadResults.first.fileName)
-          : effectiveContentText;
-      final String? fileUrl =
-          uploadResults.isNotEmpty ? uploadResults[0].url : null;
-      final String? fileName =
-          uploadResults.isNotEmpty ? uploadResults[0].fileName : null;
+      // CASE 1: MULTIPLE ATTACHMENTS (ALBUM: 2-10 items)
+      if (_attachedFiles.length >= 2) {
+        final albumItems = <Map<String, dynamic>>[];
+        final albumGroupedId = 'album_${DateTime.now().millisecondsSinceEpoch}_${const Uuid().v4().substring(0, 8)}';
 
-      _clearAttachedFiles();
+        for (int i = 0; i < _attachedFiles.length; i++) {
+          final file = _attachedFiles[i];
+          final isVideo = _isVideoFile(file.path);
+          final mediaPayload = await FileService.extractMediaPayload(file, isVideo: isVideo);
+
+          final fileSize = await file.length();
+          final uploadResult = (fileSize > 5 * 1024 * 1024 || isVideo)
+              ? await _fileService.uploadFileChunked(file, onProgress: (p) {
+                  setState(() {
+                    _uploadProgress = (i + p) / _attachedFiles.length;
+                  });
+                })
+              : await _fileService.uploadFile(file, onProgress: (p) {
+                  setState(() {
+                    _uploadProgress = (i + p) / _attachedFiles.length;
+                  });
+                });
+
+          albumItems.add({
+            'file_url': uploadResult.url,
+            'file_name': uploadResult.fileName,
+            'file_size': uploadResult.fileSize,
+            'message_type': isVideo ? 'video' : 'photo',
+            'media_payload': mediaPayload,
+          });
+        }
+
+        setState(() {
+          _isUploading = false;
+          _uploadProgress = 0.0;
+        });
+
+        _clearAttachedFiles();
+
+        final res = await ChatService.sendMediaAlbum(
+          chatId: widget.chatId,
+          items: albumItems,
+          groupedId: albumGroupedId,
+          caption: effectiveContentText.isNotEmpty ? effectiveContentText : null,
+          entities: effectiveEntities,
+          invertMedia: invertMedia,
+          replyToMessageId: replyTo?.id,
+        );
+
+        if (res['success'] == true) {
+          final rawMessages = res['messages'] as List<dynamic>? ?? [];
+          for (final raw in rawMessages) {
+            final msg = raw is Message ? raw : Message.fromJson(raw as Map<String, dynamic>);
+            if (!_messages.any((m) => m.id == msg.id)) {
+              _messages.insert(0, msg);
+            }
+          }
+          if (mounted) {
+            setState(() {
+              _isSending = false;
+            });
+            _scrollToBottom();
+          }
+        } else {
+          if (mounted) {
+            setState(() {
+              _isSending = false;
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(res['message'] ?? 'Failed to send album')),
+            );
+          }
+        }
+        return;
+      }
+
+      // CASE 2: SINGLE ATTACHMENT OR TEXT
+      String messageType = 'text';
+      String content = effectiveContentText;
+      String? fileUrl;
+      String? fileName;
+      Map<String, dynamic>? singleMediaPayload;
+
+      if (_attachedFiles.isNotEmpty) {
+        final file = _attachedFiles.first;
+        final isVideo = _isVideoFile(file.path);
+        singleMediaPayload = await FileService.extractMediaPayload(file, isVideo: isVideo);
+
+        final fileSize = await file.length();
+        final uploadResult = (fileSize > 5 * 1024 * 1024 || isVideo)
+            ? await _fileService.uploadFileChunked(file, onProgress: (p) {
+                setState(() { _uploadProgress = p; });
+              })
+            : await _fileService.uploadFile(file, onProgress: (p) {
+                setState(() { _uploadProgress = p; });
+              });
+
+        setState(() {
+          _isUploading = false;
+          _uploadProgress = 0.0;
+        });
+
+        messageType = isVideo ? 'video' : _getMessageTypeFromMimeType(uploadResult.mimeType);
+        content = effectiveContentText; // Can be empty!
+        fileUrl = uploadResult.url;
+        fileName = uploadResult.fileName;
+
+        _clearAttachedFiles();
+      }
 
       final syncService = SyncService();
       String? pendingLocalId;
@@ -1582,6 +1675,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           entities: effectiveEntities,
           linkPreviewOptions: linkPreviewOptions,
           invertMedia: invertMedia,
+          mediaPayload: singleMediaPayload,
         );
       } catch (e) {
         debugPrint('SyncService createPendingMessage error: $e');
@@ -1635,6 +1729,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             entities: effectiveEntities,
             linkPreviewOptions: linkPreviewOptions,
             invertMedia: invertMedia,
+            mediaPayload: singleMediaPayload,
           );
 
           if (result['success'] == true) {
@@ -1701,6 +1796,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           messageType: messageType,
           fileUrl: fileUrl,
           fileName: fileName,
+          mediaPayload: singleMediaPayload,
         );
 
         if (mounted) {
@@ -1721,31 +1817,6 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                   content: Text(result['message'] ?? 'Failed to send message')),
             );
           }
-        }
-      }
-
-      // Send additional files as separate messages
-      for (int i = 1; i < uploadResults.length; i++) {
-        final upload = uploadResults[i];
-        final additionalMessageType =
-            _getMessageTypeFromMimeType(upload.mimeType);
-
-        final additionalResult = await ChatService.sendMessage(
-          chatId: widget.chatId,
-          content: upload.fileName,
-          messageType: additionalMessageType,
-          fileUrl: upload.url,
-          fileName: upload.fileName,
-        );
-
-        if (mounted && additionalResult['success'] == true) {
-          final additionalMsg = additionalResult['message'] as Message;
-          setState(() {
-            // Дедупликация: не добавлять если WS уже принёс это сообщение
-            if (!_messages.any((m) => m.id == additionalMsg.id)) {
-              _messages.insert(0, additionalMsg);
-            }
-          });
         }
       }
     } catch (e) {
@@ -2041,46 +2112,40 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                         top: topPadding,
                         bottom: _inputHeight + bottomOffset,
                       ),
-                      itemCount: _messages.length +
+                      itemCount: _feedItems.length +
                           (_showUnreadDivider && _firstUnreadMessageId != null
                               ? 1
                               : 0),
                       itemBuilder: (context, index) {
                         // Insert unread divider between unread and read messages.
-                        // In a reverse=true ListView: index 0 = bottom (newest), N = top (oldest).
-                        // _messages[0] = newest, _messages[N] = oldest.
-                        // first_unread_message is the OLDEST unread (highest index among unread).
-                        // Layout: [newer unread...] [first_unread] | DIVIDER | [last_read] [older read...]
                         if (_showUnreadDivider &&
                             _firstUnreadMessageId != null) {
-                          final unreadIndex = _messages
-                              .indexWhere((m) => m.id == _firstUnreadMessageId);
+                          final unreadIndex = _feedItems.indexWhere((item) =>
+                              item.id == _firstUnreadMessageId ||
+                              (item is FeedAlbumItem &&
+                                  item.album.items.any((ai) => ai.id == _firstUnreadMessageId)));
                           if (unreadIndex != -1) {
-                            // Divider goes AFTER the first unread message,
-                            // between unread (lower indices = newer) and read (higher indices = older)
                             final dividerPosition = unreadIndex + 1;
 
                             if (index == dividerPosition) {
                               return _buildUnreadDivider();
                             }
                             if (index < dividerPosition) {
-                              // Unread messages (newer): direct index mapping
-                              return _buildMessageItem(index);
+                              return _buildFeedItem(index);
                             }
-                            // index > dividerPosition: read messages (older), shift by 1 for divider
                             final adjustedIndex = index - 1;
                             if (adjustedIndex >= 0 &&
-                                adjustedIndex < _messages.length) {
-                              return _buildMessageItem(adjustedIndex);
+                                adjustedIndex < _feedItems.length) {
+                              return _buildFeedItem(adjustedIndex);
                             }
                           }
                         }
 
-                        if (index < 0 || index >= _messages.length) {
+                        if (index < 0 || index >= _feedItems.length) {
                           return const SizedBox.shrink();
                         }
 
-                        return _buildMessageItem(index);
+                        return _buildFeedItem(index);
                       },
                     ),
                   ),
@@ -2266,8 +2331,101 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     );
   }
 
-  Widget _buildMessageItem(int index) {
-    final message = _messages[index];
+  Widget _buildFeedItem(int index) {
+    if (index < 0 || index >= _feedItems.length) {
+      return const SizedBox.shrink();
+    }
+    final item = _feedItems[index];
+    if (item is FeedAlbumItem) {
+      return _buildAlbumFeedItem(item.album, index);
+    } else if (item is FeedSingleItem) {
+      final msg = item.message is Message
+          ? item.message as Message
+          : Message.fromDbMessage(item.message);
+      return _buildMessageItem(msg, index);
+    }
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildAlbumFeedItem(MediaAlbum album, int index) {
+    final primaryDb = album.primaryMessage;
+    final message = primaryDb is Message ? primaryDb : Message.fromDbMessage(primaryDb);
+    final key = _messageKeys.putIfAbsent(message.id, () => GlobalKey());
+    final bool isMe = message.senderId == _currentUserId;
+
+    Widget albumWidget = MediaAlbumWidget(
+      key: key,
+      album: album,
+      isMe: isMe,
+      currentUserId: _currentUserId ?? '',
+      chatType: _chatType,
+      formatTime: _formatTime,
+      onFileTap: (url, name, type) => _openFile(url, name, type),
+    );
+
+    albumWidget = Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: albumWidget,
+    );
+
+    albumWidget = SwipeToReplyWrapper(
+      onReply: () => _startReply(message),
+      enabled: true,
+      child: albumWidget,
+    );
+
+    if (!isMe && !album.isRead) {
+      albumWidget = VisibleMessageDetector(
+        messageId: message.id,
+        onMessageSeen: () {
+          for (final ai in album.items) {
+            _onMessageVisible(ai.id);
+          }
+        },
+        visibilityThreshold: 0.3,
+        visibleDuration: const Duration(milliseconds: 300),
+        child: albumWidget,
+      );
+    }
+
+    albumWidget = GestureDetector(
+      onTap: () {
+        _showContextMenu(message, isMe, key);
+      },
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: double.infinity,
+        color: Colors.transparent,
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: albumWidget,
+      ),
+    );
+
+    final prevItem =
+        index < _feedItems.length - 1 ? _feedItems[index + 1] : null;
+    final currentDt = DateTime.tryParse(message.createdAt) ?? DateTime.now();
+    final prevDt = prevItem != null
+        ? (DateTime.tryParse(prevItem.createdAt) ?? DateTime.now())
+        : null;
+    final currentDate = _dateOnly(currentDt);
+    final prevDate = prevDt != null ? _dateOnly(prevDt) : null;
+
+    final items = <Widget>[];
+    if (currentDate != prevDate) {
+      items.add(DateSeparator(dateLabel: _formatDateLabel(currentDt)));
+    }
+
+    items.add(albumWidget);
+
+    return RepaintBoundary(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: items,
+      ),
+    );
+  }
+
+  Widget _buildMessageItem(Message message, int index) {
     final key = _messageKeys.putIfAbsent(message.id, () => GlobalKey());
     final bool isMe = message.senderId == _currentUserId;
     final isHighlighted = _highlightMessageId == message.id;
@@ -2326,11 +2484,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     );
 
     // Add date separator if needed
-    final prevMessage =
-        index < _messages.length - 1 ? _messages[index + 1] : null;
+    final prevItem =
+        index < _feedItems.length - 1 ? _feedItems[index + 1] : null;
     final currentDt = DateTime.tryParse(message.createdAt) ?? DateTime.now();
-    final prevDt = prevMessage != null
-        ? (DateTime.tryParse(prevMessage.createdAt) ?? DateTime.now())
+    final prevDt = prevItem != null
+        ? (DateTime.tryParse(prevItem.createdAt) ?? DateTime.now())
         : null;
     final currentDate = _dateOnly(currentDt);
     final prevDate = prevDt != null ? _dateOnly(prevDt) : null;
@@ -3156,26 +3314,33 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   /// Pick and send media (image or video)
   Future<void> _pickMedia(String type) async {
     try {
-      final XFile? pickedFile;
       if (type == 'image') {
-        pickedFile = await _imagePicker.pickImage(
-          source: ImageSource.gallery,
+        final List<XFile> pickedImages = await _imagePicker.pickMultiImage(
           maxWidth: 1920,
           maxHeight: 1920,
           imageQuality: 85,
         );
+        if (pickedImages.isNotEmpty) {
+          setState(() {
+            for (final photo in pickedImages) {
+              if (_attachedFiles.length < 10) {
+                _attachedFiles.add(File(photo.path));
+                _attachedFileNames.add(photo.name);
+              }
+            }
+          });
+        }
       } else {
-        pickedFile = await _imagePicker.pickVideo(
+        final XFile? pickedFile = await _imagePicker.pickVideo(
           source: ImageSource.gallery,
           maxDuration: const Duration(minutes: 10),
         );
-      }
-
-      if (pickedFile != null) {
-        setState(() {
-          _attachedFiles.add(File(pickedFile!.path));
-          _attachedFileNames.add(pickedFile.name);
-        });
+        if (pickedFile != null && _attachedFiles.length < 10) {
+          setState(() {
+            _attachedFiles.add(File(pickedFile.path));
+            _attachedFileNames.add(pickedFile.name);
+          });
+        }
       }
     } catch (e) {
       if (mounted) {

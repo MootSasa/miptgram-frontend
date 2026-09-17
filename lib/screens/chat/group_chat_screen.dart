@@ -41,6 +41,16 @@ import '../../widgets/chat/visible_message_detector.dart';
 import '../../widgets/chat/swipe_to_reply_wrapper.dart';
 import '../../widgets/chat/unread_separator.dart';
 import '../../widgets/message/message_bubble.dart';
+import '../../models/media_album.dart';
+import '../../widgets/message/media_album_widget.dart';
+import '../../widgets/message/fullscreen_photo_viewer.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:uuid/uuid.dart';
+import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:share_plus/share_plus.dart';
 import '../../utils/swipe_back_route.dart';
 import '../../utils/entity_parser.dart';
 import 'private_chat_screen.dart';
@@ -127,6 +137,44 @@ class _GroupChatScreenState extends State<GroupChatScreen>
   final VoiceNoteRecorderService _voiceRecorderService = VoiceNoteRecorderService();
   final GlobalKey _voiceOverlayKey = GlobalKey();
   bool _isVoiceRecording = false;
+
+  // Feed items (messages grouped into albums by grouped_id)
+  List<FeedItem> get _feedItems =>
+      groupMessagesIntoFeedItems(_messages, isReversed: true);
+
+  // Attachments state
+  final ImagePicker _imagePicker = ImagePicker();
+  final List<File> _attachedFiles = [];
+  final List<String> _attachedFileNames = [];
+  bool _isUploading = false;
+  double _uploadProgress = 0.0;
+
+  bool _isVideoFile(String path) {
+    final ext = path.toLowerCase();
+    return ext.endsWith('.mp4') ||
+        ext.endsWith('.mov') ||
+        ext.endsWith('.avi') ||
+        ext.endsWith('.mkv') ||
+        ext.endsWith('.webm');
+  }
+
+  void _removeAttachedFile(int index) {
+    if (index >= 0 && index < _attachedFiles.length) {
+      setState(() {
+        _attachedFiles.removeAt(index);
+        _attachedFileNames.removeAt(index);
+      });
+    }
+  }
+
+  void _clearAttachedFiles() {
+    setState(() {
+      _attachedFiles.clear();
+      _attachedFileNames.clear();
+      _isUploading = false;
+      _uploadProgress = 0.0;
+    });
+  }
 
   void _cancelEditing() {
     _stopMyTyping();
@@ -879,7 +927,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
   }) async {
     final String rawText = _messageController.text.trim();
     final String text = cleanText?.trim() ?? rawText;
-    if (text.isEmpty || _isSending) return;
+    if ((text.isEmpty && _attachedFiles.isEmpty) || _isSending) return;
 
     if (_isEditing && _editingMessageId != null) {
       final messageId = _editingMessageId!;
@@ -943,6 +991,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     _messageController.clear();
     setState(() {
       _isSending = true;
+      _isUploading = _attachedFiles.isNotEmpty;
       _replyToMessage = null;
       _isQuote = false;
       _quoteText = null;
@@ -950,110 +999,253 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       _quoteLength = 0;
     });
 
-    final parsed = cleanText != null ? null : EntityParser.parseMarkdown(text);
-    final String effectiveContent = cleanText ?? parsed!.cleanText;
-    final List<MessageEntity>? effectiveEntities =
-        entities ?? (parsed?.entities.isNotEmpty == true ? parsed!.entities : null);
-
-    final syncService = SyncService();
-    String? pendingLocalId;
-    DbMessage? pendingMsg;
     try {
-      pendingMsg = await syncService.createPendingMessage(
-        chatId: widget.chatId,
-        senderId: _currentUserId ?? '',
-        content: effectiveContent,
-        messageType: 'text',
-        replyToMessageId: replyTo?.id,
-        isQuote: replyIsQuote,
-        quoteText: replyQuoteText,
-        quoteOffset: replyQuoteOffset,
-        quoteLength: replyQuoteLength,
-        replyToSenderId: replyTo?.senderId,
-        replyToSenderName: replyTo?.senderName,
-        replyToContent: replyTo?.content,
-        replyToMessageType: replyTo?.messageType ?? 'text',
-        entities: effectiveEntities,
-        linkPreviewOptions: linkPreviewOptions,
-        invertMedia: invertMedia,
-      );
-    } catch (e) {
-      debugPrint('SyncService createPendingMessage error: $e');
-    }
+      final parsed = cleanText != null ? null : EntityParser.parseMarkdown(text);
+      final String effectiveContentText = cleanText ?? parsed!.cleanText;
+      final List<MessageEntity>? effectiveEntities =
+          entities ?? (parsed?.entities.isNotEmpty == true ? parsed!.entities : null);
 
-    if (pendingMsg != null) {
-      pendingLocalId = pendingMsg.localId;
-      final profileTheme = context.read<ProfileThemeProvider>();
-      var message = Message.fromDbMessage(pendingMsg);
-      if (replyTo != null) {
-        final isReplyToMe = replyTo.senderId == _currentUserId;
-        message = message.copyWith(
-          replyInfo: ReplyInfo(
-            messageId: replyTo.id,
-            senderId: replyTo.senderId,
-            senderName: replyTo.senderName,
-            content: replyTo.content,
-            messageType: replyTo.messageType,
-            nameColorPresetId: isReplyToMe
-                ? profileTheme.currentNameColorPreset.id
-                : (replyTo.senderNameColorId ?? 'name_red'),
-            replyStripStyle: isReplyToMe
-                ? profileTheme.currentStripStyle.name
-                : (replyTo.senderReplyStripStyle ?? 'solid'),
-          ),
-        );
-      }
-      if (mounted) {
+      // CASE 1: MULTIPLE ATTACHMENTS (ALBUM: 2-10 items)
+      if (_attachedFiles.length >= 2) {
+        final albumItems = <Map<String, dynamic>>[];
+        final albumGroupedId =
+            'album_${DateTime.now().millisecondsSinceEpoch}_${const Uuid().v4().substring(0, 8)}';
+
+        for (int i = 0; i < _attachedFiles.length; i++) {
+          final file = _attachedFiles[i];
+          final isVideo = _isVideoFile(file.path);
+          final mediaPayload =
+              await FileService.extractMediaPayload(file, isVideo: isVideo);
+
+          final fileSize = await file.length();
+          final uploadResult = (fileSize > 5 * 1024 * 1024 || isVideo)
+              ? await _fileService.uploadFileChunked(file, onProgress: (p) {
+                  setState(() {
+                    _uploadProgress = (i + p) / _attachedFiles.length;
+                  });
+                })
+              : await _fileService.uploadFile(file, onProgress: (p) {
+                  setState(() {
+                    _uploadProgress = (i + p) / _attachedFiles.length;
+                  });
+                });
+
+          albumItems.add({
+            'file_url': uploadResult.url,
+            'file_name': uploadResult.fileName,
+            'file_size': uploadResult.fileSize,
+            'message_type': isVideo ? 'video' : 'photo',
+            'media_payload': mediaPayload,
+          });
+        }
+
         setState(() {
-          _messages.insert(0, message);
-          _isSending = false;
+          _isUploading = false;
+          _uploadProgress = 0.0;
         });
-        _scrollToBottom();
+
+        _clearAttachedFiles();
+
+        final res = await ChatService.sendMediaAlbum(
+          chatId: widget.chatId,
+          items: albumItems,
+          groupedId: albumGroupedId,
+          caption:
+              effectiveContentText.isNotEmpty ? effectiveContentText : null,
+          entities: effectiveEntities,
+          invertMedia: invertMedia,
+          replyToMessageId: replyTo?.id,
+        );
+
+        if (res['success'] == true) {
+          final rawMessages = res['messages'] as List<dynamic>? ?? [];
+          for (final raw in rawMessages) {
+            final msg = raw is Message
+                ? raw
+                : Message.fromJson(raw as Map<String, dynamic>);
+            if (!_messages.any((m) => m.id == msg.id)) {
+              _messages.insert(0, msg);
+            }
+          }
+          if (mounted) {
+            setState(() {
+              _isSending = false;
+            });
+            _scrollToBottom();
+          }
+        } else {
+          if (mounted) {
+            setState(() {
+              _isSending = false;
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(res['message'] ?? 'Failed to send album')),
+            );
+          }
+        }
+        return;
       }
 
+      // CASE 2: SINGLE ATTACHMENT OR TEXT
+      String messageType = 'text';
+      String content = effectiveContentText;
+      String? fileUrl;
+      String? fileName;
+      Map<String, dynamic>? singleMediaPayload;
+
+      if (_attachedFiles.isNotEmpty) {
+        final file = _attachedFiles.first;
+        final isVideo = _isVideoFile(file.path);
+        singleMediaPayload =
+            await FileService.extractMediaPayload(file, isVideo: isVideo);
+
+        final fileSize = await file.length();
+        final uploadResult = (fileSize > 5 * 1024 * 1024 || isVideo)
+            ? await _fileService.uploadFileChunked(file, onProgress: (p) {
+                setState(() {
+                  _uploadProgress = p;
+                });
+              })
+            : await _fileService.uploadFile(file, onProgress: (p) {
+                setState(() {
+                  _uploadProgress = p;
+                });
+              });
+
+        setState(() {
+          _isUploading = false;
+          _uploadProgress = 0.0;
+        });
+
+        messageType =
+            isVideo ? 'video' : _getMessageTypeFromMimeType(uploadResult.mimeType);
+        content = effectiveContentText;
+        fileUrl = uploadResult.url;
+        fileName = uploadResult.fileName;
+
+        _clearAttachedFiles();
+      }
+
+      final syncService = SyncService();
+      String? pendingLocalId;
+      DbMessage? pendingMsg;
       try {
-        final result = await ChatService.sendMessage(
+        pendingMsg = await syncService.createPendingMessage(
           chatId: widget.chatId,
-          content: effectiveContent,
-          messageType: 'text',
-          localId: pendingLocalId,
+          senderId: _currentUserId ?? '',
+          content: content,
+          messageType: messageType,
+          fileUrl: fileUrl,
+          fileName: fileName,
+          mediaPayload: singleMediaPayload,
           replyToMessageId: replyTo?.id,
           isQuote: replyIsQuote,
           quoteText: replyQuoteText,
           quoteOffset: replyQuoteOffset,
           quoteLength: replyQuoteLength,
+          replyToSenderId: replyTo?.senderId,
+          replyToSenderName: replyTo?.senderName,
+          replyToContent: replyTo?.content,
+          replyToMessageType: replyTo?.messageType ?? 'text',
           entities: effectiveEntities,
           linkPreviewOptions: linkPreviewOptions,
           invertMedia: invertMedia,
         );
+      } catch (e) {
+        debugPrint('SyncService createPendingMessage error: $e');
+      }
 
-        if (result['success'] == true) {
-          final sentMessage = result['message'];
-          final serverId = sentMessage is Message ? sentMessage.id : null;
-          if (serverId != null && serverId.isNotEmpty) {
-            await syncService.confirmMessageSent(pendingLocalId, serverId);
+      if (pendingMsg != null) {
+        pendingLocalId = pendingMsg.localId;
+        final profileTheme = context.read<ProfileThemeProvider>();
+        var message = Message.fromDbMessage(pendingMsg);
+        if (replyTo != null) {
+          final isReplyToMe = replyTo.senderId == _currentUserId;
+          message = message.copyWith(
+            replyInfo: ReplyInfo(
+              messageId: replyTo.id,
+              senderId: replyTo.senderId,
+              senderName: replyTo.senderName,
+              content: replyTo.content,
+              messageType: replyTo.messageType,
+              nameColorPresetId: isReplyToMe
+                  ? profileTheme.currentNameColorPreset.id
+                  : (replyTo.senderNameColorId ?? 'name_red'),
+              replyStripStyle: isReplyToMe
+                  ? profileTheme.currentStripStyle.name
+                  : (replyTo.senderReplyStripStyle ?? 'solid'),
+            ),
+          );
+        }
+        if (mounted) {
+          setState(() {
+            _messages.insert(0, message);
+            _isSending = false;
+          });
+          _scrollToBottom();
+        }
+
+        try {
+          final result = await ChatService.sendMessage(
+            chatId: widget.chatId,
+            content: content,
+            messageType: messageType,
+            fileUrl: fileUrl,
+            fileName: fileName,
+            mediaPayload: singleMediaPayload,
+            localId: pendingLocalId,
+            replyToMessageId: replyTo?.id,
+            isQuote: replyIsQuote,
+            quoteText: replyQuoteText,
+            quoteOffset: replyQuoteOffset,
+            quoteLength: replyQuoteLength,
+            entities: effectiveEntities,
+            linkPreviewOptions: linkPreviewOptions,
+            invertMedia: invertMedia,
+          );
+
+          if (result['success'] == true) {
+            final sentMessage = result['message'];
+            final serverId = sentMessage is Message ? sentMessage.id : null;
+            if (serverId != null && serverId.isNotEmpty) {
+              await syncService.confirmMessageSent(pendingLocalId, serverId);
+              if (mounted) {
+                setState(() {
+                  final idx =
+                      _messages.indexWhere((m) => m.localId == pendingLocalId);
+                  if (idx != -1) {
+                    if (sentMessage is Message) {
+                      _messages[idx] = sentMessage.copyWith(
+                        localId: pendingLocalId,
+                        sendStatus: 1, // sent
+                        replyInfo: sentMessage.replyInfo ??
+                            _messages[idx].replyInfo,
+                      );
+                    } else {
+                      _messages[idx] = _messages[idx].copyWith(
+                        id: serverId,
+                        sendStatus: 1, // sent
+                      );
+                    }
+                  }
+                });
+              }
+            }
+          } else {
+            await syncService.markMessageFailed(pendingLocalId);
             if (mounted) {
               setState(() {
                 final idx =
                     _messages.indexWhere((m) => m.localId == pendingLocalId);
                 if (idx != -1) {
-                  if (sentMessage is Message) {
-                    _messages[idx] = sentMessage.copyWith(
-                      localId: pendingLocalId,
-                      sendStatus: 1, // sent
-                      replyInfo: sentMessage.replyInfo ?? _messages[idx].replyInfo,
-                    );
-                  } else {
-                    _messages[idx] = _messages[idx].copyWith(
-                      id: serverId,
-                      sendStatus: 1, // sent
-                    );
-                  }
+                  _messages[idx] =
+                      _messages[idx].copyWith(sendStatus: 2); // failed
                 }
               });
             }
           }
-        } else {
+        } catch (e) {
+          debugPrint('ChatService.sendMessage exception: $e');
           await syncService.markMessageFailed(pendingLocalId);
           if (mounted) {
             setState(() {
@@ -1066,43 +1258,283 @@ class _GroupChatScreenState extends State<GroupChatScreen>
             });
           }
         }
-      } catch (e) {
-        debugPrint('ChatService.sendMessage exception: $e');
-        await syncService.markMessageFailed(pendingLocalId);
+      } else {
+        final result = await ChatService.sendMessage(
+          chatId: widget.chatId,
+          content: content,
+          messageType: messageType,
+          fileUrl: fileUrl,
+          fileName: fileName,
+          mediaPayload: singleMediaPayload,
+        );
+
         if (mounted) {
+          if (result['success'] == true) {
+            final sentMsg = result['message'] as Message;
+            setState(() {
+              if (!_messages.any((m) => m.id == sentMsg.id)) {
+                _messages.insert(0, sentMsg);
+              }
+              _isSending = false;
+            });
+            _scrollToBottom();
+          } else {
+            setState(() => _isSending = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                  content: Text(result['message'] ?? 'Failed to send message')),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[GroupChatScreen] Error in _sendMessage: $e');
+      if (mounted) {
+        setState(() {
+          _isSending = false;
+          _isUploading = false;
+          _uploadProgress = 0.0;
+        });
+      }
+    }
+  }
+
+  String _getMessageTypeFromMimeType(String mimeType) {
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType.startsWith('video/')) return 'video';
+    if (mimeType.startsWith('audio/')) return 'audio';
+    return 'file';
+  }
+
+  void _showAttachmentPicker() {
+    final theme = Theme.of(context);
+    final iconColor = theme.colorScheme.onSurface;
+
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: iconoir.Camera(color: iconColor, width: 24, height: 24),
+              title: const Text('Camera'),
+              onTap: () {
+                Navigator.pop(context);
+                _takePhoto();
+              },
+            ),
+            ListTile(
+              leading: iconoir.MediaImage(color: iconColor, width: 24, height: 24),
+              title: const Text('Photo from Gallery'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickMedia('image');
+              },
+            ),
+            ListTile(
+              leading: iconoir.VideoCamera(color: iconColor, width: 24, height: 24),
+              title: const Text('Video'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickMedia('video');
+              },
+            ),
+            ListTile(
+              leading: iconoir.Page(color: iconColor, width: 24, height: 24),
+              title: const Text('Document'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickDocument();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickMedia(String type) async {
+    try {
+      if (type == 'image') {
+        final List<XFile> pickedImages = await _imagePicker.pickMultiImage(
+          maxWidth: 1920,
+          maxHeight: 1920,
+          imageQuality: 85,
+        );
+        if (pickedImages.isNotEmpty) {
           setState(() {
-            final idx =
-                _messages.indexWhere((m) => m.localId == pendingLocalId);
-            if (idx != -1) {
-              _messages[idx] =
-                  _messages[idx].copyWith(sendStatus: 2); // failed
+            for (final photo in pickedImages) {
+              if (_attachedFiles.length < 10) {
+                _attachedFiles.add(File(photo.path));
+                _attachedFileNames.add(photo.name);
+              }
             }
+          });
+        }
+      } else {
+        final XFile? pickedFile = await _imagePicker.pickVideo(
+          source: ImageSource.gallery,
+          maxDuration: const Duration(minutes: 10),
+        );
+        if (pickedFile != null && _attachedFiles.length < 10) {
+          setState(() {
+            _attachedFiles.add(File(pickedFile.path));
+            _attachedFileNames.add(pickedFile.name);
           });
         }
       }
-    } else {
-      final result = await ChatService.sendMessage(
-        chatId: widget.chatId,
-        content: text,
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick $type: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _takePhoto() async {
+    try {
+      final XFile? photo = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1920,
+        maxHeight: 1920,
+        imageQuality: 85,
       );
 
+      if (photo != null) {
+        setState(() {
+          _attachedFiles.add(File(photo.path));
+          _attachedFileNames.add(photo.name);
+        });
+      }
+    } catch (e) {
       if (mounted) {
-        if (result['success'] == true) {
-          final sentMsg = result['message'] as Message;
-          setState(() {
-            if (!_messages.any((m) => m.id == sentMsg.id)) {
-              _messages.insert(0, sentMsg);
-            }
-            _isSending = false;
-          });
-          _scrollToBottom();
-        } else {
-          setState(() => _isSending = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text(result['message'] ?? 'Failed to send message')),
-          );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to take photo: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickDocument() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        type: FileType.any,
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        for (var file in result.files) {
+          if (file.path != null) {
+            setState(() {
+              _attachedFiles.add(File(file.path!));
+              _attachedFileNames.add(file.name);
+            });
+          }
         }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick document: $e')),
+        );
+      }
+    }
+  }
+
+  void _openFile(String fileUrl, String fileName, String messageType) {
+    if (messageType == 'image') {
+      FullscreenPhotoViewer.open(context, fileUrl);
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const iconoir.OpenNewWindow(width: 22, height: 22),
+              title: Text(context.l10n.translate('chat_open_file')),
+              onTap: () {
+                Navigator.pop(context);
+                _downloadAndOpenFile(fileUrl, fileName);
+              },
+            ),
+            ListTile(
+              leading: const iconoir.Download(width: 22, height: 22),
+              title: Text(context.l10n.translate('chat_download')),
+              onTap: () {
+                Navigator.pop(context);
+                _downloadFile(fileUrl, fileName);
+              },
+            ),
+            ListTile(
+              leading: const iconoir.ShareAndroid(width: 22, height: 22),
+              title: Text(context.l10n.translate('share')),
+              onTap: () async {
+                Navigator.pop(context);
+                await SharePlus.instance.share(
+                  ShareParams(text: fileUrl, subject: fileName),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _downloadAndOpenFile(String fileUrl, String fileName) async {
+    try {
+      if (kIsWeb) {
+        final uri = Uri.parse(fileUrl);
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, webOnlyWindowName: '_blank');
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Не удалось открыть файл')),
+            );
+          }
+        }
+      } else {
+        final filePath = await _fileService.downloadToDownloads(
+          fileUrl,
+          fileName,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Файл скачан: $filePath')),
+          );
+          await _fileService.openFile(filePath);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка при открытии файла: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _downloadFile(String fileUrl, String fileName) async {
+    try {
+      final filePath = await _fileService.downloadToDownloads(
+        fileUrl,
+        fileName,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Файл скачан: $filePath')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка при скачивании файла: $e')),
+        );
       }
     }
   }
@@ -1597,85 +2029,12 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     final messageList = ChatMessagesListView(
       isLoading: _isLoading,
       isLoadingMore: _isLoadingMore,
-      itemCount: _messages.length,
+      itemCount: _feedItems.length,
       scrollController: _scrollController,
       topPadding: topPadding,
       bottomPadding: _inputHeight + bottomInset + 8,
       typingIndicator: typingWidget,
-      itemBuilder: (context, index) {
-        final message = _messages[index];
-        final bool isMe = message.senderId == _currentUserId;
-        final key = _messageKeys.putIfAbsent(message.id, () => GlobalKey());
-        final isHighlighted = _highlightMessageId == message.id;
-
-        Widget messageWidget = MessageBubble(
-          key: key,
-          message: message,
-          isMe: isMe,
-          currentUserId: _currentUserId ?? '',
-          senderName: isMe ? null : message.senderName,
-          isHighlighted: isHighlighted,
-          reactions: _messageReactions[message.id] ?? (message.reactions.isNotEmpty ? message.reactions : null),
-          myReactions: _myReactions[message.id] ?? (message.myReactions.isNotEmpty ? message.myReactions : null),
-          onReactionTap: (emoji) => _toggleReaction(message.id, emoji),
-          onRetry: (msg) => _retryMessage(msg),
-          onReplyTap: (replyToId, chatId) => _handleReplyTap(
-            replyToId,
-            chatId,
-            fromMessageId: message.id,
-          ),
-          formatTime: _formatTime,
-        );
-
-        if (!isMe && !message.isRead) {
-          messageWidget = VisibleMessageDetector(
-            messageId: message.id,
-            onMessageSeen: () => _onMessageVisible(message.id),
-            visibilityThreshold: 0.3,
-            visibleDuration: const Duration(milliseconds: 300),
-            child: messageWidget,
-          );
-        }
-
-        messageWidget = SwipeToReplyWrapper(
-          onReply: () => _startReply(message),
-          enabled: true,
-          child: messageWidget,
-        );
-
-        messageWidget = GestureDetector(
-          onTap: () {
-            _showContextMenu(message, isMe, key);
-          },
-          behavior: HitTestBehavior.opaque,
-          child: Container(
-            width: double.infinity,
-            color: Colors.transparent,
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: messageWidget,
-          ),
-        );
-
-        final prevMessage =
-            index < _messages.length - 1 ? _messages[index + 1] : null;
-        final currentDt =
-            DateTimeUtils.parseUtcDateTime(message.createdAt) ?? DateTime.now();
-        final prevDt = prevMessage != null
-            ? (DateTimeUtils.parseUtcDateTime(prevMessage.createdAt) ?? DateTime.now())
-            : null;
-        final currentDate = DateTimeUtils.startOfDay(currentDt);
-        final prevDate = prevDt != null ? DateTimeUtils.startOfDay(prevDt) : null;
-
-        final items = <Widget>[];
-        if (currentDate != prevDate) {
-          items.add(DateSeparator(
-              dateLabel: DateTimeUtils.formatDateSeparator(currentDt,
-                  context: context)));
-        }
-        items.add(messageWidget);
-
-        return RepaintBoundary(child: Column(children: items));
-      },
+      itemBuilder: (context, index) => _buildFeedItem(index),
     );
 
     return Stack(
@@ -1819,6 +2178,175 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     );
   }
 
+  Widget _buildFeedItem(int index) {
+    if (index < 0 || index >= _feedItems.length) {
+      return const SizedBox.shrink();
+    }
+    final item = _feedItems[index];
+    if (item is FeedAlbumItem) {
+      return _buildAlbumFeedItem(item.album, index);
+    } else if (item is FeedSingleItem) {
+      final msg = item.message is Message
+          ? item.message as Message
+          : Message.fromDbMessage(item.message);
+      return _buildMessageItem(msg, index);
+    }
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildAlbumFeedItem(MediaAlbum album, int index) {
+    final primaryDb = album.primaryMessage;
+    final message =
+        primaryDb is Message ? primaryDb : Message.fromDbMessage(primaryDb);
+    final key = _messageKeys.putIfAbsent(message.id, () => GlobalKey());
+    final bool isMe = message.senderId == _currentUserId;
+
+    Widget albumWidget = MediaAlbumWidget(
+      key: key,
+      album: album,
+      isMe: isMe,
+      currentUserId: _currentUserId ?? '',
+      senderName: isMe ? null : message.senderName,
+      formatTime: _formatTime,
+      onFileTap: (url, name, type) => _openFile(url, name, type),
+    );
+
+    albumWidget = Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: albumWidget,
+    );
+
+    albumWidget = SwipeToReplyWrapper(
+      onReply: () => _startReply(message),
+      enabled: true,
+      child: albumWidget,
+    );
+
+    if (!isMe && !album.isRead) {
+      albumWidget = VisibleMessageDetector(
+        messageId: message.id,
+        onMessageSeen: () {
+          for (final ai in album.items) {
+            _onMessageVisible(ai.id);
+          }
+        },
+        visibilityThreshold: 0.3,
+        visibleDuration: const Duration(milliseconds: 300),
+        child: albumWidget,
+      );
+    }
+
+    albumWidget = GestureDetector(
+      onTap: () {
+        _showContextMenu(message, isMe, key);
+      },
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: double.infinity,
+        color: Colors.transparent,
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: albumWidget,
+      ),
+    );
+
+    final prevItem =
+        index < _feedItems.length - 1 ? _feedItems[index + 1] : null;
+    final currentDt =
+        DateTimeUtils.parseUtcDateTime(message.createdAt) ?? DateTime.now();
+    final prevDt = prevItem != null
+        ? (DateTimeUtils.parseUtcDateTime(prevItem.createdAt) ?? DateTime.now())
+        : null;
+    final currentDate = DateTimeUtils.startOfDay(currentDt);
+    final prevDate = prevDt != null ? DateTimeUtils.startOfDay(prevDt) : null;
+
+    final items = <Widget>[];
+    if (currentDate != prevDate) {
+      items.add(DateSeparator(
+          dateLabel: DateTimeUtils.formatDateSeparator(currentDt,
+              context: context)));
+    }
+    items.add(albumWidget);
+
+    return RepaintBoundary(child: Column(children: items));
+  }
+
+  Widget _buildMessageItem(Message message, int index) {
+    final bool isMe = message.senderId == _currentUserId;
+    final key = _messageKeys.putIfAbsent(message.id, () => GlobalKey());
+    final isHighlighted = _highlightMessageId == message.id;
+
+    Widget messageWidget = MessageBubble(
+      key: key,
+      message: message,
+      isMe: isMe,
+      currentUserId: _currentUserId ?? '',
+      senderName: isMe ? null : message.senderName,
+      isHighlighted: isHighlighted,
+      reactions: _messageReactions[message.id] ??
+          (message.reactions.isNotEmpty ? message.reactions : null),
+      myReactions: _myReactions[message.id] ??
+          (message.myReactions.isNotEmpty ? message.myReactions : null),
+      onReactionTap: (emoji) => _toggleReaction(message.id, emoji),
+      onRetry: (msg) => _retryMessage(msg),
+      onReplyTap: (replyToId, chatId) => _handleReplyTap(
+        replyToId,
+        chatId,
+        fromMessageId: message.id,
+      ),
+      onFileTap: (url, name, type) => _openFile(url, name, type),
+      formatTime: _formatTime,
+    );
+
+    if (!isMe && !message.isRead) {
+      messageWidget = VisibleMessageDetector(
+        messageId: message.id,
+        onMessageSeen: () => _onMessageVisible(message.id),
+        visibilityThreshold: 0.3,
+        visibleDuration: const Duration(milliseconds: 300),
+        child: messageWidget,
+      );
+    }
+
+    messageWidget = SwipeToReplyWrapper(
+      onReply: () => _startReply(message),
+      enabled: true,
+      child: messageWidget,
+    );
+
+    messageWidget = GestureDetector(
+      onTap: () {
+        _showContextMenu(message, isMe, key);
+      },
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: double.infinity,
+        color: Colors.transparent,
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: messageWidget,
+      ),
+    );
+
+    final prevItem =
+        index < _feedItems.length - 1 ? _feedItems[index + 1] : null;
+    final currentDt =
+        DateTimeUtils.parseUtcDateTime(message.createdAt) ?? DateTime.now();
+    final prevDt = prevItem != null
+        ? (DateTimeUtils.parseUtcDateTime(prevItem.createdAt) ?? DateTime.now())
+        : null;
+    final currentDate = DateTimeUtils.startOfDay(currentDt);
+    final prevDate = prevDt != null ? DateTimeUtils.startOfDay(prevDt) : null;
+
+    final items = <Widget>[];
+    if (currentDate != prevDate) {
+      items.add(DateSeparator(
+          dateLabel: DateTimeUtils.formatDateSeparator(currentDt,
+              context: context)));
+    }
+    items.add(messageWidget);
+
+    return RepaintBoundary(child: Column(children: items));
+  }
+
   Widget _buildMessageInput() {
     return ChatInputBar(
       controller: _messageController,
@@ -1832,6 +2360,12 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       onTapReply: _replyToMessage != null
           ? () => _scrollToMessage(_replyToMessage!.id)
           : null,
+      attachedFiles: _attachedFiles,
+      attachedFileNames: _attachedFileNames,
+      onRemoveAttachment: _removeAttachedFile,
+      isUploading: _isUploading,
+      uploadProgress: _uploadProgress,
+      onAttach: _showAttachmentPicker,
       onChanged: _onInputTextChanged,
       onSend: _sendMessage,
       onSendDetailed: (cleanText, entities, linkPreviewOptions, invertMedia) {

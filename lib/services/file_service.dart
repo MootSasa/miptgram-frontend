@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:dio/dio.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:path/path.dart' as path;
 import 'package:open_file/open_file.dart';
@@ -80,6 +83,144 @@ class FileService {
       throw FileUploadException(
         e.response?.data?['message'] ?? 'Upload failed: ${e.message}',
       );
+    }
+  }
+
+  /// Upload a file in chunks to allow progressive processing and streaming.
+  /// Used for large files and videos.
+  Future<UploadResult> uploadFileChunked(
+    File file, {
+    void Function(double progress)? onProgress,
+    int chunkSize = 1024 * 1024, // 1 MB per chunk
+  }) async {
+    final fileName = path.basename(file.path);
+    final totalSize = await file.length();
+    final mimeType = _getMimeType(fileName);
+    final partsCount = (totalSize / chunkSize).ceil().clamp(1, 10000);
+
+    final headers = await _getHeaders();
+
+    // 1. Initialize chunked upload
+    final initResponse = await _dio.post(
+      '$baseUrl/api/files/upload/chunked/init',
+      data: {
+        'file_name': fileName,
+        'total_size': totalSize,
+        'parts_count': partsCount,
+        'mime_type': mimeType,
+      },
+      options: Options(headers: headers),
+    );
+
+    if (initResponse.statusCode != 200 || initResponse.data['success'] != true) {
+      throw FileUploadException(
+        initResponse.data['message'] ?? 'Failed to initialize chunked upload',
+      );
+    }
+
+    final uploadId = initResponse.data['upload_id'] as String;
+
+    // 2. Upload each chunk
+    final raf = await file.open(mode: FileMode.read);
+    try {
+      for (int i = 0; i < partsCount; i++) {
+        final start = i * chunkSize;
+        final currentChunkSize = (start + chunkSize > totalSize)
+            ? (totalSize - start)
+            : chunkSize;
+
+        await raf.setPosition(start);
+        final chunkBytes = await raf.read(currentChunkSize);
+
+        final formData = FormData.fromMap({
+          'upload_id': uploadId,
+          'chunk_index': i.toString(),
+          'chunk': MultipartFile.fromBytes(
+            chunkBytes,
+            filename: 'part_$i',
+            contentType: MediaType.parse('application/octet-stream'),
+          ),
+        });
+
+        final partResponse = await _dio.put(
+          '$baseUrl/api/files/upload/chunked/part',
+          data: formData,
+          options: Options(headers: headers),
+        );
+
+        if (partResponse.statusCode != 200 || partResponse.data['success'] != true) {
+          throw FileUploadException(
+            partResponse.data['message'] ?? 'Failed to upload chunk $i',
+          );
+        }
+
+        if (onProgress != null) {
+          onProgress((i + 1) / partsCount);
+        }
+      }
+    } finally {
+      await raf.close();
+    }
+
+    // 3. Complete chunked upload
+    final completeResponse = await _dio.post(
+      '$baseUrl/api/files/upload/chunked/complete',
+      data: {
+        'upload_id': uploadId,
+      },
+      options: Options(headers: headers),
+    );
+
+    if (completeResponse.statusCode == 200 && completeResponse.data['success'] == true) {
+      return UploadResult.fromJson(completeResponse.data);
+    } else {
+      throw FileUploadException(
+        completeResponse.data['message'] ?? 'Failed to complete chunked upload',
+      );
+    }
+  }
+
+  /// Generates a micro-thumbnail (base64) and extracts dimensions for instant blur preview
+  static Future<Map<String, dynamic>> extractMediaPayload(
+    File file, {
+    bool isVideo = false,
+  }) async {
+    try {
+      final totalSize = await file.length();
+      int width = 0;
+      int height = 0;
+      String? thumbBase64;
+
+      if (!isVideo) {
+        final bytes = await file.readAsBytes();
+        final buffer = await ui.instantiateImageCodec(bytes);
+        final frameInfo = await buffer.getNextFrame();
+        width = frameInfo.image.width;
+        height = frameInfo.image.height;
+
+        try {
+          final compressed = await FlutterImageCompress.compressWithList(
+            bytes,
+            minWidth: 20,
+            minHeight: 20,
+            quality: 25,
+            format: CompressFormat.jpeg,
+          );
+          if (compressed.isNotEmpty) {
+            thumbBase64 = 'data:image/jpeg;base64,${base64Encode(compressed)}';
+          }
+        } catch (_) {}
+      }
+
+      return {
+        if (thumbBase64 != null) 'thumb_base64': thumbBase64,
+        if (width > 0) 'width': width,
+        if (height > 0) 'height': height,
+        'file_size': totalSize,
+        'is_video': isVideo,
+      };
+    } catch (_) {
+      return {};
     }
   }
 

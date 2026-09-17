@@ -194,7 +194,8 @@ class _ChatInputBarState extends State<ChatInputBar> {
       // Trim only spaces and enters at the very end of the text.
       // Consecutive spaces and enters inside the text are preserved without changes.
       final trimmedText = cleanText.trimRight();
-      if (trimmedText.isEmpty) {
+      final hasAttachments = widget.attachedFiles.isNotEmpty;
+      if (trimmedText.isEmpty && !hasAttachments) {
         return;
       }
 

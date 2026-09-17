@@ -581,30 +581,30 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: widget.controller,
       builder: (context, value, child) {
-        final hasText = value.text.isNotEmpty;
+        final canSend = value.text.isNotEmpty || widget.hasAttachments;
         return FakeGlass.inLayer(
           shape: const LiquidOval(),
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () {
               if (widget.isSending) return;
-              if (hasText) {
+              if (canSend) {
                 widget.onSend?.call();
               } else {
                 _toggleMediaMode();
               }
             },
             onLongPressStart: (details) {
-              if (hasText || widget.isSending) return;
+              if (canSend || widget.isSending) return;
               if (_isVideoMode) {
                 widget.onStartVideoRecord?.call();
               } else {
-                widget.onStartVoiceRecord?.call();
+                widget.onVoiceRecordCancel?.call();
                 widget.onVoice?.call();
               }
             },
             onLongPressMoveUpdate: (details) {
-              if (hasText || widget.isSending) return;
+              if (canSend || widget.isSending) return;
               if (_isVideoMode) {
                 widget.onVideoRecordMove?.call(details.offsetFromOrigin);
               } else {
@@ -612,7 +612,7 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
               }
             },
             onLongPressEnd: (details) {
-              if (hasText || widget.isSending) return;
+              if (canSend || widget.isSending) return;
               if (_isVideoMode) {
                 widget.onVideoRecordEnd?.call();
               } else {
@@ -620,7 +620,7 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
               }
             },
             onLongPressCancel: () {
-              if (hasText || widget.isSending) return;
+              if (canSend || widget.isSending) return;
               if (_isVideoMode) {
                 widget.onVideoRecordCancel?.call();
               } else {
@@ -640,7 +640,7 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: Colors.white),
                     )
-                  : (hasText
+                  : (canSend
                       ? const iconoir.SendDiagonalSolid(
                           width: 22, height: 22, color: Colors.white)
                       : AnimatedBuilder(

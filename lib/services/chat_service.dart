@@ -23,6 +23,7 @@ class Chat {
   final String? lastSeen; // Last seen time for private chats
   final bool isPinned; // Whether chat is pinned
   final String? otherUserId;
+  final String? lastMessageGroupedId;
 
   Chat({
     required this.id,
@@ -40,6 +41,7 @@ class Chat {
     this.lastSeen,
     this.isPinned = false,
     this.otherUserId,
+    this.lastMessageGroupedId,
   });
 
   /// True if the last message in this chat is a round video note («кружочек»)
@@ -74,6 +76,7 @@ class Chat {
       lastSeen: json['last_seen']?.toString(),
       isPinned: json['is_pinned'] ?? false,
       otherUserId: json['other_user_id']?.toString() ?? json['otherUserId']?.toString(),
+      lastMessageGroupedId: json['last_message_grouped_id']?.toString(),
     );
   }
 
@@ -93,6 +96,7 @@ class Chat {
     String? lastSeen,
     bool? isPinned,
     String? otherUserId,
+    String? lastMessageGroupedId,
   }) {
     return Chat(
       id: id ?? this.id,
@@ -110,6 +114,7 @@ class Chat {
       lastSeen: lastSeen ?? this.lastSeen,
       isPinned: isPinned ?? this.isPinned,
       otherUserId: otherUserId ?? this.otherUserId,
+      lastMessageGroupedId: lastMessageGroupedId ?? this.lastMessageGroupedId,
     );
   }
 }
@@ -1080,6 +1085,8 @@ class ChatService {
     bool isRound = false,
     List<int>? waveform,
     int? duration,
+    String? groupedId,
+    Map<String, dynamic>? mediaPayload,
   }) async {
     try {
       final token = await AuthService.getToken();
@@ -1103,6 +1110,8 @@ class ChatService {
       if (effectiveIsRound) body['is_round'] = true;
       if (waveform != null && waveform.isNotEmpty) body['waveform'] = waveform;
       if (duration != null && duration > 0) body['duration'] = duration;
+      if (groupedId != null && groupedId.isNotEmpty) body['grouped_id'] = groupedId;
+      if (mediaPayload != null && mediaPayload.isNotEmpty) body['media_payload'] = mediaPayload;
       if (replyToMessageId != null) {
         body['reply_to_message_id'] = replyToMessageId;
         if (isQuote) {
@@ -1157,6 +1166,81 @@ class ChatService {
       }
     } catch (e) {
       debugPrint('Send message error: $e');
+      return {'success': false, 'message': 'Network error: ${e.toString()}'};
+    }
+  }
+
+  /// Отправить медиа-альбом (2-10 фото/видео) с общим grouped_id
+  static Future<Map<String, dynamic>> sendMediaAlbum({
+    required String chatId,
+    required List<Map<String, dynamic>> items,
+    String? groupedId,
+    String? caption,
+    List<MessageEntity>? entities,
+    bool invertMedia = false,
+    String? replyToMessageId,
+  }) async {
+    try {
+      final token = await AuthService.getToken();
+      if (token == null) {
+        return {'success': false, 'message': 'Not authenticated'};
+      }
+
+      final body = <String, dynamic>{
+        'items': items,
+      };
+      if (groupedId != null && groupedId.isNotEmpty) {
+        body['grouped_id'] = groupedId;
+      }
+      if (caption != null && caption.isNotEmpty) {
+        body['caption'] = caption;
+      }
+      if (entities != null && entities.isNotEmpty) {
+        body['entities'] = entities.map((e) => e.toJson()).toList();
+      }
+      if (invertMedia) {
+        body['invert_media'] = true;
+      }
+      if (replyToMessageId != null && replyToMessageId.isNotEmpty) {
+        body['reply_to_message_id'] = replyToMessageId;
+      }
+
+      if (AppConfig.enableDebugLogging) {
+        debugPrint(
+            'SendMediaAlbum: POST ${AppConfig.baseUrl}/api/chats/$chatId/messages/album');
+        debugPrint('SendMediaAlbum: body = $body');
+      }
+
+      final response = await http.post(
+        Uri.parse('${AppConfig.baseUrl}/api/chats/$chatId/messages/album'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(body),
+      );
+
+      if (AppConfig.enableDebugLogging) {
+        debugPrint(
+            'SendMediaAlbum: Response ${response.statusCode}: ${response.body}');
+      }
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200 && data['success'] == true) {
+        final rawMessages = data['messages'] as List<dynamic>? ?? [];
+        return {
+          'success': true,
+          'grouped_id': data['grouped_id'],
+          'messages': rawMessages.map((m) => Message.fromJson(m)).toList(),
+        };
+      } else {
+        return {
+          'success': false,
+          'message': data['message'] ?? 'Failed to send media album',
+        };
+      }
+    } catch (e) {
+      debugPrint('Send media album error: $e');
       return {'success': false, 'message': 'Network error: ${e.toString()}'};
     }
   }

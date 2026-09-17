@@ -135,6 +135,12 @@ class SyncService {
     final bool invertMedia = payload['invert_media'] == true ||
         payload['invert_media'] == 1 ||
         payload['invert_media'] == 'true';
+    final String? groupedId = payload['grouped_id']?.toString();
+    if (linkPreviewOptionsStr == null && payload['media_payload'] != null) {
+      linkPreviewOptionsStr = payload['media_payload'] is String
+          ? payload['media_payload'] as String
+          : jsonEncode(payload['media_payload']);
+    }
 
     await _db.saveMessage(MessagesCompanion(
       serverId: Value(serverId),
@@ -167,6 +173,7 @@ class SyncService {
       invertMedia: Value(invertMedia),
       isRound: Value(payload['is_round'] == true ||
           payload['message_type'] == 'round'),
+      groupedId: Value(groupedId),
     ));
   }
 
@@ -274,6 +281,8 @@ class SyncService {
     bool isRound = false,
     List<int>? waveform,
     int? duration,
+    String? groupedId,
+    dynamic mediaPayload,
   }) async {
     final localId = _uuid.v4();
     final now = DateTime.now().toUtc().toIso8601String();
@@ -281,7 +290,7 @@ class SyncService {
     final String? entitiesStr = entities is List
         ? jsonEncode(entities.map((e) => e is MessageEntity ? e.toJson() : e).toList())
         : (entities is String ? entities : null);
-    final String? linkPreviewOptionsStr = messageType == 'voice' && (waveform != null || duration != null)
+    String? linkPreviewOptionsStr = messageType == 'voice' && (waveform != null || duration != null)
         ? jsonEncode({
             if (waveform != null) 'waveform': waveform,
             if (duration != null) 'duration': duration,
@@ -291,6 +300,11 @@ class SyncService {
             : (linkPreviewOptions is Map
                 ? jsonEncode(linkPreviewOptions)
                 : (linkPreviewOptions is String ? linkPreviewOptions : null)));
+    if (linkPreviewOptionsStr == null && mediaPayload != null) {
+      linkPreviewOptionsStr = mediaPayload is String
+          ? mediaPayload
+          : jsonEncode(mediaPayload);
+    }
 
     await _db.saveMessage(MessagesCompanion(
       serverId: const Value.absent(), // Нет серверного ID пока
@@ -318,6 +332,7 @@ class SyncService {
       linkPreviewOptions: Value(linkPreviewOptionsStr),
       invertMedia: Value(invertMedia),
       isRound: Value(isRound),
+      groupedId: Value(groupedId),
     ));
 
     // Return the saved message as DbMessage
@@ -348,7 +363,7 @@ class SyncService {
       isForward: false,
       forwardFromId: null,
       forwardFromName: null,
-      groupedId: null,
+      groupedId: groupedId,
       entities: entitiesStr,
       reactions: null,
       linkPreviewOptions: linkPreviewOptionsStr,

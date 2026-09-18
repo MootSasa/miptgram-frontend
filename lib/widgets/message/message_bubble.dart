@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -1221,6 +1222,12 @@ class MessageBubble extends StatelessWidget {
         messageId: message.id,
         videoUrl: resolvedUrl,
         size: circleSize,
+        duration: message.duration != null && message.duration! > 0
+            ? Duration(seconds: message.duration!)
+            : null,
+        thumbUrl: message.thumbUrl,
+        thumbBase64: message.thumbBase64,
+        fileSize: message.mediaFileSize,
         isMe: isMe,
         isRead: message.isRead,
         sendStatus: message.sendStatus,
@@ -1239,6 +1246,7 @@ class MessageBubble extends StatelessWidget {
             ? Duration(seconds: message.duration!)
             : null,
         waveform: message.waveform,
+        fileSize: message.mediaFileSize,
         isMe: isMe,
         isRead: message.isRead,
         sendStatus: message.sendStatus,
@@ -1264,10 +1272,15 @@ class MessageBubble extends StatelessWidget {
         maxWidth: maxWidth,
         autoDownload: autoDownload,
         heroTag: heroTag,
-        onTap: () {
-          FullscreenPhotoViewer.open(context, resolvedUrl, tag: heroTag);
-          onFileTap?.call(
+        onTap: ([localPath]) {
+          FullscreenPhotoViewer.open(
+            context,
             resolvedUrl,
+            tag: heroTag,
+            localFilePath: localPath,
+          );
+          onFileTap?.call(
+            localPath ?? resolvedUrl,
             message.fileName ?? 'image.jpg',
             'image',
           );
@@ -1291,9 +1304,9 @@ class MessageBubble extends StatelessWidget {
         maxWidth: maxWidth,
         autoDownload: autoDownload,
         heroTag: 'msg_video_${message.id}_$resolvedUrl',
-        onTap: () {
+        onTap: ([localPath]) {
           onFileTap?.call(
-            resolvedUrl,
+            localPath ?? resolvedUrl,
             message.fileName ?? 'video.mp4',
             'video',
           );
@@ -1428,7 +1441,7 @@ class _SingleMediaBubbleWidget extends StatefulWidget {
   final double maxWidth;
   final bool autoDownload;
   final String heroTag;
-  final VoidCallback onTap;
+  final void Function([String? localPath]) onTap;
 
   const _SingleMediaBubbleWidget({
     Key? key,
@@ -1521,7 +1534,7 @@ class _SingleMediaBubbleWidgetState extends State<_SingleMediaBubbleWidget> {
     return GestureDetector(
       onTap: () {
         if (!widget.isVideo) {
-          widget.onTap();
+          widget.onTap(_cachedFile?.path);
         } else {
           if (isCached) {
             setState(() => _isPlayingInline = true);
@@ -1545,7 +1558,9 @@ class _SingleMediaBubbleWidgetState extends State<_SingleMediaBubbleWidget> {
                 fit: BoxFit.cover,
               ),
 
-              // 2. Real first frame for video (replaces blurred preview when loaded)
+              // 2. Real first frame for video:
+              // If video is already cached, show clear first frame.
+              // If not cached, apply blur filter over the thumbnail so it stays blurred with download icon!
               if (widget.isVideo) ...[
                 if (_cachedFirstFrame != null)
                   Image.memory(
@@ -1554,16 +1569,33 @@ class _SingleMediaBubbleWidgetState extends State<_SingleMediaBubbleWidget> {
                     fit: BoxFit.cover,
                   )
                 else if (resolvedThumbUrl != null && resolvedThumbUrl.isNotEmpty)
-                  Image.network(
-                    resolvedThumbUrl,
-                    width: widget.maxWidth,
-                    fit: BoxFit.cover,
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
-                      return const SizedBox.shrink();
-                    },
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                  ),
+                  isCached
+                      ? Image.network(
+                          resolvedThumbUrl,
+                          width: widget.maxWidth,
+                          fit: BoxFit.cover,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return const SizedBox.shrink();
+                          },
+                          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                        )
+                      : ImageFiltered(
+                          imageFilter: ui.ImageFilter.blur(sigmaX: 16.0, sigmaY: 16.0),
+                          child: Transform.scale(
+                            scale: 1.15,
+                            child: Image.network(
+                              resolvedThumbUrl,
+                              width: widget.maxWidth,
+                              fit: BoxFit.cover,
+                              loadingBuilder: (context, child, loadingProgress) {
+                                if (loadingProgress == null) return child;
+                                return const SizedBox.shrink();
+                              },
+                              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                            ),
+                          ),
+                        ),
               ],
 
               // 3. Full image (if photo and (cached or auto-download enabled))

@@ -32,6 +32,40 @@ class _DocumentMessageWidgetState extends State<DocumentMessageWidget> {
   double _progress = 0.0;
   String? _downloadedFilePath;
 
+  @override
+  void initState() {
+    super.initState();
+    _checkFileExists();
+  }
+
+  @override
+  void didUpdateWidget(DocumentMessageWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.fileName != widget.fileName || oldWidget.fileUrl != widget.fileUrl) {
+      _checkFileExists();
+    }
+  }
+
+  Future<void> _checkFileExists() async {
+    if (kIsWeb) return;
+    try {
+      final dir = await _getSaveDirectory();
+      final file = File('${dir.path}/${widget.fileName}');
+      if (await file.exists()) {
+        final len = await file.length();
+        if (len > 0) {
+          if (mounted) {
+            setState(() {
+              _status = DownloadStatus.downloaded;
+              _downloadedFilePath = file.path;
+              _progress = 1.0;
+            });
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
   String _formatSize(double bytes) {
     if (bytes <= 0) return '';
     if (bytes < 1024 * 1024) {
@@ -190,7 +224,20 @@ class _DocumentMessageWidgetState extends State<DocumentMessageWidget> {
 
     final contentLength = response.contentLength;
     final dir = await _getSaveDirectory();
-    final file = File('${dir.path}/${widget.fileName}');
+    String baseName = widget.fileName;
+    String extension = '';
+    final dotIndex = baseName.lastIndexOf('.');
+    if (dotIndex != -1) {
+      extension = baseName.substring(dotIndex);
+      baseName = baseName.substring(0, dotIndex);
+    }
+
+    File file = File('${dir.path}/${widget.fileName}');
+    int counter = 1;
+    while (await file.exists()) {
+      file = File('${dir.path}/$baseName ($counter)$extension');
+      counter++;
+    }
 
     final sink = file.openWrite();
     int totalBytes = 0;

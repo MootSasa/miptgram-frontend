@@ -6,6 +6,7 @@ import 'package:path/path.dart' as path;
 import '../config/app_config.dart';
 import 'auth_service.dart';
 import 'settings_service.dart';
+import 'cache_service.dart';
 
 /// Progress model containing received bytes, total expected bytes, and fraction (0.0 - 1.0).
 class DownloadByteProgress {
@@ -280,6 +281,19 @@ class MediaCacheManager {
     onByteProgress?.call(prog);
   }
 
+  /// Alias for downloadMedia
+  Future<File?> downloadFile(
+    String url, {
+    void Function(double progress)? onProgress,
+    void Function(DownloadByteProgress progress)? onByteProgress,
+    int? expectedTotalSize,
+  }) => downloadMedia(
+    url,
+    onProgress: onProgress,
+    onByteProgress: onByteProgress,
+    expectedTotalSize: expectedTotalSize,
+  );
+
   /// Download a media file to local cache with HTTP Range resume and byte progress tracking
   Future<File?> downloadMedia(
     String url, {
@@ -388,6 +402,7 @@ class MediaCacheManager {
           final finalFile = await tempFile.rename(targetPath);
           _localPathCache[url] = targetPath;
           _emitProgress(url, actualLength, actualLength, onProgress, onByteProgress);
+          _triggerDebouncedCacheCleanup();
           return finalFile;
         }
       }
@@ -401,6 +416,19 @@ class MediaCacheManager {
       _cancelTokens.remove(url);
     }
     return null;
+  }
+
+  DateTime? _lastCleanupTime;
+  void _triggerDebouncedCacheCleanup() {
+    final now = DateTime.now();
+    if (_lastCleanupTime == null || now.difference(_lastCleanupTime!).inMinutes >= 5) {
+      _lastCleanupTime = now;
+      Future.microtask(() async {
+        try {
+          await CacheService().init();
+        } catch (_) {}
+      });
+    }
   }
 
   /// Evaluates whether media should auto-download based on user Settings and size limits

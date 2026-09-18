@@ -1,10 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
-import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:visibility_detector/visibility_detector.dart';
+import '../../services/media_cache_manager.dart';
 import '../../services/video_note_playback_service.dart';
 import 'message_status_widget.dart';
 
@@ -45,6 +48,9 @@ class VideoMessageWidget extends StatefulWidget {
   final double size;
   final String? senderAvatarUrl;
   final Duration? duration;
+  final String? thumbUrl;
+  final String? thumbBase64;
+  final int? fileSize;
   final bool isMe;
   final bool isRead;
   final int sendStatus;
@@ -59,6 +65,9 @@ class VideoMessageWidget extends StatefulWidget {
     this.size = 230.0,
     this.senderAvatarUrl,
     this.duration,
+    this.thumbUrl,
+    this.thumbBase64,
+    this.fileSize,
     this.isMe = false,
     this.isRead = false,
     this.sendStatus = 1,
@@ -82,6 +91,11 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
   double _prevProgress = 0.0;
   final VideoNotePlaybackService _playbackService = VideoNotePlaybackService();
 
+  bool _isCached = false;
+  bool _isDownloading = false;
+  double _downloadProgress = 0.0;
+  ValueNotifier<double>? _progressNotifier;
+
   @override
   bool get wantKeepAlive => true;
 
@@ -97,11 +111,14 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.videoUrl != widget.videoUrl) {
       _initSession++;
+      _detachProgressListener();
       _controller?.removeListener(_onVideoUpdate);
       _controller = null;
       _hasError = false;
       _isPlayingWithSound = false;
       _prevProgress = 0.0;
+      _isCached = false;
+      _isDownloading = false;
       _initializeVideoPlayer();
     }
   }
@@ -124,6 +141,18 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
     }
   }
 
+  void _detachProgressListener() {
+    _progressNotifier?.removeListener(_onDownloadProgress);
+    _progressNotifier = null;
+  }
+
+  void _onDownloadProgress() {
+    if (!mounted || _progressNotifier == null) return;
+    setState(() {
+      _downloadProgress = _progressNotifier!.value;
+    });
+  }
+
   Future<void> _initializeVideoPlayer() async {
     final currentSession = ++_initSession;
     if (widget.videoUrl.isEmpty) {
@@ -138,6 +167,7 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
     if (cached != null && cached.value.isInitialized) {
       _controller = cached;
       _controller!.addListener(_onVideoUpdate);
+      _isCached = true;
       final isCurrentlyActive = (widget.messageId != null && _playbackService.activeMessageId == widget.messageId) ||
           _playbackService.activeController == cached;
       if (isCurrentlyActive) {
@@ -154,59 +184,114 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
       return;
     }
 
+    final url = widget.videoUrl;
+    final uri = Uri.tryParse(url);
+    final isNetwork = uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
+
+    if (!isNetwork) {
+      final filePath = url.startsWith('file://') ? url.replaceFirst('file://', '') : url;
+      final file = File(filePath);
+      if (!await file.exists()) {
+        debugPrint('[VideoMessageWidget] File does not exist: $filePath');
+        if (mounted && currentSession == _initSession) {
+          setState(() => _hasError = true);
+        }
+        return;
+      }
+      _isCached = true;
+      await _initControllerFromFile(file, currentSession);
+      return;
+    }
+
+    // Check disk cache
+    final cachedDiskFile = await MediaCacheManager.instance.getCachedFile(url);
+    if (cachedDiskFile != null && await cachedDiskFile.exists()) {
+      _isCached = true;
+      await _initControllerFromFile(cachedDiskFile, currentSession);
+      return;
+    }
+
+    _isCached = false;
+
+    // Check if in-flight download exists
+    if (MediaCacheManager.instance.isDownloading(url)) {
+      _detachProgressListener();
+      _progressNotifier = MediaCacheManager.instance.getProgressNotifier(url);
+      _progressNotifier?.addListener(_onDownloadProgress);
+      if (mounted && currentSession == _initSession) {
+        setState(() {
+          _isDownloading = true;
+          _downloadProgress = _progressNotifier?.value ?? 0.0;
+        });
+      }
+      return;
+    }
+
+    // Check auto-download policy
+    final autoDownload = widget.isMe || MediaCacheManager.instance.shouldAutoDownload(
+      messageType: 'video',
+      fileSize: widget.fileSize,
+    );
+
+    if (autoDownload) {
+      _startDownload(currentSession);
+    } else {
+      if (mounted && currentSession == _initSession) {
+        setState(() {
+          _isDownloading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _startDownload([int? session]) async {
+    final currentSession = session ?? _initSession;
+    if (_isDownloading) return;
+    setState(() {
+      _isDownloading = true;
+      _downloadProgress = 0.0;
+    });
+
+    _detachProgressListener();
+    _progressNotifier = MediaCacheManager.instance.getProgressNotifier(widget.videoUrl);
+    _progressNotifier?.addListener(_onDownloadProgress);
+
+    final file = await MediaCacheManager.instance.downloadFile(widget.videoUrl);
+    if (!mounted || currentSession != _initSession) return;
+
+    _detachProgressListener();
+    if (file != null && await file.exists()) {
+      setState(() {
+        _isDownloading = false;
+        _isCached = true;
+      });
+      await _initControllerFromFile(file, currentSession);
+    } else {
+      setState(() {
+        _isDownloading = false;
+        _isCached = false;
+      });
+    }
+  }
+
+  void _cancelDownload() {
+    MediaCacheManager.instance.cancelDownload(widget.videoUrl);
+    _detachProgressListener();
+    if (mounted) {
+      setState(() {
+        _isDownloading = false;
+      });
+    }
+  }
+
+  Future<void> _initControllerFromFile(File file, int session) async {
     try {
-      final url = widget.videoUrl;
-      final uri = Uri.tryParse(url);
-      final isNetwork = uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
-
-      VideoPlayerController controller;
-      if (isNetwork) {
-        controller = VideoPlayerController.networkUrl(uri);
-      } else {
-        final filePath = url.startsWith('file://') ? url.replaceFirst('file://', '') : url;
-        final file = File(filePath);
-        if (!await file.exists()) {
-          debugPrint('[VideoMessageWidget] File does not exist: $filePath');
-          if (mounted && currentSession == _initSession) {
-            setState(() => _hasError = true);
-          }
-          return;
-        }
-        controller = VideoPlayerController.file(file);
-      }
-
-      try {
-        await controller.initialize();
-      } catch (initErr) {
-        if (isNetwork) {
-          debugPrint('[VideoMessageWidget] Network video init failed: $initErr, attempting local fallback');
-          final fileName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : '';
-          File? localFallback;
-          if (fileName.isNotEmpty) {
-            try {
-              final tempDir = await getTemporaryDirectory();
-              final candidate = File('${tempDir.path}/$fileName');
-              if (await candidate.exists()) {
-                localFallback = candidate;
-              }
-            } catch (_) {}
-          }
-          if (localFallback != null) {
-            await controller.dispose();
-            controller = VideoPlayerController.file(localFallback);
-            await controller.initialize();
-          } else {
-            rethrow;
-          }
-        } else {
-          rethrow;
-        }
-      }
-
+      final controller = VideoPlayerController.file(file);
+      await controller.initialize();
       await controller.setLooping(true);
       await controller.setVolume(0.0);
 
-      if (!mounted || currentSession != _initSession) {
+      if (!mounted || session != _initSession) {
         await controller.dispose();
         return;
       }
@@ -228,8 +313,8 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
       });
       _controller!.play();
     } catch (e) {
-      debugPrint('[VideoMessageWidget] Failed to initialize video: $e');
-      if (mounted && currentSession == _initSession) {
+      debugPrint('[VideoMessageWidget] Controller init failed: $e');
+      if (mounted && session == _initSession) {
         setState(() => _hasError = true);
       }
     }
@@ -303,6 +388,15 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
   }
 
   void _handleTap() {
+    if (!_isCached) {
+      if (_isDownloading) {
+        _cancelDownload();
+      } else {
+        _startDownload();
+      }
+      return;
+    }
+
     if (_controller == null || !_controller!.value.isInitialized) return;
 
     if (_isPlayingWithSound) {
@@ -530,13 +624,8 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
                                       : const Icon(Icons.error_outline, color: Colors.white70, size: 36),
                                 ),
                               )
-                            : !isInitialized
-                                ? Container(
-                                    color: const Color(0xFF1C1C1E),
-                                    child: const Center(
-                                      child: Icon(Icons.play_arrow_rounded, color: Colors.white24, size: 42),
-                                    ),
-                                  )
+                            : (!_isCached || !isInitialized)
+                                ? _buildPlaceholder(effectiveDiameter)
                                  : isFloatingActive
                                      ? Container(
                                          color: const Color(0xFF1C1C1E),
@@ -633,6 +722,125 @@ class _VideoMessageWidgetState extends State<VideoMessageWidget>
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildPlaceholder(double diameter) {
+    Widget? baseImage;
+    if (widget.thumbBase64 != null && widget.thumbBase64!.isNotEmpty) {
+      try {
+        final bytes = base64Decode(widget.thumbBase64!);
+        baseImage = Image.memory(
+          bytes,
+          fit: BoxFit.cover,
+          width: diameter,
+          height: diameter,
+        );
+      } catch (_) {}
+    } else if (widget.thumbUrl != null && widget.thumbUrl!.isNotEmpty) {
+      baseImage = CachedNetworkImage(
+        imageUrl: widget.thumbUrl!,
+        fit: BoxFit.cover,
+        width: diameter,
+        height: diameter,
+      );
+    }
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        if (baseImage != null)
+          ClipOval(
+            child: ImageFiltered(
+              imageFilter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+              child: Transform.scale(
+                scale: 1.15,
+                child: SizedBox(
+                  width: diameter,
+                  height: diameter,
+                  child: baseImage,
+                ),
+              ),
+            ),
+          )
+        else
+          Container(
+            width: diameter,
+            height: diameter,
+            color: const Color(0xFF1C1C1E),
+          ),
+
+        // Dark dimming overlay
+        Container(
+          width: diameter,
+          height: diameter,
+          color: Colors.black.withValues(alpha: 0.35),
+        ),
+
+        // Center Action Button (Download / Progress / Initializing)
+        Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.65),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.3),
+              width: 1.5,
+            ),
+          ),
+          child: Center(
+            child: _isDownloading
+                ? Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      SizedBox(
+                        width: 32,
+                        height: 32,
+                        child: CircularProgressIndicator(
+                          value: _downloadProgress > 0.05 ? _downloadProgress : null,
+                          strokeWidth: 2.5,
+                          valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      ),
+                      const Icon(
+                        Icons.close_rounded,
+                        size: 18,
+                        color: Colors.white,
+                      ),
+                    ],
+                  )
+                : !_isCached
+                    ? Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.arrow_downward_rounded,
+                            size: 22,
+                            color: Colors.white,
+                          ),
+                          if (widget.fileSize != null && widget.fileSize! > 0)
+                            Text(
+                              MediaCacheManager.formatBytes(widget.fileSize!),
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                        ],
+                      )
+                    : const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.0,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
+                        ),
+                      ),
+          ),
+        ),
+      ],
     );
   }
 }

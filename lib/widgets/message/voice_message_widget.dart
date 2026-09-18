@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import '../../services/voice_playback_service.dart';
+import '../../services/media_cache_manager.dart';
 import 'message_status_widget.dart';
 
 /// Full Telegram-style voice message player widget inside message bubbles.
@@ -22,6 +23,7 @@ class VoiceMessageWidget extends StatefulWidget {
   final int sendStatus;
   final String? timeText;
   final String? senderName;
+  final int? fileSize;
   final VoidCallback? onRetry;
 
   const VoiceMessageWidget({
@@ -35,6 +37,7 @@ class VoiceMessageWidget extends StatefulWidget {
     this.sendStatus = 1,
     this.timeText,
     this.senderName,
+    this.fileSize,
     this.onRetry,
   }) : super(key: key);
 
@@ -45,17 +48,129 @@ class VoiceMessageWidget extends StatefulWidget {
 class _VoiceMessageWidgetState extends State<VoiceMessageWidget> {
   final VoicePlaybackService _playbackService = VoicePlaybackService();
   bool _hasBeenPlayedLocally = false;
+  bool _isCached = false;
+  bool _isDownloading = false;
+  double _downloadProgress = 0.0;
+  ValueNotifier<double>? _progressNotifier;
 
   @override
   void initState() {
     super.initState();
     _playbackService.addListener(_onPlaybackUpdate);
+    _checkCacheStatus();
+  }
+
+  @override
+  void didUpdateWidget(VoiceMessageWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.audioUrl != widget.audioUrl) {
+      _detachProgressListener();
+      _checkCacheStatus();
+    }
   }
 
   @override
   void dispose() {
+    _detachProgressListener();
     _playbackService.removeListener(_onPlaybackUpdate);
     super.dispose();
+  }
+
+  void _detachProgressListener() {
+    _progressNotifier?.removeListener(_onDownloadProgress);
+    _progressNotifier = null;
+  }
+
+  void _onDownloadProgress() {
+    if (!mounted || _progressNotifier == null) return;
+    setState(() {
+      _downloadProgress = _progressNotifier!.value;
+    });
+  }
+
+  Future<void> _checkCacheStatus() async {
+    if (widget.audioUrl.isEmpty) return;
+
+    if (widget.isMe || !widget.audioUrl.startsWith('http')) {
+      if (mounted) {
+        setState(() {
+          _isCached = true;
+          _isDownloading = false;
+        });
+      }
+      return;
+    }
+
+    final cached = await MediaCacheManager.instance.getCachedFile(widget.audioUrl);
+    if (cached != null && await cached.exists()) {
+      if (mounted) {
+        setState(() {
+          _isCached = true;
+          _isDownloading = false;
+        });
+      }
+      return;
+    }
+
+    if (MediaCacheManager.instance.isDownloading(widget.audioUrl)) {
+      _progressNotifier = MediaCacheManager.instance.getProgressNotifier(widget.audioUrl);
+      _progressNotifier?.addListener(_onDownloadProgress);
+      if (mounted) {
+        setState(() {
+          _isCached = false;
+          _isDownloading = true;
+          _downloadProgress = _progressNotifier?.value ?? 0.0;
+        });
+      }
+      return;
+    }
+
+    final autoDownload = MediaCacheManager.instance.shouldAutoDownload(
+      messageType: 'audio',
+      fileSize: widget.fileSize,
+    );
+
+    if (autoDownload) {
+      _startDownload();
+    } else {
+      if (mounted) {
+        setState(() {
+          _isCached = false;
+          _isDownloading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _startDownload() async {
+    if (_isDownloading) return;
+    setState(() {
+      _isDownloading = true;
+      _downloadProgress = 0.0;
+    });
+
+    _detachProgressListener();
+    _progressNotifier = MediaCacheManager.instance.getProgressNotifier(widget.audioUrl);
+    _progressNotifier?.addListener(_onDownloadProgress);
+
+    final file = await MediaCacheManager.instance.downloadFile(widget.audioUrl);
+    if (!mounted) return;
+
+    _detachProgressListener();
+    setState(() {
+      _isDownloading = false;
+      _isCached = (file != null);
+    });
+  }
+
+  void _cancelDownload() {
+    MediaCacheManager.instance.cancelDownload(widget.audioUrl);
+    _detachProgressListener();
+    if (mounted) {
+      setState(() {
+        _isDownloading = false;
+      });
+    }
   }
 
   void _onPlaybackUpdate() {
@@ -95,6 +210,15 @@ class _VoiceMessageWidgetState extends State<VoiceMessageWidget> {
   }
 
   void _handlePlayPause() {
+    if (!_isCached) {
+      if (_isDownloading) {
+        _cancelDownload();
+      } else {
+        _startDownload();
+      }
+      return;
+    }
+
     if (_isThisPlaying) {
       _playbackService.pauseVoice();
     } else if (_isThisActive) {
@@ -110,6 +234,10 @@ class _VoiceMessageWidgetState extends State<VoiceMessageWidget> {
   }
 
   void _handleWaveformTap(double localDx, double totalWidth) {
+    if (!_isCached) {
+      _startDownload();
+      return;
+    }
     if (totalWidth <= 0) return;
     final fraction = (localDx / totalWidth).clamp(0.0, 1.0);
     final targetMs = (fraction * _effectiveDuration.inMilliseconds).round();
@@ -193,11 +321,7 @@ class _VoiceMessageWidgetState extends State<VoiceMessageWidget> {
                     shape: BoxShape.circle,
                   ),
                   child: Center(
-                    child: Icon(
-                      _isThisPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                      size: 28,
-                      color: widget.isMe ? Colors.white : primaryColor,
-                    ),
+                    child: _buildButtonIcon(primaryColor),
                   ),
                 ),
               ),
@@ -347,6 +471,45 @@ class _VoiceMessageWidgetState extends State<VoiceMessageWidget> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildButtonIcon(Color primaryColor) {
+    final color = widget.isMe ? Colors.white : primaryColor;
+    if (_isDownloading) {
+      return Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(
+              value: _downloadProgress > 0.05 ? _downloadProgress : null,
+              strokeWidth: 2.2,
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+            ),
+          ),
+          Icon(
+            Icons.close_rounded,
+            size: 16,
+            color: color,
+          ),
+        ],
+      );
+    }
+
+    if (!_isCached) {
+      return Icon(
+        Icons.arrow_downward_rounded,
+        size: 24,
+        color: color,
+      );
+    }
+
+    return Icon(
+      _isThisPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+      size: 28,
+      color: color,
     );
   }
 }

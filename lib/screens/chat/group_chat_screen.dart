@@ -57,7 +57,9 @@ import 'private_chat_screen.dart';
 import 'channel_screen.dart';
 import '../../utils/date_time_utils.dart';
 import 'group_info_screen.dart';
-// ---------------------------------
+import 'package:path/path.dart' as p;
+import '../../widgets/chat/attachment_picker_bottom_sheet.dart';
+import 'media_send_screen.dart';
 
 class GroupChatScreen extends StatefulWidget {
   static const String routeName = '/group_chat';
@@ -1387,51 +1389,82 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     return 'file';
   }
 
-  void _showAttachmentPicker() {
-    final theme = Theme.of(context);
-    final iconColor = theme.colorScheme.onSurface;
+  void _showAttachmentPicker() async {
+    final action = await AttachmentPickerBottomSheet.show(context, allowPoll: false);
+    if (action == null || !mounted) return;
 
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: iconoir.Camera(color: iconColor, width: 24, height: 24),
-              title: const Text('Camera'),
-              onTap: () {
-                Navigator.pop(context);
-                _takePhoto();
-              },
-            ),
-            ListTile(
-              leading: iconoir.MediaImage(color: iconColor, width: 24, height: 24),
-              title: const Text('Gallery (Photos & Videos)'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickMedia('media');
-              },
-            ),
-            ListTile(
-              leading: iconoir.VideoCamera(color: iconColor, width: 24, height: 24),
-              title: const Text('Video'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickMedia('video');
-              },
-            ),
-            ListTile(
-              leading: iconoir.Page(color: iconColor, width: 24, height: 24),
-              title: const Text('Document'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickDocument();
-              },
-            ),
-          ],
-        ),
+    switch (action) {
+      case AttachmentPickerAction.camera:
+        _takePhoto();
+        break;
+      case AttachmentPickerAction.gallery:
+        _pickMedia('media');
+        break;
+      case AttachmentPickerAction.file:
+        _pickDocument();
+        break;
+      case AttachmentPickerAction.location:
+        // Location sending in group chat
+        break;
+      case AttachmentPickerAction.contact:
+        // Contact sending in group chat
+        break;
+      case AttachmentPickerAction.music:
+        _pickAudio();
+        break;
+      case AttachmentPickerAction.poll:
+        break;
+    }
+  }
+
+  Future<void> _pickAudio() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.audio,
+        allowMultiple: true,
+      );
+      if (result != null && result.files.isNotEmpty) {
+        setState(() {
+          for (final file in result.files) {
+            if (file.path != null && _attachedFiles.length < 10) {
+              _attachedFiles.add(File(file.path!));
+              _attachedFileNames.add(file.name);
+            }
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick audio: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _openMediaSendScreen(List<File> files) async {
+    if (files.isEmpty) return;
+    final result = await Navigator.push<MediaSendResult>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => MediaSendScreen(initialFiles: files),
       ),
     );
+
+    if (result != null && result.files.isNotEmpty && mounted) {
+      setState(() {
+        for (final file in result.files) {
+          if (_attachedFiles.length < 10) {
+            _attachedFiles.add(file);
+            _attachedFileNames.add(p.basename(file.path));
+          }
+        }
+        if (result.caption != null && result.caption!.isNotEmpty) {
+          _messageController.text = result.caption!;
+        }
+      });
+      _sendMessage();
+    }
   }
 
   Future<void> _pickMedia(String type) async {
@@ -1442,14 +1475,15 @@ class _GroupChatScreenState extends State<GroupChatScreen>
           allowMultiple: true,
         );
         if (result != null && result.files.isNotEmpty) {
-          setState(() {
-            for (final file in result.files) {
-              if (file.path != null && _attachedFiles.length < 10) {
-                _attachedFiles.add(File(file.path!));
-                _attachedFileNames.add(file.name);
-              }
+          final List<File> picked = [];
+          for (final file in result.files) {
+            if (file.path != null) {
+              picked.add(File(file.path!));
             }
-          });
+          }
+          if (picked.isNotEmpty) {
+            await _openMediaSendScreen(picked);
+          }
         }
       } else {
         List<XFile> pickedMedia = [];
@@ -1457,24 +1491,18 @@ class _GroupChatScreenState extends State<GroupChatScreen>
           pickedMedia = await _imagePicker.pickMultipleMedia(
             maxWidth: 1920,
             maxHeight: 1920,
-            imageQuality: 85,
+            imageQuality: 95,
           );
         } catch (_) {
           pickedMedia = await _imagePicker.pickMultiImage(
             maxWidth: 1920,
             maxHeight: 1920,
-            imageQuality: 85,
+            imageQuality: 95,
           );
         }
         if (pickedMedia.isNotEmpty) {
-          setState(() {
-            for (final photo in pickedMedia) {
-              if (_attachedFiles.length < 10) {
-                _attachedFiles.add(File(photo.path));
-                _attachedFileNames.add(photo.name);
-              }
-            }
-          });
+          final picked = pickedMedia.map((x) => File(x.path)).toList();
+          await _openMediaSendScreen(picked);
         }
       }
     } catch (e) {
@@ -1492,14 +1520,11 @@ class _GroupChatScreenState extends State<GroupChatScreen>
         source: ImageSource.camera,
         maxWidth: 1920,
         maxHeight: 1920,
-        imageQuality: 85,
+        imageQuality: 95,
       );
 
       if (photo != null) {
-        setState(() {
-          _attachedFiles.add(File(photo.path));
-          _attachedFileNames.add(photo.name);
-        });
+        await _openMediaSendScreen([File(photo.path)]);
       }
     } catch (e) {
       if (mounted) {

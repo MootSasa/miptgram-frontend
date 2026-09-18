@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import '../config/app_config.dart';
 import 'auth_service.dart';
@@ -353,28 +354,52 @@ class FileService {
   
     /// Get default download directory based on platform
     Future<String> _getDefaultDownloadDirectory() async {
-      // For mobile platforms, use the app's documents directory
-      // For desktop, use the system Downloads folder
-      if (Platform.isAndroid || Platform.isIOS) {
-        // Use app documents directory
+      // 1. Try platform-provided Downloads directory (desktop and supported mobile)
+      try {
+        final downloadsDir = await getDownloadsDirectory();
+        if (downloadsDir != null && await downloadsDir.exists()) {
+          return downloadsDir.path;
+        }
+      } catch (_) {}
+
+      // 2. Android public Downloads directory if accessible
+      if (Platform.isAndroid) {
         final directory = Directory('/storage/emulated/0/Download');
         if (await directory.exists()) {
           return directory.path;
         }
-        // Fallback to app documents
-        final appDir = Directory.systemTemp;
-        return path.join(appDir.path, 'Downloads');
-      } else if (Platform.isLinux) {
+      }
+
+      // 3. Desktop environment variables
+      if (Platform.isLinux || Platform.isMacOS) {
         final home = Platform.environment['HOME'] ?? '';
-        return path.join(home, 'Downloads');
-      } else if (Platform.isMacOS) {
-        final home = Platform.environment['HOME'] ?? '';
-        return path.join(home, 'Downloads');
+        if (home.isNotEmpty) {
+          final dirPath = path.join(home, 'Downloads');
+          if (await Directory(dirPath).exists()) {
+            return dirPath;
+          }
+        }
       } else if (Platform.isWindows) {
         final userProfile = Platform.environment['USERPROFILE'] ?? '';
-        return path.join(userProfile, 'Downloads');
+        if (userProfile.isNotEmpty) {
+          final dirPath = path.join(userProfile, 'Downloads');
+          if (await Directory(dirPath).exists()) {
+            return dirPath;
+          }
+        }
       }
-      // Fallback
+
+      // 4. Fallback to app documents/Downloads
+      try {
+        final docsDir = await getApplicationDocumentsDirectory();
+        final downloadsDir = Directory(path.join(docsDir.path, 'Downloads'));
+        if (!await downloadsDir.exists()) {
+          await downloadsDir.create(recursive: true);
+        }
+        return downloadsDir.path;
+      } catch (_) {}
+
+      // 5. Final fallback to system temp
       return Directory.systemTemp.path;
     }
   

@@ -1,9 +1,11 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'media_cache_manager.dart';
 
 /// Representation of a single media category in cache
 class CacheCategoryInfo {
@@ -116,6 +118,16 @@ class CacheService {
       debugPrint('CacheService: getApplicationCacheDirectory error: $e');
     }
 
+    try {
+      final docDir = await getApplicationDocumentsDirectory();
+      final legacyMediaDir = Directory(p.join(docDir.path, 'miptgram_media'));
+      if (await legacyMediaDir.exists() && !dirs.any((d) => d.path == legacyMediaDir.path)) {
+        dirs.add(legacyMediaDir);
+      }
+    } catch (e) {
+      debugPrint('CacheService: legacy documents media dir error: $e');
+    }
+
     return dirs;
   }
 
@@ -218,6 +230,13 @@ class CacheService {
   }) async {
     var freedBytes = 0;
 
+    // Clear memory caches (Flutter ImageCache and MediaCacheManager memory state)
+    try {
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+    } catch (_) {}
+    MediaCacheManager.instance.clearMemoryCache();
+
     // 1. Clear DefaultCacheManager if photos are selected
     if (photos) {
       try {
@@ -247,6 +266,10 @@ class CacheService {
           // File may be locked or already deleted
         }
       }
+    }
+
+    if (photos && videos && audio && files && other) {
+      await MediaCacheManager.instance.clearDiskCache();
     }
 
     return freedBytes;

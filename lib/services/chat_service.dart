@@ -589,25 +589,7 @@ class Message {
     }
 
     LinkPreviewOptions? parsedLinkPreviewOptions;
-    List<int>? dbWaveform;
-    int? dbDuration;
-    if (model.messageType == 'voice' &&
-        model.linkPreviewOptions != null &&
-        model.linkPreviewOptions!.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(model.linkPreviewOptions!);
-        if (decoded is Map) {
-          if (decoded['waveform'] is List) {
-            dbWaveform = (decoded['waveform'] as List)
-                .map((e) => (e as num).toInt())
-                .toList();
-          }
-          if (decoded['duration'] is num) {
-            dbDuration = (decoded['duration'] as num).toInt();
-          }
-        }
-      } catch (_) {}
-    } else if (model.linkPreviewOptions != null &&
+    if (model.linkPreviewOptions != null &&
         model.linkPreviewOptions!.isNotEmpty) {
       try {
         final decoded = jsonDecode(model.linkPreviewOptions!);
@@ -618,14 +600,30 @@ class Message {
     }
 
     Map<String, dynamic>? dbMediaPayload;
-    if (model.linkPreviewOptions != null &&
-        model.linkPreviewOptions!.isNotEmpty) {
+    List<int>? dbWaveform;
+    int? dbDuration;
+    // Prefer dedicated mediaPayload column, fall back to linkPreviewOptions for legacy data
+    final rawMediaPayload = (model.mediaPayload != null && model.mediaPayload!.isNotEmpty)
+        ? model.mediaPayload
+        : (model.messageType == 'voice' ? model.linkPreviewOptions : null);
+
+    if (rawMediaPayload != null && rawMediaPayload.isNotEmpty) {
       try {
-        final decoded = jsonDecode(model.linkPreviewOptions!);
+        final decoded = jsonDecode(rawMediaPayload);
         if (decoded is Map<String, dynamic>) {
           dbMediaPayload = decoded;
         } else if (decoded is Map) {
           dbMediaPayload = Map<String, dynamic>.from(decoded);
+        }
+        if (dbMediaPayload != null) {
+          if (dbMediaPayload['waveform'] is List) {
+            dbWaveform = (dbMediaPayload['waveform'] as List)
+                .map((e) => (e as num).toInt())
+                .toList();
+          }
+          if (dbMediaPayload['duration'] is num) {
+            dbDuration = (dbMediaPayload['duration'] as num).toInt();
+          }
         }
       } catch (_) {}
     }

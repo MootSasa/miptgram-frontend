@@ -463,16 +463,16 @@ class _ChannelScreenState extends State<ChannelScreen> {
               _messages.add(m);
             }
           }
+          final dateMap = <String, int>{};
+          for (final m in _messages) {
+            dateMap[m.id] = DateTime.tryParse(m.createdAt)?.millisecondsSinceEpoch ?? 0;
+          }
           _messages.sort((a, b) {
-            try {
-              final ta = DateTime.parse(a.createdAt);
-              final tb = DateTime.parse(b.createdAt);
-              final cmp = tb.compareTo(ta);
-              if (cmp != 0) return cmp;
-              return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
-            } catch (_) {
-              return 0;
-            }
+            final ta = dateMap[a.id] ?? 0;
+            final tb = dateMap[b.id] ?? 0;
+            final cmp = tb.compareTo(ta);
+            if (cmp != 0) return cmp;
+            return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
           });
           _isLoadingMore = false;
         });
@@ -515,16 +515,16 @@ class _ChannelScreenState extends State<ChannelScreen> {
             _messages.add(m);
           }
         }
+        final dateMap = <String, int>{};
+        for (final m in _messages) {
+          dateMap[m.id] = DateTime.tryParse(m.createdAt)?.millisecondsSinceEpoch ?? 0;
+        }
         _messages.sort((a, b) {
-          try {
-            final ta = DateTime.parse(a.createdAt);
-            final tb = DateTime.parse(b.createdAt);
-            final cmp = tb.compareTo(ta);
-            if (cmp != 0) return cmp;
-            return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
-          } catch (_) {
-            return 0;
-          }
+          final ta = dateMap[a.id] ?? 0;
+          final tb = dateMap[b.id] ?? 0;
+          final cmp = tb.compareTo(ta);
+          if (cmp != 0) return cmp;
+          return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
         });
         _isLoadingMore = false;
       });
@@ -571,11 +571,12 @@ class _ChannelScreenState extends State<ChannelScreen> {
       entities: msg.entities.isNotEmpty
           ? Value(jsonEncode(msg.entities.map((e) => e.toJson()).toList()))
           : const Value.absent(),
-      linkPreviewOptions: msg.mediaPayload != null && msg.mediaPayload!.isNotEmpty
+      linkPreviewOptions: msg.linkPreviewOptions != null
+          ? Value(jsonEncode(msg.linkPreviewOptions!.toJson()))
+          : const Value.absent(),
+      mediaPayload: msg.mediaPayload != null && msg.mediaPayload!.isNotEmpty
           ? Value(jsonEncode(msg.mediaPayload))
-          : (msg.linkPreviewOptions != null
-              ? Value(jsonEncode(msg.linkPreviewOptions!.toJson()))
-              : const Value.absent()),
+          : const Value.absent(),
       invertMedia: Value(msg.invertMedia),
       isForward: Value(msg.isForward),
       forwardFromId: Value(msg.forwardFromId),

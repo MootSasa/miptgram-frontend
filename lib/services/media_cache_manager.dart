@@ -88,6 +88,16 @@ class MediaCacheManager {
     // Note: Do NOT reset notifiers to 0 so the paused progress state remains displayed
   }
 
+  /// Returns the primary cache directory for media (`getApplicationCacheDirectory() / miptgram_media`)
+  Future<Directory> getMediaCacheDirectory() async {
+    final cacheDir = await getApplicationCacheDirectory();
+    final dir = Directory(path.join(cacheDir.path, 'miptgram_media'));
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
   /// Checks if the file is cached locally on disk and exists
   Future<File?> getCachedFile(String url) async {
     if (url.isEmpty) return null;
@@ -97,44 +107,153 @@ class MediaCacheManager {
       if (await f.exists()) return f;
     }
 
+    final sanitized = url.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+
+    // 1. Check primary application cache directory
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final sanitized = url.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-      final targetPath = path.join(dir.path, 'miptgram_media', sanitized);
+      final cacheDir = await getApplicationCacheDirectory();
+      final targetPath = path.join(cacheDir.path, 'miptgram_media', sanitized);
       final f = File(targetPath);
       if (await f.exists() && (await f.length()) > 0) {
         _localPathCache[url] = targetPath;
         return f;
       }
     } catch (_) {}
+
+    // 2. Check legacy documents directory
+    try {
+      final docDir = await getApplicationDocumentsDirectory();
+      final targetPath = path.join(docDir.path, 'miptgram_media', sanitized);
+      final f = File(targetPath);
+      if (await f.exists() && (await f.length()) > 0) {
+        _localPathCache[url] = targetPath;
+        return f;
+      }
+    } catch (_) {}
+
     return null;
   }
 
   /// Checks if a partial download file (.tmp) exists and returns its current progress
   Future<DownloadByteProgress?> getPartialProgress(String url, {int? totalSize}) async {
     if (url.isEmpty) return null;
+    final sanitized = url.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+
+    // Check primary cache directory first, then legacy documents directory
+    for (final dirGetter in [getApplicationCacheDirectory, getApplicationDocumentsDirectory]) {
+      try {
+        final dir = await dirGetter();
+        final tempPath = path.join(dir.path, 'miptgram_media', '$sanitized.tmp');
+        final tempFile = File(tempPath);
+        if (await tempFile.exists()) {
+          final len = await tempFile.length();
+          if (len > 0) {
+            final tot = totalSize ?? len;
+            final fraction = tot > 0 ? (len / tot).clamp(0.0, 1.0) : 0.0;
+            final prog = DownloadByteProgress(
+              receivedBytes: len,
+              totalBytes: tot,
+              fraction: fraction,
+            );
+            _byteProgressNotifiers[url]?.value = prog;
+            _progressNotifiers[url]?.value = fraction;
+            return prog;
+          }
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  /// Clears in-memory cache, cancel tokens and progress notifiers
+  void clearMemoryCache() {
+    for (final token in _cancelTokens.values) {
+      if (!token.isCancelled) {
+        token.cancel('Cache cleared');
+      }
+    }
+    _cancelTokens.clear();
+    _localPathCache.clear();
+    _progressNotifiers.clear();
+    _byteProgressNotifiers.clear();
+  }
+
+  /// Clears all downloaded media files from disk (both cache and legacy directories)
+  Future<void> clearDiskCache() async {
+    clearMemoryCache();
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final sanitized = url.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-      final tempPath = path.join(dir.path, 'miptgram_media', '$sanitized.tmp');
-      final tempFile = File(tempPath);
-      if (await tempFile.exists()) {
-        final len = await tempFile.length();
-        if (len > 0) {
-          final tot = totalSize ?? len;
-          final fraction = tot > 0 ? (len / tot).clamp(0.0, 1.0) : 0.0;
-          final prog = DownloadByteProgress(
-            receivedBytes: len,
-            totalBytes: tot,
-            fraction: fraction,
-          );
-          _byteProgressNotifiers[url]?.value = prog;
-          _progressNotifiers[url]?.value = fraction;
-          return prog;
+      final cacheDir = await getApplicationCacheDirectory();
+      final mediaCacheDir = Directory(path.join(cacheDir.path, 'miptgram_media'));
+      if (await mediaCacheDir.exists()) {
+        await mediaCacheDir.delete(recursive: true);
+      }
+    } catch (e) {
+      debugPrint('Error clearing media cache dir: $e');
+    }
+
+    try {
+      final docDir = await getApplicationDocumentsDirectory();
+      final legacyMediaDir = Directory(path.join(docDir.path, 'miptgram_media'));
+      if (await legacyMediaDir.exists()) {
+        await legacyMediaDir.delete(recursive: true);
+      }
+    } catch (e) {
+      debugPrint('Error clearing legacy media dir: $e');
+    }
+  }
+
+  /// Deletes a specific media file from disk cache and memory
+  Future<void> deleteMedia(String url) async {
+    cancelDownload(url);
+    _localPathCache.remove(url);
+    _progressNotifiers.remove(url);
+    _byteProgressNotifiers.remove(url);
+
+    final sanitized = url.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+    try {
+      final cacheDir = await getApplicationCacheDirectory();
+      final f1 = File(path.join(cacheDir.path, 'miptgram_media', sanitized));
+      if (await f1.exists()) await f1.delete();
+      final tmp1 = File(path.join(cacheDir.path, 'miptgram_media', '$sanitized.tmp'));
+      if (await tmp1.exists()) await tmp1.delete();
+    } catch (_) {}
+
+    try {
+      final docDir = await getApplicationDocumentsDirectory();
+      final f2 = File(path.join(docDir.path, 'miptgram_media', sanitized));
+      if (await f2.exists()) await f2.delete();
+      final tmp2 = File(path.join(docDir.path, 'miptgram_media', '$sanitized.tmp'));
+      if (await tmp2.exists()) await tmp2.delete();
+    } catch (_) {}
+  }
+
+  /// Computes the total size in bytes of downloaded media files in cache
+  Future<int> getCacheSizeBytes() async {
+    int total = 0;
+    try {
+      final cacheDir = await getApplicationCacheDirectory();
+      final mediaCacheDir = Directory(path.join(cacheDir.path, 'miptgram_media'));
+      if (await mediaCacheDir.exists()) {
+        await for (final entity in mediaCacheDir.list(recursive: true)) {
+          if (entity is File) {
+            total += await entity.length();
+          }
         }
       }
     } catch (_) {}
-    return null;
+
+    try {
+      final docDir = await getApplicationDocumentsDirectory();
+      final legacyMediaDir = Directory(path.join(docDir.path, 'miptgram_media'));
+      if (await legacyMediaDir.exists()) {
+        await for (final entity in legacyMediaDir.list(recursive: true)) {
+          if (entity is File) {
+            total += await entity.length();
+          }
+        }
+      }
+    } catch (_) {}
+    return total;
   }
 
   void _emitProgress(
@@ -185,11 +304,7 @@ class MediaCacheManager {
     _cancelTokens[url] = cancelToken;
 
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final mediaDir = Directory(path.join(dir.path, 'miptgram_media'));
-      if (!await mediaDir.exists()) {
-        await mediaDir.create(recursive: true);
-      }
+      final mediaDir = await getMediaCacheDirectory();
 
       final sanitized = url.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
       final targetPath = path.join(mediaDir.path, sanitized);

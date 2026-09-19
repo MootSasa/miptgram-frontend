@@ -3331,10 +3331,39 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
   /// Show attachment picker bottom sheet
   void _showAttachmentPicker() async {
-    final action = await AttachmentPickerBottomSheet.show(context, allowPoll: false);
-    if (action == null || !mounted) return;
+    final result = await AttachmentPickerBottomSheet.show(context, allowPoll: false);
+    if (result == null || !mounted) return;
 
-    switch (action) {
+    if (result.files != null && result.files!.isNotEmpty) {
+      if (result.asDocument) {
+        setState(() {
+          for (final file in result.files!) {
+            if (_attachedFiles.length < 10) {
+              _attachedFiles.add(file);
+              _attachedFileNames.add(p.basename(file.path));
+            }
+          }
+        });
+        if (result.sendImmediately) {
+          _sendMessage();
+        }
+      } else if (result.sendImmediately) {
+        setState(() {
+          for (final file in result.files!) {
+            if (_attachedFiles.length < 10) {
+              _attachedFiles.add(file);
+              _attachedFileNames.add(p.basename(file.path));
+            }
+          }
+        });
+        _sendMessage();
+      } else {
+        await _openMediaSendScreen(result.files!);
+      }
+      return;
+    }
+
+    switch (result.action) {
       case AttachmentPickerAction.camera:
         _takePhoto();
         break;
@@ -3354,6 +3383,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         _pickAudio();
         break;
       case AttachmentPickerAction.poll:
+        break;
+      case null:
         break;
     }
   }

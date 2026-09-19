@@ -67,6 +67,8 @@ dependencies:
   ios_color_picker: ^3.0.0
   iconoir_flutter: ^7.12.1
   package_info_plus: ^8.0.0
+  photo_manager: ^3.12.0
+  photo_manager_image_provider: ^2.2.0
 
 
 dev_dependencies:

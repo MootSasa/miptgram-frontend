@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui';
+import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -65,21 +68,75 @@ class AttachmentPickerBottomSheet extends StatefulWidget {
 }
 
 class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomSheet> {
+  static const int _pageSize = 60;
+
+  List<AssetPathEntity> _albums = [];
+  AssetPathEntity? _selectedAlbum;
   List<AssetEntity> _assets = [];
   final List<AssetEntity> _selectedAssets = [];
+
   bool _isLoadingAssets = true;
+  bool _isLoadingMore = false;
+  bool _hasMoreAssets = true;
   bool _hasPermission = false;
   bool _sendAsDocument = false;
   bool _isConverting = false;
 
+  // Live camera preview
+  CameraController? _cameraController;
+  bool _isCameraInitialized = false;
+
+  // Scrollbar and date pill bubble state
+  ScrollController? _attachedController;
+  bool _isScrolling = false;
+  String? _currentScrollDate;
+  double _thumbPosition = 0.0;
+  Timer? _scrollFadeTimer;
+
   @override
   void initState() {
     super.initState();
-    _loadRecentAssets();
+    _loadAlbumsAndAssets();
+    _initLiveCamera();
   }
 
-  Future<void> _loadRecentAssets() async {
-    // PhotoManager is only supported on mobile/macOS; fallback gracefully elsewhere
+  @override
+  void dispose() {
+    _scrollFadeTimer?.cancel();
+    _attachedController?.removeListener(_onScroll);
+    _cameraController?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initLiveCamera() async {
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS && !Platform.isMacOS)) return;
+    try {
+      final cameras = await availableCameras();
+      if (cameras.isEmpty || !mounted) return;
+      final backCamera = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
+      );
+      final controller = CameraController(
+        backCamera,
+        ResolutionPreset.low,
+        enableAudio: false,
+      );
+      await controller.initialize();
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      setState(() {
+        _cameraController = controller;
+        _isCameraInitialized = true;
+      });
+    } catch (e) {
+      debugPrint('Live camera preview init note: $e');
+    }
+  }
+
+  Future<void> _loadAlbumsAndAssets() async {
     if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS && !Platform.isMacOS)) {
       if (mounted) {
         setState(() {
@@ -96,25 +153,19 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
 
       if (state.hasAccess) {
         final List<AssetPathEntity> paths = await PhotoManager.getAssetPathList(
-          onlyAll: true,
           type: RequestType.common,
         );
 
         if (paths.isNotEmpty && mounted) {
-          final recentAlbum = paths.first;
-          final list = await recentAlbum.getAssetListRange(start: 0, end: 80);
-          if (mounted) {
-            setState(() {
-              _assets = list;
-              _hasPermission = true;
-              _isLoadingAssets = false;
-            });
-            return;
-          }
+          _albums = paths;
+          _selectedAlbum = paths.first;
+          _hasPermission = true;
+          await _loadAssets(reset: true);
+          return;
         }
       }
     } catch (e) {
-      debugPrint('Error loading recent media: $e');
+      debugPrint('Error loading albums: $e');
     }
 
     if (mounted) {
@@ -123,6 +174,240 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
         _isLoadingAssets = false;
       });
     }
+  }
+
+  Future<void> _loadAssets({bool reset = false}) async {
+    if (_selectedAlbum == null) return;
+    if (_isLoadingMore || (!_hasMoreAssets && !reset)) return;
+
+    if (reset) {
+      setState(() {
+        _assets.clear();
+        _hasMoreAssets = true;
+        _isLoadingAssets = true;
+      });
+    } else {
+      setState(() {
+        _isLoadingMore = true;
+      });
+    }
+
+    try {
+      final start = reset ? 0 : _assets.length;
+      final end = start + _pageSize;
+      final list = await _selectedAlbum!.getAssetListRange(start: start, end: end);
+      if (!mounted) return;
+
+      setState(() {
+        if (reset) {
+          _assets = list;
+        } else {
+          _assets.addAll(list);
+        }
+        _hasMoreAssets = list.length >= _pageSize;
+      });
+    } catch (e) {
+      debugPrint('Error loading assets: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingAssets = false;
+          _isLoadingMore = false;
+        });
+      }
+    }
+  }
+
+  void _setupScrollController(ScrollController controller) {
+    if (_attachedController != controller) {
+      _attachedController?.removeListener(_onScroll);
+      _attachedController = controller;
+      _attachedController?.addListener(_onScroll);
+    }
+  }
+
+  void _onScroll() {
+    if (_attachedController == null || !_attachedController!.hasClients) return;
+    final position = _attachedController!.position;
+    if (position.pixels >= position.maxScrollExtent - 350 && !_isLoadingMore && _hasMoreAssets) {
+      _loadAssets();
+    }
+  }
+
+  bool _onScrollNotification(ScrollNotification notification) {
+    if (notification is ScrollUpdateNotification || notification is UserScrollNotification) {
+      if (_assets.isNotEmpty && notification.metrics.maxScrollExtent > 0) {
+        final progress = (notification.metrics.pixels / notification.metrics.maxScrollExtent).clamp(0.0, 1.0);
+        final itemIndex = (progress * (_assets.length - 1)).round().clamp(0, _assets.length - 1);
+        final asset = _assets[itemIndex];
+        final formattedDate = _formatMonthYear(
+          asset.createDateTime,
+          Localizations.localeOf(context).languageCode,
+        );
+
+        setState(() {
+          _isScrolling = true;
+          _currentScrollDate = formattedDate;
+          _thumbPosition = progress;
+        });
+
+        _scrollFadeTimer?.cancel();
+        _scrollFadeTimer = Timer(const Duration(milliseconds: 1200), () {
+          if (mounted) {
+            setState(() => _isScrolling = false);
+          }
+        });
+      }
+    }
+    return false;
+  }
+
+  String _formatMonthYear(DateTime dt, String locale) {
+    final isRu = locale.startsWith('ru');
+    const monthsRu = [
+      'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+      'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
+    ];
+    const monthsEn = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    final monthName = isRu ? monthsRu[dt.month - 1] : monthsEn[dt.month - 1];
+    return '$monthName ${dt.year}';
+  }
+
+  void _showAlbumSelector() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.65,
+          ),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E1E24) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 10),
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white30 : Colors.black26,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: Row(
+                  children: [
+                    Text(
+                      context.l10n.translate('chat_all_photos'),
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 20),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+              ),
+              Divider(
+                height: 1,
+                color: isDark ? Colors.white10 : Colors.black12,
+              ),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _albums.length,
+                  itemBuilder: (context, index) {
+                    final album = _albums[index];
+                    final isSelected = album.id == _selectedAlbum?.id;
+                    return ListTile(
+                      leading: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF2C2C34) : const Color(0xFFF0F2F5),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: FutureBuilder<List<AssetEntity>>(
+                          future: album.getAssetListRange(start: 0, end: 1),
+                          builder: (context, snapshot) {
+                            if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+                              return ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: AssetEntityImage(
+                                  snapshot.data!.first,
+                                  isOriginal: false,
+                                  thumbnailSize: const ThumbnailSize.square(120),
+                                  fit: BoxFit.cover,
+                                ),
+                              );
+                            }
+                            return Icon(
+                              Icons.folder_outlined,
+                              color: isDark ? Colors.white70 : Colors.black54,
+                            );
+                          },
+                        ),
+                      ),
+                      title: Text(
+                        album.isAll ? context.l10n.translate('chat_recent_photos') : album.name,
+                        style: TextStyle(
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                          color: isSelected
+                              ? const Color(0xFF2AABEE)
+                              : (isDark ? Colors.white : Colors.black87),
+                        ),
+                      ),
+                      subtitle: FutureBuilder<int>(
+                        future: album.assetCountAsync,
+                        builder: (context, snapshot) {
+                          return Text(
+                            snapshot.hasData ? '${snapshot.data}' : '...',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark ? Colors.white54 : Colors.black54,
+                            ),
+                          );
+                        },
+                      ),
+                      trailing: isSelected
+                          ? const Icon(Icons.check, color: Color(0xFF2AABEE))
+                          : null,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        if (album.id != _selectedAlbum?.id) {
+                          setState(() {
+                            _selectedAlbum = album;
+                          });
+                          _loadAssets(reset: true);
+                        }
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   void _toggleSelection(AssetEntity asset) {
@@ -229,6 +514,14 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
       snap: true,
       snapSizes: const [0.58, 0.94],
       builder: (context, scrollController) {
+        _setupScrollController(scrollController);
+
+        final albumTitle = _selectedAlbum != null
+            ? (_selectedAlbum!.isAll
+                ? context.l10n.translate('chat_recent_photos')
+                : _selectedAlbum!.name)
+            : context.l10n.translate('chat_recent_photos');
+
         return ClipRRect(
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           child: BackdropFilter(
@@ -262,21 +555,50 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
                     ),
                     const SizedBox(height: 10),
 
-                    // Top Section Bar: "Недавние" + "Галерея" shortcut
+                    // Top Section Bar: Folder/Album Selector + "Галерея" shortcut
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            context.l10n.translate('chat_recent_photos'),
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: theme.textTheme.titleMedium?.color,
-                              letterSpacing: -0.2,
+                          // Album / Folder dropdown selector
+                          GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: _albums.length > 1 ? _showAlbumSelector : null,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? Colors.white.withValues(alpha: 0.08)
+                                    : Colors.black.withValues(alpha: 0.05),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    albumTitle,
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      color: theme.textTheme.titleMedium?.color,
+                                      letterSpacing: -0.2,
+                                    ),
+                                  ),
+                                  if (_albums.length > 1) ...[
+                                    const SizedBox(width: 4),
+                                    Icon(
+                                      Icons.keyboard_arrow_down_rounded,
+                                      size: 18,
+                                      color: theme.textTheme.titleMedium?.color?.withValues(alpha: 0.7),
+                                    ),
+                                  ],
+                                ],
+                              ),
                             ),
                           ),
+
+                          // Quick Gallery Button
                           GestureDetector(
                             onTap: () {
                               Navigator.pop(
@@ -314,12 +636,12 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
                     ),
                     const SizedBox(height: 8),
 
-                    // Media Grid Section
+                    // Media Grid Section with Scrollbar and Date Bubble
                     Expanded(
                       child: _buildMediaGrid(scrollController, isDark, theme),
                     ),
 
-                    // Bottom Bar (Action Buttons or Send Bar)
+                    // Floating Oval Dock (Action Buttons or Send Bar)
                     AnimatedSwitcher(
                       duration: const Duration(milliseconds: 220),
                       switchInCurve: Curves.easeOutCubic,
@@ -354,7 +676,7 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
     }
 
     // If no permission or no media available
-    if (!_hasPermission || _assets.isEmpty) {
+    if (!_hasPermission || (_assets.isEmpty && _selectedAlbum == null)) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -408,29 +730,102 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
       );
     }
 
-    // Grid: Item 0 = Camera tile, Items 1..N = AssetEntity tiles
-    final totalCount = _assets.length + 1;
+    // Item 0 = Camera tile, Items 1..N = AssetEntity tiles, plus optional loading spinner
+    final totalCount = _assets.length + 1 + (_isLoadingMore ? 1 : 0);
 
-    return GridView.builder(
-      controller: scrollController,
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 3,
-        crossAxisSpacing: 3,
-        childAspectRatio: 1.0,
-      ),
-      itemCount: totalCount,
-      itemBuilder: (context, index) {
-        if (index == 0) {
-          return _buildCameraTile(isDark);
-        }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return NotificationListener<ScrollNotification>(
+          onNotification: _onScrollNotification,
+          child: Stack(
+            children: [
+              RawScrollbar(
+                controller: scrollController,
+                thumbVisibility: true,
+                interactive: true,
+                thickness: 4.5,
+                radius: const Radius.circular(3),
+                thumbColor: isDark ? Colors.white30 : Colors.black26,
+                minThumbLength: 40,
+                padding: const EdgeInsets.only(right: 3, top: 4, bottom: 4),
+                child: GridView.builder(
+                  controller: scrollController,
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    mainAxisSpacing: 3,
+                    crossAxisSpacing: 3,
+                    childAspectRatio: 1.0,
+                  ),
+                  itemCount: totalCount,
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return _buildCameraTile(isDark);
+                    }
 
-        final asset = _assets[index - 1];
-        final isSelected = _selectedAssets.contains(asset);
-        final selectionIndex = _selectedAssets.indexOf(asset) + 1;
+                    if (index > _assets.length) {
+                      // Bottom loading spinner
+                      return const Center(
+                        child: SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2.2),
+                        ),
+                      );
+                    }
 
-        return _buildAssetTile(asset, isSelected, selectionIndex, isDark);
+                    final asset = _assets[index - 1];
+                    final isSelected = _selectedAssets.contains(asset);
+                    final selectionIndex = _selectedAssets.indexOf(asset) + 1;
+
+                    return _buildAssetTile(asset, isSelected, selectionIndex, isDark);
+                  },
+                ),
+              ),
+
+              // Floating Month & Year Date Pill next to scrollbar
+              Positioned(
+                right: 14,
+                top: math.max(6.0, _thumbPosition * (constraints.maxHeight - 38)),
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    opacity: _isScrolling && _currentScrollDate != null ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 180),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? const Color(0xFF25252D).withValues(alpha: 0.94)
+                            : Colors.black.withValues(alpha: 0.78),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.15),
+                          width: 0.8,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.25),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        _currentScrollDate ?? '',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.1,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
       },
     );
   }
@@ -447,42 +842,81 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
             const AttachmentPickerResult.action(AttachmentPickerAction.camera),
           );
         },
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: Stack(
+          fit: StackFit.expand,
           children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFFF9500), Color(0xFFFF5E3A)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFFFF5E3A).withValues(alpha: 0.35),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
+            // Live Camera Preview if initialized
+            if (_isCameraInitialized &&
+                _cameraController != null &&
+                _cameraController!.value.isInitialized)
+              ClipRect(
+                child: OverflowBox(
+                  alignment: Alignment.center,
+                  child: FittedBox(
+                    fit: BoxFit.cover,
+                    child: SizedBox(
+                      width: _cameraController!.value.previewSize?.height ?? 100,
+                      height: _cameraController!.value.previewSize?.width ?? 100,
+                      child: CameraPreview(_cameraController!),
+                    ),
                   ),
-                ],
+                ),
               ),
-              child: const Center(
-                child: iconoir.Camera(
-                  color: Colors.white,
-                  width: 22,
-                  height: 22,
+
+            // Translucent overlay for readable icon/label
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.20),
+                    Colors.black.withValues(alpha: 0.55),
+                  ],
                 ),
               ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              context.l10n.translate('chat_camera'),
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: isDark ? Colors.white70 : Colors.black87,
+
+            // Monotone Camera Icon & Label
+            Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.black.withValues(alpha: 0.35),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.6),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: const Center(
+                      child: iconoir.Camera(
+                        color: Colors.white,
+                        width: 22,
+                        height: 22,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    context.l10n.translate('chat_camera'),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                      shadows: [
+                        Shadow(
+                          color: Colors.black87,
+                          blurRadius: 4,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -623,106 +1057,96 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
   }
 
   Widget _buildActionsRow(bool isDark, ThemeData theme) {
+    final iconColor = isDark ? Colors.white : Colors.black87;
+
     final items = [
       _PickerItem(
         action: AttachmentPickerAction.gallery,
         label: context.l10n.translate('chat_gallery'),
         fallbackLabel: 'Gallery',
-        gradient: const LinearGradient(
-          colors: [Color(0xFF33A9FF), Color(0xFF0077E6)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        icon: const iconoir.MediaImage(color: Colors.white, width: 24, height: 24),
+        icon: iconoir.MediaImage(color: iconColor, width: 22, height: 22),
       ),
       _PickerItem(
         action: AttachmentPickerAction.file,
         label: context.l10n.translate('chat_file'),
         fallbackLabel: 'File',
-        gradient: const LinearGradient(
-          colors: [Color(0xFF6B72FF), Color(0xFF434EE8)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        icon: const iconoir.Page(color: Colors.white, width: 24, height: 24),
+        icon: iconoir.Page(color: iconColor, width: 22, height: 22),
       ),
       _PickerItem(
         action: AttachmentPickerAction.location,
         label: context.l10n.translate('chat_location'),
         fallbackLabel: 'Location',
-        gradient: const LinearGradient(
-          colors: [Color(0xFF34D399), Color(0xFF059669)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        icon: const iconoir.MapPin(color: Colors.white, width: 24, height: 24),
+        icon: iconoir.MapPin(color: iconColor, width: 22, height: 22),
       ),
       _PickerItem(
         action: AttachmentPickerAction.contact,
         label: context.l10n.translate('chat_contact'),
         fallbackLabel: 'Contact',
-        gradient: const LinearGradient(
-          colors: [Color(0xFF06B6D4), Color(0xFF0891B2)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        icon: const iconoir.User(color: Colors.white, width: 24, height: 24),
+        icon: iconoir.User(color: iconColor, width: 22, height: 22),
       ),
       _PickerItem(
         action: AttachmentPickerAction.music,
         label: context.l10n.translate('chat_music'),
         fallbackLabel: 'Music',
-        gradient: const LinearGradient(
-          colors: [Color(0xFFF43F5E), Color(0xFFE11D48)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        icon: const iconoir.MusicDoubleNote(color: Colors.white, width: 24, height: 24),
+        icon: iconoir.MusicDoubleNote(color: iconColor, width: 22, height: 22),
       ),
       if (widget.allowPoll)
         _PickerItem(
           action: AttachmentPickerAction.poll,
           label: context.l10n.translate('chat_poll'),
           fallbackLabel: 'Poll',
-          gradient: const LinearGradient(
-            colors: [Color(0xFFFBBF24), Color(0xFFD97706)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          icon: const iconoir.StatsUpSquare(color: Colors.white, width: 24, height: 24),
+          icon: iconoir.StatsUpSquare(color: iconColor, width: 22, height: 22),
         ),
     ];
 
-    return Container(
-      key: const ValueKey('actions_row'),
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.08)
-                : Colors.black.withValues(alpha: 0.06),
-            width: 0.8,
-          ),
-        ),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: items.map((item) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: _AnimatedPickerButton(
-                item: item,
-                onTap: () => Navigator.pop(
-                  context,
-                  AttachmentPickerResult.action(item.action),
-                ),
+    return Padding(
+      padding: const EdgeInsets.only(left: 12, right: 12, bottom: 10, top: 4),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(36),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: Container(
+            key: const ValueKey('actions_dock'),
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? const Color(0xFF25252D).withValues(alpha: 0.92)
+                  : Colors.white.withValues(alpha: 0.94),
+              borderRadius: BorderRadius.circular(36),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.1)
+                    : Colors.black.withValues(alpha: 0.08),
+                width: 0.8,
               ),
-            );
-          }).toList(),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.12),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: items.map((item) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: _AnimatedPickerButton(
+                      item: item,
+                      onTap: () => Navigator.pop(
+                        context,
+                        AttachmentPickerResult.action(item.action),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -731,125 +1155,131 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
   Widget _buildSendBar(bool isDark, ThemeData theme) {
     final count = _selectedAssets.length;
 
-    return Container(
-      key: const ValueKey('send_bar'),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF22222A) : const Color(0xFFF3F4F7),
-        border: Border(
-          top: BorderSide(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.1)
-                : Colors.black.withValues(alpha: 0.08),
-            width: 0.8,
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          // "Без сжатия" toggle
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {
-              HapticFeedback.selectionClick();
-              setState(() => _sendAsDocument = !_sendAsDocument);
-            },
+    return Padding(
+      padding: const EdgeInsets.only(left: 12, right: 12, bottom: 10, top: 4),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(36),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: Container(
+            key: const ValueKey('send_dock'),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? const Color(0xFF25252D).withValues(alpha: 0.94)
+                  : Colors.white.withValues(alpha: 0.96),
+              borderRadius: BorderRadius.circular(36),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.12)
+                    : Colors.black.withValues(alpha: 0.08),
+                width: 0.8,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.12),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
             child: Row(
-              mainAxisSize: MainAxisSize.min,
               children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  width: 22,
-                  height: 22,
+                // "Без сжатия" toggle
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _sendAsDocument = !_sendAsDocument);
+                  },
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(6),
+                          color: _sendAsDocument
+                              ? const Color(0xFF2AABEE)
+                              : Colors.transparent,
+                          border: Border.all(
+                            color: _sendAsDocument
+                                ? const Color(0xFF2AABEE)
+                                : (isDark ? Colors.white38 : Colors.black38),
+                            width: 1.8,
+                          ),
+                        ),
+                        child: _sendAsDocument
+                            ? const Icon(Icons.check, size: 16, color: Colors.white)
+                            : null,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        context.l10n.translate('chat_send_without_compression'),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: theme.textTheme.bodyMedium?.color,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const Spacer(),
+
+                // Selected count badge
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(6),
-                    color: _sendAsDocument
-                        ? const Color(0xFF2AABEE)
-                        : Colors.transparent,
-                    border: Border.all(
-                      color: _sendAsDocument
-                          ? const Color(0xFF2AABEE)
-                          : (isDark ? Colors.white38 : Colors.black38),
-                      width: 1.8,
+                    color: const Color(0xFF2AABEE).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: const TextStyle(
+                      color: Color(0xFF2AABEE),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
                     ),
                   ),
-                  child: _sendAsDocument
-                      ? const Icon(Icons.check, size: 16, color: Colors.white)
-                      : null,
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  context.l10n.translate('chat_send_without_compression'),
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: theme.textTheme.bodyMedium?.color,
+                const SizedBox(width: 10),
+
+                // Send Button (flat solid Telegram blue)
+                GestureDetector(
+                  onTap: _isConverting ? null : _sendSelected,
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Color(0xFF2AABEE),
+                    ),
+                    child: Center(
+                      child: _isConverting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : const iconoir.Send(
+                              color: Colors.white,
+                              width: 20,
+                              height: 20,
+                            ),
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-
-          const Spacer(),
-
-          // Selected count badge
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: const Color(0xFF2AABEE).withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              '$count',
-              style: const TextStyle(
-                color: Color(0xFF2AABEE),
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-
-          // Send Button
-          GestureDetector(
-            onTap: _isConverting ? null : _sendSelected,
-            child: Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF38B2FF), Color(0xFF0088EA)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF0088EA).withValues(alpha: 0.4),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Center(
-                child: _isConverting
-                    ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : const iconoir.Send(
-                        color: Colors.white,
-                        width: 22,
-                        height: 22,
-                      ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -875,6 +1305,7 @@ class _AnimatedPickerButtonState extends State<_AnimatedPickerButton> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final item = widget.item;
     final displayLabel = item.label.isNotEmpty && item.label != item.action.name
         ? item.label
@@ -902,22 +1333,23 @@ class _AnimatedPickerButtonState extends State<_AnimatedPickerButton> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 50,
-              height: 50,
+              width: 46,
+              height: 46,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: item.gradient,
-                boxShadow: [
-                  BoxShadow(
-                    color: item.gradient.colors.first.withValues(alpha: 0.35),
-                    blurRadius: _isPressed ? 6 : 10,
-                    offset: Offset(0, _isPressed ? 2 : 4),
-                  ),
-                ],
+                color: isDark
+                    ? const Color(0xFF32323C)
+                    : const Color(0xFFEBEDF2),
+                border: Border.all(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : Colors.black.withValues(alpha: 0.05),
+                  width: 1.0,
+                ),
               ),
               child: Center(child: item.icon),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 5),
             Text(
               displayLabel,
               style: TextStyle(
@@ -941,14 +1373,12 @@ class _PickerItem {
   final AttachmentPickerAction action;
   final String label;
   final String fallbackLabel;
-  final LinearGradient gradient;
   final Widget icon;
 
   const _PickerItem({
     required this.action,
     required this.label,
     required this.fallbackLabel,
-    required this.gradient,
     required this.icon,
   });
 }

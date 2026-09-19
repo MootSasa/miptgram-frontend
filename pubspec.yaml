@@ -69,6 +69,7 @@ dependencies:
   package_info_plus: ^8.0.0
   photo_manager: ^3.12.0
   photo_manager_image_provider: ^2.2.0
+  camera: ^0.12.0+2
 
 
 dev_dependencies:

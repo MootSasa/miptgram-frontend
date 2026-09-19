@@ -60,6 +60,7 @@ import 'group_info_screen.dart';
 import 'package:path/path.dart' as p;
 import '../../widgets/chat/attachment_picker_bottom_sheet.dart';
 import 'media_send_screen.dart';
+import 'poll_create_screen.dart';
 
 class GroupChatScreen extends StatefulWidget {
   static const String routeName = '/group_chat';
@@ -1390,7 +1391,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
   }
 
   void _showAttachmentPicker() async {
-    final result = await AttachmentPickerBottomSheet.show(context, allowPoll: false);
+    final result = await AttachmentPickerBottomSheet.show(context, allowPoll: true);
     if (result == null || !mounted) return;
 
     if (result.files != null && result.files!.isNotEmpty) {
@@ -1442,6 +1443,12 @@ class _GroupChatScreenState extends State<GroupChatScreen>
         _pickAudio();
         break;
       case AttachmentPickerAction.poll:
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PollCreateScreen(chatId: widget.chatId),
+          ),
+        );
         break;
       case null:
         break;

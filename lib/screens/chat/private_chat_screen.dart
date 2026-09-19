@@ -61,6 +61,7 @@ import '../../widgets/chat/media_note_player_header.dart';
 import 'package:path/path.dart' as p;
 import '../../widgets/chat/attachment_picker_bottom_sheet.dart';
 import 'media_send_screen.dart';
+import 'poll_create_screen.dart';
 
 class PrivateChatScreen extends StatefulWidget {
   final String chatId;
@@ -3331,7 +3332,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
   /// Show attachment picker bottom sheet
   void _showAttachmentPicker() async {
-    final result = await AttachmentPickerBottomSheet.show(context, allowPoll: false);
+    final result = await AttachmentPickerBottomSheet.show(context, allowPoll: true);
     if (result == null || !mounted) return;
 
     if (result.files != null && result.files!.isNotEmpty) {
@@ -3383,6 +3384,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         _pickAudio();
         break;
       case AttachmentPickerAction.poll:
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PollCreateScreen(chatId: widget.chatId),
+          ),
+        );
         break;
       case null:
         break;

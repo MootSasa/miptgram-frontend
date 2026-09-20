@@ -1237,6 +1237,7 @@ class ChatService {
             senderId: rawMsg['sender_id']?.toString() ?? '',
             content: rawMsg['content']?.toString() ?? content,
             messageType: rawMsg['message_type']?.toString() ?? effectiveMessageType,
+            isEdited: rawMsg['is_edited'] == true,
             createdAt: rawMsg['created_at']?.toString() ?? DateTime.now().toIso8601String(),
             senderName: rawMsg['sender_name']?.toString() ?? 'You',
             fileUrl: rawMsg['file_url']?.toString() ?? fileUrl,

@@ -500,28 +500,57 @@ class Message {
       readAt: json['read_at']?.toString(),
       isQuote: json['is_quote'] ?? false,
       quoteText: json['quote_text']?.toString(),
-      quoteOffset: json['quote_offset'] as int? ?? 0,
-      quoteLength: json['quote_length'] as int? ?? 0,
+      quoteOffset: (json['quote_offset'] as num?)?.toInt() ?? 0,
+      quoteLength: (json['quote_length'] as num?)?.toInt() ?? 0,
       replyInfo: replyInfo,
       localId: json['local_id']?.toString(),
-      sendStatus: json['send_status'] ?? 1,
+      sendStatus: (json['send_status'] as num?)?.toInt() ?? 1,
       senderNameColorId: json['sender_name_color_id']?.toString(),
       senderReplyStripStyle: json['sender_reply_strip_style']?.toString(),
       isForward: json['is_forward'] ?? false,
       forwardFromId: json['forward_from_id']?.toString(),
       forwardFromName: json['forward_from_name']?.toString(),
       groupedId: json['grouped_id']?.toString(),
-      entities: (json['entities'] as List?)
-              ?.map((e) => MessageEntity.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          const [],
-      linkPreviewOptions: json['link_preview_options'] != null
-          ? LinkPreviewOptions.fromJson(
-              json['link_preview_options'] is String
-                  ? jsonDecode(json['link_preview_options'])
-                  : json['link_preview_options'] as Map<String, dynamic>,
-            )
-          : null,
+      entities: () {
+        final raw = json['entities'];
+        if (raw is List) {
+          return raw
+              .whereType<Map>()
+              .map((e) => MessageEntity.fromJson(Map<String, dynamic>.from(e)))
+              .toList();
+        } else if (raw is String && raw.isNotEmpty && raw != 'null') {
+          try {
+            final decoded = jsonDecode(raw);
+            if (decoded is List) {
+              return decoded
+                  .whereType<Map>()
+                  .map((e) => MessageEntity.fromJson(Map<String, dynamic>.from(e)))
+                  .toList();
+            }
+          } catch (_) {}
+        }
+        return const <MessageEntity>[];
+      }(),
+      linkPreviewOptions: () {
+        final raw = json['link_preview_options'];
+        if (raw == null) return null;
+        if (raw is Map) {
+          try {
+            return LinkPreviewOptions.fromJson(Map<String, dynamic>.from(raw));
+          } catch (_) {
+            return null;
+          }
+        }
+        if (raw is String && raw.isNotEmpty && raw != 'null' && raw != '{}') {
+          try {
+            final decoded = jsonDecode(raw);
+            if (decoded is Map) {
+              return LinkPreviewOptions.fromJson(Map<String, dynamic>.from(decoded));
+            }
+          } catch (_) {}
+        }
+        return null;
+      }(),
       invertMedia: json['invert_media'] == true ||
           json['invert_media'] == 1 ||
           json['invert_media'] == 'true',
@@ -530,10 +559,17 @@ class Message {
       isRound: json['is_round'] == true || json['message_type'] == 'round',
       waveform: waveform,
       duration: duration,
-      mediaPayload: json['media_payload'] is Map<String, dynamic>
-          ? json['media_payload'] as Map<String, dynamic>
-          : (json['media_payload'] is Map
-              ? Map<String, dynamic>.from(json['media_payload'] as Map)
+      mediaPayload: json['media_payload'] is Map
+          ? Map<String, dynamic>.from(json['media_payload'] as Map)
+          : (json['media_payload'] is String && (json['media_payload'] as String).isNotEmpty
+              ? (() {
+                  try {
+                    final decoded = jsonDecode(json['media_payload'] as String);
+                    return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
+                  } catch (_) {
+                    return null;
+                  }
+                })()
               : null),
     );
   }
@@ -1184,9 +1220,35 @@ class ChatService {
 
       final data = jsonDecode(response.body);
       if (response.statusCode == 200 && data['success'] == true) {
+        Message parsedMessage;
+        try {
+          final rawMsg = data['message'];
+          if (rawMsg is Map) {
+            parsedMessage = Message.fromJson(Map<String, dynamic>.from(rawMsg));
+          } else {
+            throw const FormatException('Expected map for message');
+          }
+        } catch (parseError) {
+          debugPrint('Error parsing sent message: $parseError');
+          final rawMsg = data['message'] is Map ? (data['message'] as Map) : {};
+          parsedMessage = Message(
+            id: rawMsg['id']?.toString() ?? localId ?? '',
+            chatId: chatId,
+            senderId: rawMsg['sender_id']?.toString() ?? '',
+            content: rawMsg['content']?.toString() ?? content,
+            messageType: rawMsg['message_type']?.toString() ?? effectiveMessageType,
+            createdAt: rawMsg['created_at']?.toString() ?? DateTime.now().toIso8601String(),
+            senderName: rawMsg['sender_name']?.toString() ?? 'You',
+            fileUrl: rawMsg['file_url']?.toString() ?? fileUrl,
+            fileName: rawMsg['file_name']?.toString() ?? fileName,
+            localId: localId,
+            sendStatus: 1,
+            groupedId: rawMsg['grouped_id']?.toString() ?? groupedId,
+          );
+        }
         return {
           'success': true,
-          'message': Message.fromJson(data['message']),
+          'message': parsedMessage,
         };
       } else {
         return {
@@ -1258,10 +1320,20 @@ class ChatService {
       final data = jsonDecode(response.body);
       if (response.statusCode == 200 && data['success'] == true) {
         final rawMessages = data['messages'] as List<dynamic>? ?? [];
+        final parsedMessages = <Message>[];
+        for (final m in rawMessages) {
+          try {
+            if (m is Map) {
+              parsedMessages.add(Message.fromJson(Map<String, dynamic>.from(m)));
+            }
+          } catch (e) {
+            debugPrint('Failed to parse album message: $e');
+          }
+        }
         return {
           'success': true,
           'grouped_id': data['grouped_id'],
-          'messages': rawMessages.map((m) => Message.fromJson(m)).toList(),
+          'messages': parsedMessages,
         };
       } else {
         return {

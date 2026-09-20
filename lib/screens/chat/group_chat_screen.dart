@@ -1090,7 +1090,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
           overallProcessedCount += chunkFiles.length;
 
           if (chunkFiles.length >= 2) {
-            final res = await ChatService.sendMediaAlbum(
+            Map<String, dynamic> res = await ChatService.sendMediaAlbum(
               chatId: widget.chatId,
               items: albumItems,
               groupedId: albumGroupedId,
@@ -1100,14 +1100,50 @@ class _GroupChatScreenState extends State<GroupChatScreen>
               replyToMessageId: replyTo?.id,
             );
 
+            // Fallback: If server album endpoint fails, send items sequentially with the same albumGroupedId
+            if (res['success'] != true) {
+              debugPrint('sendMediaAlbum failed in group (${res['message']}), falling back to individual messages with groupedId');
+              final fallbackMsgs = <Message>[];
+              for (int itemIdx = 0; itemIdx < albumItems.length; itemIdx++) {
+                final item = albumItems[itemIdx];
+                final isLast = itemIdx == albumItems.length - 1;
+                final singleRes = await ChatService.sendMessage(
+                  chatId: widget.chatId,
+                  messageType: item['message_type'] ?? 'image',
+                  content: isLast ? (chunkCaption ?? '') : '',
+                  fileUrl: item['file_url'],
+                  fileName: item['file_name'],
+                  mediaPayload: item['media_payload'],
+                  entities: isLast ? chunkEntities : null,
+                  groupedId: albumGroupedId,
+                  invertMedia: invertMedia,
+                  replyToMessageId: replyTo?.id,
+                );
+                if (singleRes['success'] == true && singleRes['message'] is Message) {
+                  fallbackMsgs.add(singleRes['message'] as Message);
+                }
+              }
+              if (fallbackMsgs.isNotEmpty) {
+                res = {
+                  'success': true,
+                  'grouped_id': albumGroupedId,
+                  'messages': fallbackMsgs,
+                };
+              }
+            }
+
             if (res['success'] == true) {
               final rawMessages = res['messages'] as List<dynamic>? ?? [];
               final newMsgs = <Message>[];
               for (final raw in rawMessages) {
                 final msg = raw is Message
                     ? raw
-                    : Message.fromJson(raw as Map<String, dynamic>);
-                newMsgs.add(msg);
+                    : (raw is Map
+                        ? Message.fromJson(Map<String, dynamic>.from(raw))
+                        : null);
+                if (msg != null) {
+                  newMsgs.add(msg);
+                }
               }
               for (final msg in newMsgs) {
                 final existingIdx = _messages.indexWhere((m) => m.id == msg.id);
@@ -1357,6 +1393,8 @@ class _GroupChatScreenState extends State<GroupChatScreen>
               }
             }
           } else {
+            final errMsg = result['message']?.toString() ?? 'Failed to send message';
+            debugPrint('ChatService.sendMessage in group returned false: $errMsg');
             await syncService.markMessageFailed(pendingLocalId);
             if (mounted) {
               setState(() {
@@ -1367,10 +1405,13 @@ class _GroupChatScreenState extends State<GroupChatScreen>
                       _messages[idx].copyWith(sendStatus: 2); // failed
                 }
               });
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(errMsg)),
+              );
             }
           }
         } catch (e) {
-          debugPrint('ChatService.sendMessage exception: $e');
+          debugPrint('ChatService.sendMessage in group exception: $e');
           await syncService.markMessageFailed(pendingLocalId);
           if (mounted) {
             setState(() {
@@ -1381,6 +1422,9 @@ class _GroupChatScreenState extends State<GroupChatScreen>
                     _messages[idx].copyWith(sendStatus: 2); // failed
               }
             });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to send message: $e')),
+            );
           }
         }
       } else {

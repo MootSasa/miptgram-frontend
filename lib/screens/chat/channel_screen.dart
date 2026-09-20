@@ -823,6 +823,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
             }
           }
         } else {
+          final errMsg = result['message']?.toString() ?? 'Failed to send message';
+          debugPrint('ChatService.sendMessage in channel returned false: $errMsg');
           await syncService.markMessageFailed(pendingLocalId);
           if (mounted) {
             setState(() {
@@ -833,10 +835,13 @@ class _ChannelScreenState extends State<ChannelScreen> {
                     _messages[idx].copyWith(sendStatus: 2); // failed
               }
             });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(errMsg)),
+            );
           }
         }
       } catch (e) {
-        debugPrint('ChatService.sendMessage exception: $e');
+        debugPrint('ChatService.sendMessage in channel exception: $e');
         await syncService.markMessageFailed(pendingLocalId);
         if (mounted) {
           setState(() {
@@ -847,6 +852,9 @@ class _ChannelScreenState extends State<ChannelScreen> {
                   _messages[idx].copyWith(sendStatus: 2); // failed
             }
           });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to send message: $e')),
+          );
         }
       }
     } else {

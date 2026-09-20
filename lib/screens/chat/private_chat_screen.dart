@@ -1624,7 +1624,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           overallProcessedCount += chunkFiles.length;
 
           if (chunkFiles.length >= 2) {
-            final res = await ChatService.sendMediaAlbum(
+            Map<String, dynamic> res = await ChatService.sendMediaAlbum(
               chatId: widget.chatId,
               items: albumItems,
               groupedId: albumGroupedId,
@@ -1633,6 +1633,39 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               invertMedia: invertMedia,
               replyToMessageId: replyTo?.id,
             );
+
+            // Fallback: If server album endpoint fails (e.g. older backend or DB error),
+            // send items sequentially with the same albumGroupedId so they are still presented as an album!
+            if (res['success'] != true) {
+              debugPrint('sendMediaAlbum failed (${res['message']}), falling back to individual messages with groupedId');
+              final fallbackMsgs = <Message>[];
+              for (int itemIdx = 0; itemIdx < albumItems.length; itemIdx++) {
+                final item = albumItems[itemIdx];
+                final isLast = itemIdx == albumItems.length - 1;
+                final singleRes = await ChatService.sendMessage(
+                  chatId: widget.chatId,
+                  messageType: item['message_type'] ?? 'image',
+                  content: isLast ? (chunkCaption ?? '') : '',
+                  fileUrl: item['file_url'],
+                  fileName: item['file_name'],
+                  mediaPayload: item['media_payload'],
+                  entities: isLast ? chunkEntities : null,
+                  groupedId: albumGroupedId,
+                  invertMedia: invertMedia,
+                  replyToMessageId: replyTo?.id,
+                );
+                if (singleRes['success'] == true && singleRes['message'] is Message) {
+                  fallbackMsgs.add(singleRes['message'] as Message);
+                }
+              }
+              if (fallbackMsgs.isNotEmpty) {
+                res = {
+                  'success': true,
+                  'grouped_id': albumGroupedId,
+                  'messages': fallbackMsgs,
+                };
+              }
+            }
 
             if (res['success'] == true) {
               final rawMessages = res['messages'] as List<dynamic>? ?? [];
@@ -1890,6 +1923,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             }
           } else {
             // 5. Пометить как failed
+            final errMsg = result['message']?.toString() ?? 'Failed to send message';
+            debugPrint('ChatService.sendMessage returned false: $errMsg');
             await syncService.markMessageFailed(pendingLocalId);
             if (mounted) {
               setState(() {
@@ -1900,6 +1935,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                       _messages[idx].copyWith(sendStatus: 2); // failed
                 }
               });
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(errMsg)),
+              );
             }
           }
         } catch (e) {
@@ -1914,6 +1952,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                     _messages[idx].copyWith(sendStatus: 2); // failed
               }
             });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to send message: $e')),
+            );
           }
         }
       } else {

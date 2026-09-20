@@ -599,7 +599,7 @@ class _LiquidGlassInputFieldState extends State<LiquidGlassInputField>
               if (_isVideoMode) {
                 widget.onStartVideoRecord?.call();
               } else {
-                widget.onVoiceRecordCancel?.call();
+                widget.onStartVoiceRecord?.call();
                 widget.onVoice?.call();
               }
             },

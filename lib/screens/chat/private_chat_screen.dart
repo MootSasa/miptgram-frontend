@@ -1710,7 +1710,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
           final fileMessageType = isVideo ? 'video' : (isImg ? 'image' : _getMessageTypeFromMimeType(uploadResult.mimeType));
           final fileCaption = (i == 0 && effectiveContentText.isNotEmpty) ? effectiveContentText : '';
-          await ChatService.sendMessage(
+          final res = await ChatService.sendMessage(
             chatId: widget.chatId,
             content: fileCaption,
             messageType: fileMessageType,
@@ -1719,6 +1719,17 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             replyToMessageId: replyTo?.id,
             entities: (i == 0) ? effectiveEntities : null,
           );
+          if (res['success'] == true && res['message'] is Message) {
+            final sent = res['message'] as Message;
+            if (mounted) {
+              setState(() {
+                if (!_messages.any((m) => m.id == sent.id)) {
+                  _messages.insert(0, sent);
+                }
+              });
+            }
+            await AppDatabase().saveMessage(_messageToCompanion(sent));
+          }
         }
         if (mounted) {
           setState(() {
@@ -1939,7 +1950,17 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     } catch (e) {
       debugPrint('Send message error: $e');
       if (mounted) {
-        setState(() => _isSending = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSending = false;
+          _isUploading = false;
+          _uploadProgress = 0.0;
+        });
       }
     }
   }

@@ -1178,7 +1178,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
 
           final fileMessageType = isVideo ? 'video' : (isImg ? 'image' : _getMessageTypeFromMimeType(uploadResult.mimeType));
           final fileCaption = (i == 0 && effectiveContentText.isNotEmpty) ? effectiveContentText : '';
-          await ChatService.sendMessage(
+          final res = await ChatService.sendMessage(
             chatId: widget.chatId,
             content: fileCaption,
             messageType: fileMessageType,
@@ -1187,6 +1187,17 @@ class _GroupChatScreenState extends State<GroupChatScreen>
             replyToMessageId: replyTo?.id,
             entities: (i == 0) ? effectiveEntities : null,
           );
+          if (res['success'] == true && res['message'] is Message) {
+            final sent = res['message'] as Message;
+            if (mounted) {
+              setState(() {
+                if (!_messages.any((m) => m.id == sent.id)) {
+                  _messages.insert(0, sent);
+                }
+              });
+            }
+            await AppDatabase().saveMessage(_messageToCompanion(sent));
+          }
         }
         if (mounted) {
           setState(() {
@@ -1403,6 +1414,12 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       }
     } catch (e) {
       debugPrint('[GroupChatScreen] Error in _sendMessage: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send: $e')),
+        );
+      }
+    } finally {
       if (mounted) {
         setState(() {
           _isSending = false;

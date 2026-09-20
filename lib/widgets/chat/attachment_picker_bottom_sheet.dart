@@ -430,8 +430,12 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
     // Single item tapped without selection: open in media editor/preview
     setState(() => _isConverting = true);
     try {
-      File? file = await asset.originFile;
-      file ??= await asset.file;
+      File? file = await asset.file;
+      if (file == null) {
+        try {
+          file = await asset.originFile;
+        } catch (_) {}
+      }
       if (file != null && mounted) {
         Navigator.pop(
           context,
@@ -458,8 +462,12 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
     try {
       final List<File> files = [];
       for (final asset in _selectedAssets) {
-        File? file = await asset.originFile;
-        file ??= await asset.file;
+        File? file = await asset.file;
+        if (file == null) {
+          try {
+            file = await asset.originFile;
+          } catch (_) {}
+        }
         if (file != null) {
           files.add(file);
         }

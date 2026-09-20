@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:dio/dio.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:path/path.dart' as path;
@@ -85,14 +86,15 @@ class FileService {
   }
 
   /// Upload a file in chunks to allow progressive processing and streaming.
-  /// Used for large files and videos.
+  /// Used for uploading files in chunks.
   Future<UploadResult> uploadFileChunked(
     File file, {
     void Function(double progress)? onProgress,
     int chunkSize = 256 * 1024, // 256 KB per chunk
   }) async {
     final fileName = path.basename(file.path);
-    final totalSize = await file.length();
+    final rawSize = await file.length();
+    final totalSize = math.max(rawSize, 1);
     final mimeType = _getMimeType(fileName);
     final partsCount = (totalSize / chunkSize).ceil().clamp(1, 10000);
 
@@ -118,7 +120,7 @@ class FileService {
 
     final uploadId = initResponse.data['upload_id'] as String;
 
-    // 2. Upload each chunk
+    // 2. Upload each chunk with retry
     final raf = await file.open(mode: FileMode.read);
     try {
       for (int i = 0; i < partsCount; i++) {
@@ -129,28 +131,47 @@ class FileService {
 
         await raf.setPosition(start);
         final chunkBytes = await raf.read(currentChunkSize);
-
         final partNumber = i + 1;
-        final formData = FormData.fromMap({
-          'upload_id': uploadId,
-          'part_number': partNumber.toString(),
-          'chunk_index': i.toString(),
-          'chunk': MultipartFile.fromBytes(
-            chunkBytes,
-            filename: 'part_$partNumber',
-            contentType: MediaType.parse('application/octet-stream'),
-          ),
-        });
 
-        final partResponse = await _dio.put(
-          '$baseUrl/api/files/upload/chunked/part?upload_id=$uploadId&part_number=$partNumber',
-          data: formData,
-          options: Options(headers: headers),
-        );
+        Response? partResponse;
+        Object? lastError;
 
-        if (partResponse.statusCode != 200 || partResponse.data['success'] != true) {
+        for (int attempt = 0; attempt < 3; attempt++) {
+          try {
+            final formData = FormData.fromMap({
+              'upload_id': uploadId,
+              'part_number': partNumber.toString(),
+              'chunk_index': i.toString(),
+              'chunk': MultipartFile.fromBytes(
+                chunkBytes,
+                filename: 'part_$partNumber',
+                contentType: MediaType.parse('application/octet-stream'),
+              ),
+            });
+
+            partResponse = await _dio.put(
+              '$baseUrl/api/files/upload/chunked/part?upload_id=$uploadId&part_number=$partNumber',
+              data: formData,
+              options: Options(headers: headers),
+            );
+
+            if (partResponse.statusCode == 200 && partResponse.data?['success'] == true) {
+              lastError = null;
+              break;
+            } else {
+              lastError = partResponse.data?['message'] ?? 'Failed to upload chunk $partNumber';
+            }
+          } catch (e) {
+            lastError = e;
+            if (attempt < 2) {
+              await Future.delayed(Duration(milliseconds: 250 * (attempt + 1)));
+            }
+          }
+        }
+
+        if (partResponse == null || partResponse.statusCode != 200 || partResponse.data?['success'] != true) {
           throw FileUploadException(
-            partResponse.data['message'] ?? 'Failed to upload chunk $partNumber',
+            lastError != null ? lastError.toString() : 'Failed to upload chunk $partNumber',
           );
         }
 
@@ -178,6 +199,14 @@ class FileService {
         completeResponse.data['message'] ?? 'Failed to complete chunked upload',
       );
     }
+  }
+
+  /// Uploads a media file in chunks
+  Future<UploadResult> uploadMediaFile(
+    File file, {
+    void Function(double progress)? onProgress,
+  }) {
+    return uploadFileChunked(file, onProgress: onProgress);
   }
 
   /// Extracts basic local file metadata (file size, is_video) before upload.

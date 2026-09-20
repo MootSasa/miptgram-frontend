@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import '../../services/chat_service.dart';
 import '../../services/auth_service.dart';
@@ -1036,96 +1037,125 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       final List<MessageEntity>? effectiveEntities =
           entities ?? (parsed?.entities.isNotEmpty == true ? parsed!.entities : null);
 
-      // CASE 1: MULTIPLE VISUAL ATTACHMENTS (ALBUM: 2-10 items)
+      // CASE 1: MULTIPLE VISUAL ATTACHMENTS (ALBUM: chunked into batches of up to 10 items)
       if (_attachedFiles.length >= 2 && _attachedFiles.every((f) => _isMediaFile(f.path))) {
-        final albumItems = <Map<String, dynamic>>[];
-        final albumGroupedId =
-            'album_${DateTime.now().millisecondsSinceEpoch}_${const Uuid().v4().substring(0, 8)}';
-
-        for (int i = 0; i < _attachedFiles.length; i++) {
-          final file = _attachedFiles[i];
-          final isVideo = _isVideoFile(file.path);
-
-          final uploadResult = await _fileService.uploadFileChunked(file, onProgress: (p) {
-            if (mounted) {
-              setState(() {
-                _uploadProgress = (i + p) / _attachedFiles.length;
-              });
-            }
-          });
-
-          final itemMediaPayload = {
-            if (uploadResult.thumbBase64 != null) 'thumb_base64': uploadResult.thumbBase64,
-            if (uploadResult.thumbUrl != null) 'thumb_url': uploadResult.thumbUrl,
-            if (uploadResult.width > 0) 'width': uploadResult.width,
-            if (uploadResult.height > 0) 'height': uploadResult.height,
-            if (uploadResult.duration > 0) 'duration': uploadResult.duration,
-            'file_size': uploadResult.fileSize,
-            'is_video': isVideo,
-          };
-
-          albumItems.add({
-            'file_url': uploadResult.url,
-            'file_name': uploadResult.fileName,
-            'file_size': uploadResult.fileSize,
-            'message_type': isVideo ? 'video' : 'image',
-            'media_payload': itemMediaPayload,
-          });
-        }
-
-        setState(() {
-          _isUploading = false;
-          _uploadProgress = 0.0;
-        });
-
+        final allFiles = List<File>.from(_attachedFiles);
         _clearAttachedFiles();
 
-        final res = await ChatService.sendMediaAlbum(
-          chatId: widget.chatId,
-          items: albumItems,
-          groupedId: albumGroupedId,
-          caption:
-              effectiveContentText.isNotEmpty ? effectiveContentText : null,
-          entities: effectiveEntities,
-          invertMedia: invertMedia,
-          replyToMessageId: replyTo?.id,
-        );
+        final totalFilesCount = allFiles.length;
+        int overallProcessedCount = 0;
 
-        if (res['success'] == true) {
-          final rawMessages = res['messages'] as List<dynamic>? ?? [];
-          final newMsgs = <Message>[];
-          for (final raw in rawMessages) {
-            final msg = raw is Message
-                ? raw
-                : Message.fromJson(raw as Map<String, dynamic>);
-            newMsgs.add(msg);
+        for (int chunkStart = 0; chunkStart < totalFilesCount; chunkStart += 10) {
+          final chunkEnd = math.min(chunkStart + 10, totalFilesCount);
+          final chunkFiles = allFiles.sublist(chunkStart, chunkEnd);
+          final isFirstChunk = (chunkStart == 0);
+          final chunkCaption = isFirstChunk && effectiveContentText.isNotEmpty ? effectiveContentText : null;
+          final chunkEntities = isFirstChunk ? effectiveEntities : null;
+
+          final albumItems = <Map<String, dynamic>>[];
+          final albumGroupedId =
+              'album_${DateTime.now().millisecondsSinceEpoch}_${const Uuid().v4().substring(0, 8)}';
+
+          for (int i = 0; i < chunkFiles.length; i++) {
+            final file = chunkFiles[i];
+            final isVideo = _isVideoFile(file.path);
+
+            final uploadResult = await _fileService.uploadFileChunked(file, onProgress: (p) {
+              if (mounted) {
+                setState(() {
+                  _uploadProgress = (overallProcessedCount + i + p) / totalFilesCount;
+                });
+              }
+            });
+
+            final itemMediaPayload = {
+              if (uploadResult.thumbBase64 != null) 'thumb_base64': uploadResult.thumbBase64,
+              if (uploadResult.thumbUrl != null) 'thumb_url': uploadResult.thumbUrl,
+              if (uploadResult.width > 0) 'width': uploadResult.width,
+              if (uploadResult.height > 0) 'height': uploadResult.height,
+              if (uploadResult.duration > 0) 'duration': uploadResult.duration,
+              'file_size': uploadResult.fileSize,
+              'is_video': isVideo,
+            };
+
+            albumItems.add({
+              'file_url': uploadResult.url,
+              'file_name': uploadResult.fileName,
+              'file_size': uploadResult.fileSize,
+              'message_type': isVideo ? 'video' : 'image',
+              'media_payload': itemMediaPayload,
+            });
           }
-          for (final msg in newMsgs) {
-            final existingIdx = _messages.indexWhere((m) => m.id == msg.id);
-            if (existingIdx != -1) {
-              _messages[existingIdx] = msg;
+
+          overallProcessedCount += chunkFiles.length;
+
+          if (chunkFiles.length >= 2) {
+            final res = await ChatService.sendMediaAlbum(
+              chatId: widget.chatId,
+              items: albumItems,
+              groupedId: albumGroupedId,
+              caption: chunkCaption,
+              entities: chunkEntities,
+              invertMedia: invertMedia,
+              replyToMessageId: replyTo?.id,
+            );
+
+            if (res['success'] == true) {
+              final rawMessages = res['messages'] as List<dynamic>? ?? [];
+              final newMsgs = <Message>[];
+              for (final raw in rawMessages) {
+                final msg = raw is Message
+                    ? raw
+                    : Message.fromJson(raw as Map<String, dynamic>);
+                newMsgs.add(msg);
+              }
+              for (final msg in newMsgs) {
+                final existingIdx = _messages.indexWhere((m) => m.id == msg.id);
+                if (existingIdx != -1) {
+                  _messages[existingIdx] = msg;
+                } else {
+                  _messages.insert(0, msg);
+                }
+              }
+              final db = AppDatabase();
+              await db.saveMessages(
+                  newMsgs.map((m) => _messageToCompanion(m)).toList());
             } else {
-              _messages.insert(0, msg);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(res['message'] ?? 'Failed to send album')),
+                );
+              }
+            }
+          } else {
+            // Remainder 1 item: send as single message
+            final item = albumItems.first;
+            final isVideo = item['message_type'] == 'video';
+            final res = await ChatService.sendMessage(
+              chatId: widget.chatId,
+              messageType: isVideo ? 'video' : 'image',
+              content: chunkCaption ?? '',
+              fileUrl: item['file_url'],
+              fileName: item['file_name'],
+              mediaPayload: item['media_payload'],
+              entities: chunkEntities,
+              replyToMessageId: replyTo?.id,
+            );
+            if (res['success'] == true && res['message'] is Message) {
+              final sent = res['message'] as Message;
+              _messages.insert(0, sent);
+              await AppDatabase().saveMessage(_messageToCompanion(sent));
             }
           }
-          final db = AppDatabase();
-          await db.saveMessages(
-              newMsgs.map((m) => _messageToCompanion(m)).toList());
-          if (mounted) {
-            setState(() {
-              _isSending = false;
-            });
-            _scrollToBottom();
-          }
-        } else {
-          if (mounted) {
-            setState(() {
-              _isSending = false;
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(res['message'] ?? 'Failed to send album')),
-            );
-          }
+        }
+
+        if (mounted) {
+          setState(() {
+            _isUploading = false;
+            _uploadProgress = 0.0;
+            _isSending = false;
+          });
+          _scrollToBottom();
         }
         return;
       }
@@ -1398,10 +1428,8 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       if (result.asDocument) {
         setState(() {
           for (final file in result.files!) {
-            if (_attachedFiles.length < 10) {
-              _attachedFiles.add(file);
-              _attachedFileNames.add(p.basename(file.path));
-            }
+            _attachedFiles.add(file);
+            _attachedFileNames.add(p.basename(file.path));
           }
         });
         if (result.sendImmediately) {
@@ -1410,10 +1438,8 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       } else if (result.sendImmediately) {
         setState(() {
           for (final file in result.files!) {
-            if (_attachedFiles.length < 10) {
-              _attachedFiles.add(file);
-              _attachedFileNames.add(p.basename(file.path));
-            }
+            _attachedFiles.add(file);
+            _attachedFileNames.add(p.basename(file.path));
           }
         });
         _sendMessage();
@@ -1464,7 +1490,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       if (result != null && result.files.isNotEmpty) {
         setState(() {
           for (final file in result.files) {
-            if (file.path != null && _attachedFiles.length < 10) {
+            if (file.path != null) {
               _attachedFiles.add(File(file.path!));
               _attachedFileNames.add(file.name);
             }
@@ -1492,10 +1518,8 @@ class _GroupChatScreenState extends State<GroupChatScreen>
     if (result != null && result.files.isNotEmpty && mounted) {
       setState(() {
         for (final file in result.files) {
-          if (_attachedFiles.length < 10) {
-            _attachedFiles.add(file);
-            _attachedFileNames.add(p.basename(file.path));
-          }
+          _attachedFiles.add(file);
+          _attachedFileNames.add(p.basename(file.path));
         }
         if (result.caption != null && result.caption!.isNotEmpty) {
           _messageController.text = result.caption!;

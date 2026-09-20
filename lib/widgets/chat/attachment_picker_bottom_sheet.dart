@@ -1,8 +1,8 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:camera/camera.dart';
+import 'package:draggable_scrollbar/draggable_scrollbar.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -72,12 +72,14 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
 
   List<AssetPathEntity> _albums = [];
   AssetPathEntity? _selectedAlbum;
-  List<AssetEntity> _assets = [];
+  int _totalAssetsCount = 0;
+
+  // Virtualized page cache for smooth, lag-free scrolling
+  final Map<int, List<AssetEntity>> _pageCache = {};
+  final Set<int> _loadingPages = {};
   final List<AssetEntity> _selectedAssets = [];
 
   bool _isLoadingAssets = true;
-  bool _isLoadingMore = false;
-  bool _hasMoreAssets = true;
   bool _hasPermission = false;
   bool _sendAsDocument = false;
   bool _isConverting = false;
@@ -85,13 +87,6 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
   // Live camera preview
   CameraController? _cameraController;
   bool _isCameraInitialized = false;
-
-  // Scrollbar and date pill bubble state
-  ScrollController? _attachedController;
-  bool _isScrolling = false;
-  String? _currentScrollDate;
-  double _thumbPosition = 0.0;
-  Timer? _scrollFadeTimer;
 
   @override
   void initState() {
@@ -102,8 +97,6 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
 
   @override
   void dispose() {
-    _scrollFadeTimer?.cancel();
-    _attachedController?.removeListener(_onScroll);
     _cameraController?.dispose();
     super.dispose();
   }
@@ -152,15 +145,26 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
       if (!mounted) return;
 
       if (state.hasAccess) {
+        // Order from newest to oldest
+        final filterOption = FilterOptionGroup(
+          orders: [
+            const OrderOption(
+              type: OrderOptionType.createDate,
+              asc: false, // Newest first!
+            ),
+          ],
+        );
+
         final List<AssetPathEntity> paths = await PhotoManager.getAssetPathList(
           type: RequestType.common,
+          filterOption: filterOption,
         );
 
         if (paths.isNotEmpty && mounted) {
           _albums = paths;
           _selectedAlbum = paths.first;
           _hasPermission = true;
-          await _loadAssets(reset: true);
+          await _selectAlbum(_selectedAlbum!);
           return;
         }
       }
@@ -176,90 +180,55 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
     }
   }
 
-  Future<void> _loadAssets({bool reset = false}) async {
-    if (_selectedAlbum == null) return;
-    if (_isLoadingMore || (!_hasMoreAssets && !reset)) return;
-
-    if (reset) {
-      setState(() {
-        _assets.clear();
-        _hasMoreAssets = true;
-        _isLoadingAssets = true;
-      });
-    } else {
-      setState(() {
-        _isLoadingMore = true;
-      });
-    }
+  Future<void> _selectAlbum(AssetPathEntity album) async {
+    _pageCache.clear();
+    _loadingPages.clear();
+    setState(() {
+      _selectedAlbum = album;
+      _isLoadingAssets = true;
+    });
 
     try {
-      final start = reset ? 0 : _assets.length;
-      final end = start + _pageSize;
-      final list = await _selectedAlbum!.getAssetListRange(start: start, end: end);
+      final count = await album.assetCountAsync;
       if (!mounted) return;
-
       setState(() {
-        if (reset) {
-          _assets = list;
-        } else {
-          _assets.addAll(list);
-        }
-        _hasMoreAssets = list.length >= _pageSize;
+        _totalAssetsCount = count;
       });
+      await _fetchPage(0);
     } catch (e) {
-      debugPrint('Error loading assets: $e');
+      debugPrint('Error selecting album: $e');
     } finally {
       if (mounted) {
         setState(() {
           _isLoadingAssets = false;
-          _isLoadingMore = false;
         });
       }
     }
   }
 
-  void _setupScrollController(ScrollController controller) {
-    if (_attachedController != controller) {
-      _attachedController?.removeListener(_onScroll);
-      _attachedController = controller;
-      _attachedController?.addListener(_onScroll);
-    }
-  }
+  Future<void> _fetchPage(int pageIndex) async {
+    if (_loadingPages.contains(pageIndex) || _selectedAlbum == null) return;
+    _loadingPages.add(pageIndex);
 
-  void _onScroll() {
-    if (_attachedController == null || !_attachedController!.hasClients) return;
-    final position = _attachedController!.position;
-    if (position.pixels >= position.maxScrollExtent - 350 && !_isLoadingMore && _hasMoreAssets) {
-      _loadAssets();
-    }
-  }
-
-  bool _onScrollNotification(ScrollNotification notification) {
-    if (notification is ScrollUpdateNotification || notification is UserScrollNotification) {
-      if (_assets.isNotEmpty && notification.metrics.maxScrollExtent > 0) {
-        final progress = (notification.metrics.pixels / notification.metrics.maxScrollExtent).clamp(0.0, 1.0);
-        final itemIndex = (progress * (_assets.length - 1)).round().clamp(0, _assets.length - 1);
-        final asset = _assets[itemIndex];
-        final formattedDate = _formatMonthYear(
-          asset.createDateTime,
-          Localizations.localeOf(context).languageCode,
-        );
-
-        setState(() {
-          _isScrolling = true;
-          _currentScrollDate = formattedDate;
-          _thumbPosition = progress;
-        });
-
-        _scrollFadeTimer?.cancel();
-        _scrollFadeTimer = Timer(const Duration(milliseconds: 1200), () {
-          if (mounted) {
-            setState(() => _isScrolling = false);
-          }
-        });
+    try {
+      final start = pageIndex * _pageSize;
+      final end = math.min(start + _pageSize, _totalAssetsCount);
+      if (start >= end) {
+        _loadingPages.remove(pageIndex);
+        return;
       }
+
+      final list = await _selectedAlbum!.getAssetListRange(start: start, end: end);
+      if (!mounted) return;
+
+      setState(() {
+        _pageCache[pageIndex] = list;
+        _loadingPages.remove(pageIndex);
+      });
+    } catch (e) {
+      debugPrint('Error fetching page $pageIndex: $e');
+      _loadingPages.remove(pageIndex);
     }
-    return false;
   }
 
   String _formatMonthYear(DateTime dt, String locale) {
@@ -274,6 +243,39 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
     ];
     final monthName = isRu ? monthsRu[dt.month - 1] : monthsEn[dt.month - 1];
     return '$monthName ${dt.year}';
+  }
+
+  String _getDateForOffset(double offsetY, ScrollController controller) {
+    if (_totalAssetsCount == 0) return '';
+    final locale = Localizations.localeOf(context).languageCode;
+
+    // Approximate row calculation
+    final screenWidth = MediaQuery.of(context).size.width;
+    final rowWidth = (screenWidth - 8 - 6) / 3;
+    final rowHeight = rowWidth + 3;
+
+    final row = (offsetY / rowHeight).floor();
+    final targetIndex = (row * 3).clamp(0, math.max(0, _totalAssetsCount - 1)).toInt();
+    final pageIndex = targetIndex ~/ _pageSize;
+    final indexInPage = targetIndex % _pageSize;
+
+    if (_pageCache.containsKey(pageIndex)) {
+      final page = _pageCache[pageIndex]!;
+      if (indexInPage < page.length) {
+        return _formatMonthYear(page[indexInPage].createDateTime, locale);
+      }
+    }
+
+    // Fallback to nearest cached page
+    for (int offset = 0; offset <= 5; offset++) {
+      for (final candidate in [pageIndex - offset, pageIndex + offset]) {
+        if (_pageCache.containsKey(candidate) && _pageCache[candidate]!.isNotEmpty) {
+          return _formatMonthYear(_pageCache[candidate]!.first.createDateTime, locale);
+        }
+      }
+    }
+
+    return _formatMonthYear(DateTime.now(), locale);
   }
 
   void _showAlbumSelector() {
@@ -393,10 +395,7 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
                       onTap: () {
                         Navigator.pop(ctx);
                         if (album.id != _selectedAlbum?.id) {
-                          setState(() {
-                            _selectedAlbum = album;
-                          });
-                          _loadAssets(reset: true);
+                          _selectAlbum(album);
                         }
                       },
                     );
@@ -416,15 +415,7 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
       if (_selectedAssets.contains(asset)) {
         _selectedAssets.remove(asset);
       } else {
-        if (_selectedAssets.length >= 10) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Maximum 10 items can be selected at once'),
-              duration: Duration(seconds: 2),
-            ),
-          );
-          return;
-        }
+        // Unlimited selection: user can select more than 10 items
         _selectedAssets.add(asset);
       }
     });
@@ -514,8 +505,6 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
       snap: true,
       snapSizes: const [0.58, 0.94],
       builder: (context, scrollController) {
-        _setupScrollController(scrollController);
-
         final albumTitle = _selectedAlbum != null
             ? (_selectedAlbum!.isAll
                 ? context.l10n.translate('chat_recent_photos')
@@ -636,7 +625,7 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
                     ),
                     const SizedBox(height: 8),
 
-                    // Media Grid Section with Scrollbar and Date Bubble
+                    // Media Grid Section with DraggableScrollbar
                     Expanded(
                       child: _buildMediaGrid(scrollController, isDark, theme),
                     ),
@@ -676,7 +665,7 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
     }
 
     // If no permission or no media available
-    if (!_hasPermission || (_assets.isEmpty && _selectedAlbum == null)) {
+    if (!_hasPermission || (_totalAssetsCount == 0 && _selectedAlbum == null)) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -730,196 +719,167 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
       );
     }
 
-    // Item 0 = Camera tile, Items 1..N = AssetEntity tiles, plus optional loading spinner
-    final totalCount = _assets.length + 1 + (_isLoadingMore ? 1 : 0);
+    // Stable, fixed itemCount: 1 camera tile + all photos in the album!
+    final totalCount = 1 + _totalAssetsCount;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return NotificationListener<ScrollNotification>(
-          onNotification: _onScrollNotification,
-          child: Stack(
-            children: [
-              RawScrollbar(
-                controller: scrollController,
-                thumbVisibility: true,
-                interactive: true,
-                thickness: 4.5,
-                radius: const Radius.circular(3),
-                thumbColor: isDark ? Colors.white30 : Colors.black26,
-                minThumbLength: 40,
-                padding: const EdgeInsets.only(right: 3, top: 4, bottom: 4),
-                child: GridView.builder(
-                  controller: scrollController,
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    mainAxisSpacing: 3,
-                    crossAxisSpacing: 3,
-                    childAspectRatio: 1.0,
-                  ),
-                  itemCount: totalCount,
-                  itemBuilder: (context, index) {
-                    if (index == 0) {
-                      return _buildCameraTile(isDark);
-                    }
-
-                    if (index > _assets.length) {
-                      // Bottom loading spinner
-                      return const Center(
-                        child: SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2.2),
-                        ),
-                      );
-                    }
-
-                    final asset = _assets[index - 1];
-                    final isSelected = _selectedAssets.contains(asset);
-                    final selectionIndex = _selectedAssets.indexOf(asset) + 1;
-
-                    return _buildAssetTile(asset, isSelected, selectionIndex, isDark);
-                  },
-                ),
-              ),
-
-              // Floating Month & Year Date Pill next to scrollbar
-              Positioned(
-                right: 14,
-                top: math.max(6.0, _thumbPosition * (constraints.maxHeight - 38)),
-                child: IgnorePointer(
-                  child: AnimatedOpacity(
-                    opacity: _isScrolling && _currentScrollDate != null ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 180),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? const Color(0xFF25252D).withValues(alpha: 0.94)
-                            : Colors.black.withValues(alpha: 0.78),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.15),
-                          width: 0.8,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.25),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        _currentScrollDate ?? '',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.1,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+    return DraggableScrollbar.rrect(
+      controller: scrollController,
+      alwaysVisibleScrollThumb: true,
+      heightScrollThumb: 44.0,
+      backgroundColor: isDark ? const Color(0xFF32323C) : Colors.black45,
+      labelTextBuilder: (double offsetY) {
+        return Text(
+          _getDateForOffset(offsetY, scrollController),
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
           ),
         );
       },
+      labelConstraints: const BoxConstraints.tightFor(width: 120.0, height: 28.0),
+      child: GridView.builder(
+        controller: scrollController,
+        cacheExtent: 600,
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          mainAxisSpacing: 3,
+          crossAxisSpacing: 3,
+          childAspectRatio: 1.0,
+        ),
+        itemCount: totalCount,
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return _buildCameraTile(isDark);
+          }
+
+          final assetIndex = index - 1;
+          final pageIndex = assetIndex ~/ _pageSize;
+          final indexInPage = assetIndex % _pageSize;
+
+          final page = _pageCache[pageIndex];
+          if (page != null && indexInPage < page.length) {
+            final asset = page[indexInPage];
+            final isSelected = _selectedAssets.contains(asset);
+            final selectionIndex = _selectedAssets.indexOf(asset) + 1;
+            return _buildAssetTile(asset, isSelected, selectionIndex, isDark);
+          }
+
+          // Trigger dynamic background fetch for this page if not yet loaded
+          if (!_loadingPages.contains(pageIndex)) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _fetchPage(pageIndex);
+            });
+          }
+
+          return _buildPlaceholderTile(isDark);
+        },
+      ),
+    );
+  }
+
+  Widget _buildPlaceholderTile(bool isDark) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        color: isDark ? const Color(0xFF22222A) : const Color(0xFFE4E6EA),
+      ),
     );
   }
 
   Widget _buildCameraTile(bool isDark) {
-    return Material(
-      color: isDark ? const Color(0xFF272730) : const Color(0xFFE8EAEE),
-      borderRadius: BorderRadius.circular(6),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () {
-          Navigator.pop(
-            context,
-            const AttachmentPickerResult.action(AttachmentPickerAction.camera),
-          );
-        },
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // Live Camera Preview if initialized
-            if (_isCameraInitialized &&
-                _cameraController != null &&
-                _cameraController!.value.isInitialized)
-              ClipRect(
-                child: OverflowBox(
-                  alignment: Alignment.center,
-                  child: FittedBox(
-                    fit: BoxFit.cover,
-                    child: SizedBox(
-                      width: _cameraController!.value.previewSize?.height ?? 100,
-                      height: _cameraController!.value.previewSize?.width ?? 100,
-                      child: CameraPreview(_cameraController!),
+    return RepaintBoundary(
+      child: Material(
+        color: isDark ? const Color(0xFF272730) : const Color(0xFFE8EAEE),
+        borderRadius: BorderRadius.circular(6),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () {
+            Navigator.pop(
+              context,
+              const AttachmentPickerResult.action(AttachmentPickerAction.camera),
+            );
+          },
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // Live Camera Preview if initialized
+              if (_isCameraInitialized &&
+                  _cameraController != null &&
+                  _cameraController!.value.isInitialized)
+                ClipRect(
+                  child: OverflowBox(
+                    alignment: Alignment.center,
+                    child: FittedBox(
+                      fit: BoxFit.cover,
+                      child: SizedBox(
+                        width: _cameraController!.value.previewSize?.height ?? 100,
+                        height: _cameraController!.value.previewSize?.width ?? 100,
+                        child: CameraPreview(_cameraController!),
+                      ),
                     ),
+                  ),
+                ),
+
+              // Translucent overlay for readable icon/label
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.20),
+                      Colors.black.withValues(alpha: 0.55),
+                    ],
                   ),
                 ),
               ),
 
-            // Translucent overlay for readable icon/label
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withValues(alpha: 0.20),
-                    Colors.black.withValues(alpha: 0.55),
+              // Monotone Camera Icon & Label
+              Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.black.withValues(alpha: 0.35),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.6),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: const Center(
+                        child: iconoir.Camera(
+                          color: Colors.white,
+                          width: 22,
+                          height: 22,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      context.l10n.translate('chat_camera'),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                        shadows: [
+                          Shadow(
+                            color: Colors.black87,
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
-            ),
-
-            // Monotone Camera Icon & Label
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.black.withValues(alpha: 0.35),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.6),
-                        width: 1.5,
-                      ),
-                    ),
-                    child: const Center(
-                      child: iconoir.Camera(
-                        color: Colors.white,
-                        width: 22,
-                        height: 22,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    context.l10n.translate('chat_camera'),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                      shadows: [
-                        Shadow(
-                          color: Colors.black87,
-                          blurRadius: 4,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -948,7 +908,8 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
                 AssetEntityImage(
                   asset,
                   isOriginal: false,
-                  thumbnailSize: const ThumbnailSize.square(240),
+                  thumbnailSize: const ThumbnailSize.square(200),
+                  thumbnailFormat: ThumbnailFormat.jpeg,
                   fit: BoxFit.cover,
                   errorBuilder: (context, error, stackTrace) => Container(
                     color: isDark ? Colors.black26 : Colors.black12,
@@ -1110,7 +1071,7 @@ class _AttachmentPickerBottomSheetState extends State<AttachmentPickerBottomShee
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
             decoration: BoxDecoration(
               color: isDark
-                  ? const Color(0xFF25252D).withValues(alpha: 0.92)
+                  ? const Color(0xFF24242C).withValues(alpha: 0.92)
                   : Colors.white.withValues(alpha: 0.94),
               borderRadius: BorderRadius.circular(36),
               border: Border.all(

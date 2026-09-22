@@ -71,6 +71,11 @@ dependencies:
   photo_manager_image_provider: ^2.2.0
   camera: ^0.12.0+2
   draggable_scrollbar: ^0.1.0
+  local_notifier: ^0.1.6
+  tray_manager: ^0.2.3
+  window_manager: ^0.3.9
+  launch_at_startup: ^0.3.1
+
 
 
 dev_dependencies:

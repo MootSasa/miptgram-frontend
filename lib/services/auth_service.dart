@@ -8,6 +8,7 @@ import 'account_manager.dart';
 import 'database/app_database.dart';
 import 'deep_link_service.dart';
 import 'websocket_service.dart';
+import 'notification_service.dart';
 import '../screens/auth/login_screen.dart';
 import '../utils/swipe_back_route.dart';
 import '../l10n/app_localizations.dart';
@@ -160,6 +161,8 @@ class AuthService {
   		} catch (e) {
   			debugPrint('AuthService: Error creating saved chat: $e');
   		}
+  		// Register push token for this new session
+  		NotificationService().registerCurrentToken();
   		return {
   		'success': true,
   		'authToken': data['auth_token'],
@@ -193,6 +196,8 @@ class AuthService {
   /// Logs out the current user by invalidating the session.
   static Future<void> logout() async {
     try {
+      // Unregister push token before destroying session
+      await NotificationService().unregisterPushToken();
       final token = await getToken();
       if (token != null) {
         await http.post(

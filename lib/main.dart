@@ -1,8 +1,10 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'config/app_config.dart';
+import 'services/desktop_tray_service.dart';
 import 'theme/theme_provider.dart';
 import 'theme/app_theme.dart';
 import 'screens/auth/splash_screen.dart';
@@ -58,6 +60,11 @@ void main() async {
 
   // Initialize deep link service
   await DeepLinkService().init();
+
+  // Initialize desktop window and system tray
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    await DesktopTrayService().init();
+  }
 
   runApp(const MiptgramApp());
 }

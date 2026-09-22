@@ -4,13 +4,19 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:local_notifier/local_notifier.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
+import 'auth_service.dart';
+import 'websocket_service.dart';
+import 'desktop_tray_service.dart';
 import 'notification_settings_provider.dart';
 import 'notification_service_hms.dart';
 import 'push_service_detector.dart';
 import 'settings_service.dart';
 import '../config/app_config.dart';
+
 
 /// Фоновый обработчик FCM сообщений (должен быть top-level функцией)
 @pragma('vm:entry-point')
@@ -85,7 +91,9 @@ class NotificationService {
   bool get isInitialized => _initialized;
   PushServiceType get pushServiceType => _detector.serviceType;
 
-  /// Полная инициализация: детектирование + Firebase/HMS + Local Notifications
+  StreamSubscription? _wsSubscription;
+
+  /// Полная инициализация: детектирование + Firebase/HMS + Local Notifications + Desktop
   Future<void> init(NotificationSettingsProvider settingsProvider) async {
     if (_initialized) return;
     _settingsProvider = settingsProvider;
@@ -95,24 +103,30 @@ class NotificationService {
       await _detector.detect();
       debugPrint('NotificationService: detected push service = ${_detector.serviceType}');
 
-      // 2. Инициализация локальных уведомлений
-      await _initLocalNotifications();
+      // 2. Инициализация для конкретной платформы
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        await _initDesktopNotifications();
+      } else {
+        // Локальные уведомления на Android / iOS
+        await _initLocalNotifications();
+        await _createNotificationChannels();
 
-      // 3. Создание Android notification channels
-      await _createNotificationChannels();
-
-      // 4. Инициализация push-сервиса в зависимости от детекта
-      switch (_detector.serviceType) {
-        case PushServiceType.gms:
-          await _initFCM();
-          break;
-        case PushServiceType.hms:
-          await _initHMS();
-          break;
-        case PushServiceType.none:
-          debugPrint('NotificationService: no push service, local notifications only');
-          break;
+        // Инициализация push-сервиса в зависимости от детекта
+        switch (_detector.serviceType) {
+          case PushServiceType.gms:
+            await _initFCM();
+            break;
+          case PushServiceType.hms:
+            await _initHMS();
+            break;
+          case PushServiceType.none:
+            debugPrint('NotificationService: no push service, local notifications only');
+            break;
+        }
       }
+
+      // 3. Подписка на входящие WebSocket сообщения
+      _subscribeWebSocketMessages();
 
       _initialized = true;
       debugPrint('NotificationService: fully initialized (${_detector.serviceType})');
@@ -120,6 +134,64 @@ class NotificationService {
       debugPrint('NotificationService: initialization error: $e');
       _initialized = true;
     }
+  }
+
+  Future<void> _initDesktopNotifications() async {
+    try {
+      await DesktopTrayService().init();
+      await localNotifier.setup(
+        appName: 'Theaver',
+        shortcutPolicy: ShortcutPolicy.requireCreate,
+      );
+      debugPrint('NotificationService: desktop local_notifier initialized');
+    } catch (e) {
+      debugPrint('NotificationService: desktop notification init error: $e');
+    }
+  }
+
+  void _subscribeWebSocketMessages() {
+    _wsSubscription?.cancel();
+    _wsSubscription = WebSocketService().eventStream.listen((event) async {
+      if (event.type == WebSocketEventType.newMessage) {
+        final data = event.data;
+        final chatId = data['chat_id']?.toString() ?? '';
+        final senderId = data['sender_id']?.toString() ?? '';
+        final currentUserId = await AuthService.getUserId();
+        if (senderId.isNotEmpty && currentUserId != null && senderId == currentUserId) {
+          return;
+        }
+
+        final chatName = data['chat_name']?.toString() ?? data['sender_name']?.toString() ?? 'Theaver';
+        final senderName = data['sender_name']?.toString() ?? '';
+        final messageText = data['content']?.toString() ?? 'Новое сообщение';
+        final isGroup = data['is_group'] == true || data['is_group'] == 'true';
+
+        if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+          bool isFocused = false;
+          try {
+            isFocused = await windowManager.isFocused();
+          } catch (_) {}
+
+          if (!isFocused) {
+            await showMessageNotification(
+              chatId: chatId,
+              chatName: chatName,
+              senderName: senderName,
+              messageText: messageText,
+              isGroup: isGroup,
+            );
+          } else {
+            showInAppBanner(
+              chatId: chatId,
+              chatName: chatName,
+              senderName: senderName,
+              messageText: messageText,
+              isGroup: isGroup,
+            );
+          }
+        }
+      }
+    });
   }
 
   // ============ FCM Initialization ============
@@ -240,13 +312,47 @@ class NotificationService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final deviceId = prefs.getString('device_id') ?? 'unknown';
-      await Dio().post(
-        '${AppConfig.baseUrl}/api/notifications/push-token',
-        data: {'token': token, 'type': type, 'device_id': deviceId},
+      final authToken = await AuthService.getToken();
+
+      final payload = {
+        'token': token,
+        'push_token': token,
+        'fcm_token': token,
+        'service_type': type,
+        'type': type,
+        'device_id': deviceId,
+      };
+
+      final options = Options(
+        headers: {
+          if (authToken != null) 'Authorization': 'Bearer $authToken',
+          'Content-Type': 'application/json',
+        },
       );
+
+      try {
+        await Dio().put(
+          '${AppConfig.baseUrl}/api/sessions/push-token',
+          data: payload,
+          options: options,
+        );
+      } catch (_) {
+        await Dio().post(
+          '${AppConfig.baseUrl}/api/notifications/push-token',
+          data: payload,
+          options: options,
+        );
+      }
       debugPrint('NotificationService: $type push token registered on server');
     } catch (e) {
       debugPrint('NotificationService: failed to register $type token: $e');
+    }
+  }
+
+  Future<void> registerCurrentToken() async {
+    if (_pushToken != null && _pushToken!.isNotEmpty) {
+      final type = _detector.serviceType == PushServiceType.hms ? 'hms' : 'fcm';
+      await _registerPushTokenOnServer(_pushToken!, type);
     }
   }
 
@@ -254,10 +360,28 @@ class NotificationService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final deviceId = prefs.getString('device_id') ?? 'unknown';
-      await Dio().delete(
-        '${AppConfig.baseUrl}/api/notifications/push-token',
-        data: {'device_id': deviceId},
+      final authToken = await AuthService.getToken();
+
+      final options = Options(
+        headers: {
+          if (authToken != null) 'Authorization': 'Bearer $authToken',
+          'Content-Type': 'application/json',
+        },
       );
+
+      try {
+        await Dio().delete(
+          '${AppConfig.baseUrl}/api/sessions/push-token',
+          data: {'device_id': deviceId},
+          options: options,
+        );
+      } catch (_) {
+        await Dio().delete(
+          '${AppConfig.baseUrl}/api/notifications/push-token',
+          data: {'device_id': deviceId},
+          options: options,
+        );
+      }
       debugPrint('NotificationService: push token unregistered');
     } catch (e) {
       debugPrint('NotificationService: failed to unregister token: $e');
@@ -361,8 +485,34 @@ class NotificationService {
     if (!shouldShowNotification(chatId)) return;
 
     final effective = _settingsProvider?.getEffectiveSettings(chatId);
-    final channelId = _getChannelId(chatId, isGroup, effective);
+    final showPreview = effective?.previewEnabled ?? true;
+    final title = showPreview ? (isGroup ? '$chatName ($senderName)' : chatName) : 'Theaver';
+    final body = showPreview
+        ? (isGroup ? '$senderName: $messageText' : messageText)
+        : 'Новое сообщение';
 
+    // Desktop (Windows, Linux, macOS)
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      try {
+        final notification = LocalNotification(
+          identifier: 'chat_$chatId',
+          title: title,
+          body: body,
+          silent: !(effective?.soundEnabled ?? true),
+        );
+        notification.onClick = () async {
+          await DesktopTrayService().showAndFocusWindow();
+          _navigateFromNotificationData({'chat_id': chatId, 'type': 'new_message'});
+        };
+        await notification.show();
+      } catch (e) {
+        debugPrint('NotificationService: desktop local_notifier show error: $e');
+      }
+      return;
+    }
+
+    // Android / iOS
+    final channelId = _getChannelId(chatId, isGroup, effective);
     final androidDetails = AndroidNotificationDetails(
       channelId, _channelLabel(channelId),
       channelDescription: _channelDescription(channelId),
@@ -387,12 +537,6 @@ class NotificationService {
     );
 
     final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
-    final showPreview = effective?.previewEnabled ?? true;
-    final title = showPreview ? chatName : 'Miptgram';
-    final body = showPreview
-        ? (isGroup ? '$senderName: $messageText' : messageText)
-        : 'Новое сообщение';
-
     await _localNotifications.show(chatId.hashCode, title, body, details, payload: chatId);
   }
 

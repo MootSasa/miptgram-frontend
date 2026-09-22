@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'settings_service.dart';
+import 'notification_service.dart';
 
 /// Provider для управления настройками уведомлений.
 /// Синхронизирует глобальные и per-chat настройки с SettingsService.
@@ -12,11 +13,17 @@ class NotificationSettingsProvider extends ChangeNotifier {
   GlobalNotificationSettings get globalSettings => _globalSettings;
   Map<String, ChatNotificationSettings> get chatSettings => _chatSettings;
 
-  /// Инициализация: загрузка из SettingsService
+  /// Инициализация: загрузка из SettingsService и запуск NotificationService
   Future<void> init() async {
     _globalSettings = _settingsService.notificationSettings;
     _chatSettings = _settingsService.allChatNotificationSettings;
     notifyListeners();
+
+    try {
+      await NotificationService().init(this);
+    } catch (e) {
+      debugPrint('NotificationSettingsProvider: NotificationService init error: $e');
+    }
   }
 
   // ============ Глобальные настройки ============

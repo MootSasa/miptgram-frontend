@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:dio/dio.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import '../config/app_config.dart';
 import 'auth_service.dart';
@@ -80,6 +82,147 @@ class FileService {
       throw FileUploadException(
         e.response?.data?['message'] ?? 'Upload failed: ${e.message}',
       );
+    }
+  }
+
+  /// Upload a file in chunks to allow progressive processing and streaming.
+  /// Used for uploading files in chunks.
+  Future<UploadResult> uploadFileChunked(
+    File file, {
+    void Function(double progress)? onProgress,
+    int chunkSize = 256 * 1024, // 256 KB per chunk
+  }) async {
+    final fileName = path.basename(file.path);
+    final rawSize = await file.length();
+    final totalSize = math.max(rawSize, 1);
+    final mimeType = _getMimeType(fileName);
+    final partsCount = (totalSize / chunkSize).ceil().clamp(1, 10000);
+
+    final headers = await _getHeaders();
+
+    // 1. Initialize chunked upload
+    final initResponse = await _dio.post(
+      '$baseUrl/api/files/upload/chunked/init',
+      data: {
+        'file_name': fileName,
+        'total_size': totalSize,
+        'parts_count': partsCount,
+        'mime_type': mimeType,
+      },
+      options: Options(headers: headers),
+    );
+
+    if (initResponse.statusCode != 200 || initResponse.data['success'] != true) {
+      throw FileUploadException(
+        initResponse.data['message'] ?? 'Failed to initialize chunked upload',
+      );
+    }
+
+    final uploadId = initResponse.data['upload_id'] as String;
+
+    // 2. Upload each chunk with retry
+    final raf = await file.open(mode: FileMode.read);
+    try {
+      for (int i = 0; i < partsCount; i++) {
+        final start = i * chunkSize;
+        final currentChunkSize = (start + chunkSize > totalSize)
+            ? (totalSize - start)
+            : chunkSize;
+
+        await raf.setPosition(start);
+        final chunkBytes = await raf.read(currentChunkSize);
+        final partNumber = i + 1;
+
+        Response? partResponse;
+        Object? lastError;
+
+        for (int attempt = 0; attempt < 3; attempt++) {
+          try {
+            final formData = FormData.fromMap({
+              'upload_id': uploadId,
+              'part_number': partNumber.toString(),
+              'chunk_index': i.toString(),
+              'chunk': MultipartFile.fromBytes(
+                chunkBytes,
+                filename: 'part_$partNumber',
+                contentType: MediaType.parse('application/octet-stream'),
+              ),
+            });
+
+            partResponse = await _dio.put(
+              '$baseUrl/api/files/upload/chunked/part?upload_id=$uploadId&part_number=$partNumber',
+              data: formData,
+              options: Options(headers: headers),
+            );
+
+            if (partResponse.statusCode == 200 && partResponse.data?['success'] == true) {
+              lastError = null;
+              break;
+            } else {
+              lastError = partResponse.data?['message'] ?? 'Failed to upload chunk $partNumber';
+            }
+          } catch (e) {
+            lastError = e;
+            if (attempt < 2) {
+              await Future.delayed(Duration(milliseconds: 250 * (attempt + 1)));
+            }
+          }
+        }
+
+        if (partResponse == null || partResponse.statusCode != 200 || partResponse.data?['success'] != true) {
+          throw FileUploadException(
+            lastError != null ? lastError.toString() : 'Failed to upload chunk $partNumber',
+          );
+        }
+
+        if (onProgress != null) {
+          onProgress((i + 1) / partsCount);
+        }
+      }
+    } finally {
+      await raf.close();
+    }
+
+    // 3. Complete chunked upload
+    final completeResponse = await _dio.post(
+      '$baseUrl/api/files/upload/chunked/complete',
+      data: {
+        'upload_id': uploadId,
+      },
+      options: Options(headers: headers),
+    );
+
+    if (completeResponse.statusCode == 200 && completeResponse.data['success'] == true) {
+      return UploadResult.fromJson(completeResponse.data);
+    } else {
+      throw FileUploadException(
+        completeResponse.data['message'] ?? 'Failed to complete chunked upload',
+      );
+    }
+  }
+
+  /// Uploads a media file in chunks
+  Future<UploadResult> uploadMediaFile(
+    File file, {
+    void Function(double progress)? onProgress,
+  }) {
+    return uploadFileChunked(file, onProgress: onProgress);
+  }
+
+  /// Extracts basic local file metadata (file size, is_video) before upload.
+  /// The blurred thumbnail and media dimensions are created on the server.
+  static Future<Map<String, dynamic>> extractMediaPayload(
+    File file, {
+    bool isVideo = false,
+  }) async {
+    try {
+      final totalSize = await file.length();
+      return {
+        'file_size': totalSize,
+        'is_video': isVideo,
+      };
+    } catch (_) {
+      return {};
     }
   }
 
@@ -240,28 +383,52 @@ class FileService {
   
     /// Get default download directory based on platform
     Future<String> _getDefaultDownloadDirectory() async {
-      // For mobile platforms, use the app's documents directory
-      // For desktop, use the system Downloads folder
-      if (Platform.isAndroid || Platform.isIOS) {
-        // Use app documents directory
+      // 1. Try platform-provided Downloads directory (desktop and supported mobile)
+      try {
+        final downloadsDir = await getDownloadsDirectory();
+        if (downloadsDir != null && await downloadsDir.exists()) {
+          return downloadsDir.path;
+        }
+      } catch (_) {}
+
+      // 2. Android public Downloads directory if accessible
+      if (Platform.isAndroid) {
         final directory = Directory('/storage/emulated/0/Download');
         if (await directory.exists()) {
           return directory.path;
         }
-        // Fallback to app documents
-        final appDir = Directory.systemTemp;
-        return path.join(appDir.path, 'Downloads');
-      } else if (Platform.isLinux) {
+      }
+
+      // 3. Desktop environment variables
+      if (Platform.isLinux || Platform.isMacOS) {
         final home = Platform.environment['HOME'] ?? '';
-        return path.join(home, 'Downloads');
-      } else if (Platform.isMacOS) {
-        final home = Platform.environment['HOME'] ?? '';
-        return path.join(home, 'Downloads');
+        if (home.isNotEmpty) {
+          final dirPath = path.join(home, 'Downloads');
+          if (await Directory(dirPath).exists()) {
+            return dirPath;
+          }
+        }
       } else if (Platform.isWindows) {
         final userProfile = Platform.environment['USERPROFILE'] ?? '';
-        return path.join(userProfile, 'Downloads');
+        if (userProfile.isNotEmpty) {
+          final dirPath = path.join(userProfile, 'Downloads');
+          if (await Directory(dirPath).exists()) {
+            return dirPath;
+          }
+        }
       }
-      // Fallback
+
+      // 4. Fallback to app documents/Downloads
+      try {
+        final docsDir = await getApplicationDocumentsDirectory();
+        final downloadsDir = Directory(path.join(docsDir.path, 'Downloads'));
+        if (!await downloadsDir.exists()) {
+          await downloadsDir.create(recursive: true);
+        }
+        return downloadsDir.path;
+      } catch (_) {}
+
+      // 5. Final fallback to system temp
       return Directory.systemTemp.path;
     }
   
@@ -423,6 +590,11 @@ class UploadResult {
   final String fileName;
   final String mimeType;
   final int size;
+  final String? thumbBase64;
+  final String? thumbUrl;
+  final int width;
+  final int height;
+  final int duration;
 
   UploadResult({
     required this.fileId,
@@ -431,7 +603,14 @@ class UploadResult {
     required this.fileName,
     required this.mimeType,
     required this.size,
+    this.thumbBase64,
+    this.thumbUrl,
+    this.width = 0,
+    this.height = 0,
+    this.duration = 0,
   });
+
+  int get fileSize => size;
 
   factory UploadResult.fromJson(Map<String, dynamic> json) {
     return UploadResult(
@@ -441,6 +620,11 @@ class UploadResult {
       fileName: json['file_name'] ?? '',
       mimeType: json['mime_type'] ?? '',
       size: json['size'] ?? 0,
+      thumbBase64: json['thumb_base64'] as String?,
+      thumbUrl: json['thumb_url'] as String? ?? json['thumbnail_url'] as String?,
+      width: (json['width'] as num?)?.toInt() ?? 0,
+      height: (json['height'] as num?)?.toInt() ?? 0,
+      duration: (json['duration'] as num?)?.toInt() ?? 0,
     );
   }
 }

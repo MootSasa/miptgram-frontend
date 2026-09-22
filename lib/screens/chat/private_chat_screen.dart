@@ -38,6 +38,9 @@ import '../../services/message_context_menu_service.dart';
 import '../../services/glass_toast_service.dart';
 import '../../services/wallpaper_provider.dart';
 import '../../widgets/message/message_bubble.dart';
+import 'package:uuid/uuid.dart';
+import '../../models/media_album.dart';
+import '../../widgets/message/media_album_widget.dart';
 import '../../utils/swipe_back_route.dart';
 import '../../utils/entity_parser.dart';
 import 'group_chat_screen.dart';
@@ -55,6 +58,10 @@ import '../../services/voice_note_recorder_service.dart';
 import '../../services/voice_playback_service.dart';
 import '../../widgets/chat/voice_recording_overlay.dart';
 import '../../widgets/chat/media_note_player_header.dart';
+import 'package:path/path.dart' as p;
+import '../../widgets/chat/attachment_picker_bottom_sheet.dart';
+import 'media_send_screen.dart';
+import 'poll_create_screen.dart';
 
 class PrivateChatScreen extends StatefulWidget {
   final String chatId;
@@ -142,6 +149,32 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   final List<String> _attachedFileNames = [];
   double _uploadProgress = 0.0;
   bool _isUploading = false;
+
+  List<FeedItem> get _feedItems =>
+      groupMessagesIntoFeedItems(_messages, isReversed: true);
+
+  bool _isVideoFile(String filePath) {
+    final clean = filePath.split('?').first.toLowerCase();
+    return clean.endsWith('.mp4') ||
+        clean.endsWith('.mov') ||
+        clean.endsWith('.avi') ||
+        clean.endsWith('.mkv') ||
+        clean.endsWith('.webm');
+  }
+
+  bool _isImageFile(String filePath) {
+    final clean = filePath.split('?').first.toLowerCase();
+    return clean.endsWith('.jpg') ||
+        clean.endsWith('.jpeg') ||
+        clean.endsWith('.png') ||
+        clean.endsWith('.webp') ||
+        clean.endsWith('.heic') ||
+        clean.endsWith('.gif') ||
+        clean.endsWith('.bmp');
+  }
+
+  bool _isMediaFile(String filePath) =>
+      _isImageFile(filePath) || _isVideoFile(filePath);
 
   // Reply / Quote state
   Message? _replyToMessage;     // Message being replied to
@@ -483,6 +516,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             localId: _messages[existingIndex].localId ?? message.localId,
             sendStatus: 1,
             replyInfo: message.replyInfo ?? _messages[existingIndex].replyInfo,
+            groupedId: message.groupedId ?? _messages[existingIndex].groupedId,
           );
         });
       }
@@ -1288,16 +1322,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               }
             }
           }
+          final dateMap = <String, int>{};
+          for (final m in _messages) {
+            dateMap[m.id] = DateTime.tryParse(m.createdAt)?.millisecondsSinceEpoch ?? 0;
+          }
           _messages.sort((a, b) {
-            try {
-              final ta = DateTime.parse(a.createdAt);
-              final tb = DateTime.parse(b.createdAt);
-              final cmp = tb.compareTo(ta);
-              if (cmp != 0) return cmp;
-              return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
-            } catch (_) {
-              return 0;
-            }
+            final ta = dateMap[a.id] ?? 0;
+            final tb = dateMap[b.id] ?? 0;
+            final cmp = tb.compareTo(ta);
+            if (cmp != 0) return cmp;
+            return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
           });
           _isLoadingMore = false;
         });
@@ -1348,16 +1382,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             }
           }
         }
+        final dateMap = <String, int>{};
+        for (final m in _messages) {
+          dateMap[m.id] = DateTime.tryParse(m.createdAt)?.millisecondsSinceEpoch ?? 0;
+        }
         _messages.sort((a, b) {
-          try {
-            final ta = DateTime.parse(a.createdAt);
-            final tb = DateTime.parse(b.createdAt);
-            final cmp = tb.compareTo(ta);
-            if (cmp != 0) return cmp;
-            return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
-          } catch (_) {
-            return 0;
-          }
+          final ta = dateMap[a.id] ?? 0;
+          final tb = dateMap[b.id] ?? 0;
+          final cmp = tb.compareTo(ta);
+          if (cmp != 0) return cmp;
+          return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
         });
         _isLoadingMore = false;
       });
@@ -1401,9 +1435,20 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             }))
           : const Value.absent(),
       isRound: Value(msg.isRound),
-      // isForward: Value(msg.isForward),
-      // forwardFromId: Value(msg.forwardFromId),
-      // forwardFromName: Value(msg.forwardFromName),
+      groupedId: Value(msg.groupedId),
+      entities: msg.entities.isNotEmpty
+          ? Value(jsonEncode(msg.entities.map((e) => e.toJson()).toList()))
+          : const Value.absent(),
+      linkPreviewOptions: msg.linkPreviewOptions != null
+          ? Value(jsonEncode(msg.linkPreviewOptions!.toJson()))
+          : const Value.absent(),
+      mediaPayload: msg.mediaPayload != null && msg.mediaPayload!.isNotEmpty
+          ? Value(jsonEncode(msg.mediaPayload))
+          : const Value.absent(),
+      invertMedia: Value(msg.invertMedia),
+      isForward: Value(msg.isForward),
+      forwardFromId: Value(msg.forwardFromId),
+      forwardFromName: Value(msg.forwardFromName),
     );
   }
 
@@ -1522,42 +1567,251 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     });
 
     try {
-      // Upload files first if any
-      List<UploadResult> uploadResults = [];
-      for (int i = 0; i < _attachedFiles.length; i++) {
-        final result = await _fileService.uploadFile(
-          _attachedFiles[i],
-          onProgress: (progress) {
-            setState(() {
-              _uploadProgress = progress;
-            });
-          },
-        );
-        uploadResults.add(result);
-      }
-
-      setState(() {
-        _isUploading = false;
-        _uploadProgress = 0.0;
-      });
-
       final parsed = cleanText != null ? null : EntityParser.parseMarkdown(text);
       final String effectiveContentText = cleanText ?? parsed!.cleanText;
       final List<MessageEntity>? effectiveEntities =
           entities ?? (parsed?.entities.isNotEmpty == true ? parsed!.entities : null);
 
-      final String messageType = _attachedFiles.isNotEmpty
-          ? _getMessageTypeFromMimeType(uploadResults.first.mimeType)
-          : 'text';
-      final String content = _attachedFiles.isNotEmpty
-          ? (effectiveContentText.isNotEmpty ? effectiveContentText : uploadResults.first.fileName)
-          : effectiveContentText;
-      final String? fileUrl =
-          uploadResults.isNotEmpty ? uploadResults[0].url : null;
-      final String? fileName =
-          uploadResults.isNotEmpty ? uploadResults[0].fileName : null;
+      // CASE 1: MULTIPLE VISUAL ATTACHMENTS (ALBUM: chunked into batches of up to 10 items)
+      if (_attachedFiles.length >= 2 && _attachedFiles.every((f) => _isMediaFile(f.path))) {
+        final allFiles = List<File>.from(_attachedFiles);
+        _clearAttachedFiles();
 
-      _clearAttachedFiles();
+        final totalFilesCount = allFiles.length;
+        int overallProcessedCount = 0;
+
+        for (int chunkStart = 0; chunkStart < totalFilesCount; chunkStart += 10) {
+          final chunkEnd = math.min(chunkStart + 10, totalFilesCount);
+          final chunkFiles = allFiles.sublist(chunkStart, chunkEnd);
+          final isFirstChunk = (chunkStart == 0);
+          final chunkCaption = isFirstChunk && effectiveContentText.isNotEmpty ? effectiveContentText : null;
+          final chunkEntities = isFirstChunk ? effectiveEntities : null;
+
+          final albumItems = <Map<String, dynamic>>[];
+          final albumGroupedId = 'album_${DateTime.now().millisecondsSinceEpoch}_${const Uuid().v4().substring(0, 8)}';
+
+          for (int i = 0; i < chunkFiles.length; i++) {
+            final file = chunkFiles[i];
+            final isVideo = _isVideoFile(file.path);
+
+            final uploadResult = await _fileService.uploadFileChunked(file, onProgress: (p) {
+              if (mounted) {
+                setState(() {
+                  _uploadProgress = (overallProcessedCount + i + p) / totalFilesCount;
+                });
+              }
+            });
+
+            final itemMediaPayload = {
+              if (uploadResult.thumbBase64 != null) 'thumb_base64': uploadResult.thumbBase64,
+              if (uploadResult.thumbUrl != null) 'thumb_url': uploadResult.thumbUrl,
+              if (uploadResult.width > 0) 'width': uploadResult.width,
+              if (uploadResult.height > 0) 'height': uploadResult.height,
+              if (uploadResult.duration > 0) 'duration': uploadResult.duration,
+              'file_size': uploadResult.fileSize,
+              'is_video': isVideo,
+            };
+
+            albumItems.add({
+              'file_url': uploadResult.url,
+              'file_name': uploadResult.fileName,
+              'file_size': uploadResult.fileSize,
+              'message_type': isVideo ? 'video' : 'image',
+              'media_payload': itemMediaPayload,
+            });
+          }
+
+          overallProcessedCount += chunkFiles.length;
+
+          if (chunkFiles.length >= 2) {
+            Map<String, dynamic> res = await ChatService.sendMediaAlbum(
+              chatId: widget.chatId,
+              items: albumItems,
+              groupedId: albumGroupedId,
+              caption: chunkCaption,
+              entities: chunkEntities,
+              invertMedia: invertMedia,
+              replyToMessageId: replyTo?.id,
+            );
+
+            // Fallback: If server album endpoint fails (e.g. older backend or DB error),
+            // send items sequentially with the same albumGroupedId so they are still presented as an album!
+            if (res['success'] != true) {
+              debugPrint('sendMediaAlbum failed (${res['message']}), falling back to individual messages with groupedId');
+              final fallbackMsgs = <Message>[];
+              for (int itemIdx = 0; itemIdx < albumItems.length; itemIdx++) {
+                final item = albumItems[itemIdx];
+                final isLast = itemIdx == albumItems.length - 1;
+                final singleRes = await ChatService.sendMessage(
+                  chatId: widget.chatId,
+                  messageType: item['message_type'] ?? 'image',
+                  content: isLast ? (chunkCaption ?? '') : '',
+                  fileUrl: item['file_url'],
+                  fileName: item['file_name'],
+                  mediaPayload: item['media_payload'],
+                  entities: isLast ? chunkEntities : null,
+                  groupedId: albumGroupedId,
+                  invertMedia: invertMedia,
+                  replyToMessageId: replyTo?.id,
+                );
+                if (singleRes['success'] == true && singleRes['message'] is Message) {
+                  fallbackMsgs.add(singleRes['message'] as Message);
+                }
+              }
+              if (fallbackMsgs.isNotEmpty) {
+                res = {
+                  'success': true,
+                  'grouped_id': albumGroupedId,
+                  'messages': fallbackMsgs,
+                };
+              }
+            }
+
+            if (res['success'] == true) {
+              final rawMessages = res['messages'] as List<dynamic>? ?? [];
+              final newMsgs = <Message>[];
+              for (final raw in rawMessages) {
+                final msg = raw is Message ? raw : Message.fromJson(raw as Map<String, dynamic>);
+                newMsgs.add(msg);
+              }
+              for (final msg in newMsgs) {
+                final existingIdx = _messages.indexWhere((m) => m.id == msg.id);
+                if (existingIdx != -1) {
+                  _messages[existingIdx] = msg;
+                } else {
+                  _messages.insert(0, msg);
+                }
+              }
+              final db = AppDatabase();
+              await db.saveMessages(
+                  newMsgs.map((m) => _messageToCompanion(m)).toList());
+            } else {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(res['message'] ?? 'Failed to send album')),
+                );
+              }
+            }
+          } else {
+            // Remainder 1 item: send as single message
+            final item = albumItems.first;
+            final isVideo = item['message_type'] == 'video';
+            final res = await ChatService.sendMessage(
+              chatId: widget.chatId,
+              messageType: isVideo ? 'video' : 'image',
+              content: chunkCaption ?? '',
+              fileUrl: item['file_url'],
+              fileName: item['file_name'],
+              mediaPayload: item['media_payload'],
+              entities: chunkEntities,
+              replyToMessageId: replyTo?.id,
+            );
+            if (res['success'] == true && res['message'] is Message) {
+              final sent = res['message'] as Message;
+              _messages.insert(0, sent);
+              await AppDatabase().saveMessage(_messageToCompanion(sent));
+            }
+          }
+        }
+
+        if (mounted) {
+          setState(() {
+            _isUploading = false;
+            _uploadProgress = 0.0;
+            _isSending = false;
+          });
+          _scrollToBottom();
+        }
+        return;
+      }
+
+      // CASE 2: MULTIPLE DOCUMENTS OR NON-VISUAL ATTACHMENTS (Send individually)
+      if (_attachedFiles.length >= 2) {
+        final filesToSend = List<File>.from(_attachedFiles);
+        _clearAttachedFiles();
+        for (int i = 0; i < filesToSend.length; i++) {
+          final file = filesToSend[i];
+          final isVideo = _isVideoFile(file.path);
+          final isImg = _isImageFile(file.path);
+          final uploadResult = await _fileService.uploadFileChunked(file, onProgress: (p) {
+            if (mounted) {
+              setState(() {
+                _uploadProgress = (i + p) / filesToSend.length;
+              });
+            }
+          });
+
+          final fileMessageType = isVideo ? 'video' : (isImg ? 'image' : _getMessageTypeFromMimeType(uploadResult.mimeType));
+          final fileCaption = (i == 0 && effectiveContentText.isNotEmpty) ? effectiveContentText : '';
+          final res = await ChatService.sendMessage(
+            chatId: widget.chatId,
+            content: fileCaption,
+            messageType: fileMessageType,
+            fileUrl: uploadResult.url,
+            fileName: uploadResult.fileName,
+            replyToMessageId: replyTo?.id,
+            entities: (i == 0) ? effectiveEntities : null,
+          );
+          if (res['success'] == true && res['message'] is Message) {
+            final sent = res['message'] as Message;
+            if (mounted) {
+              setState(() {
+                if (!_messages.any((m) => m.id == sent.id)) {
+                  _messages.insert(0, sent);
+                }
+              });
+            }
+            await AppDatabase().saveMessage(_messageToCompanion(sent));
+          }
+        }
+        if (mounted) {
+          setState(() {
+            _isUploading = false;
+            _uploadProgress = 0.0;
+            _isSending = false;
+          });
+          _scrollToBottom();
+        }
+        return;
+      }
+
+      // CASE 3: SINGLE ATTACHMENT OR TEXT
+      String messageType = 'text';
+      String content = effectiveContentText;
+      String? fileUrl;
+      String? fileName;
+      Map<String, dynamic>? singleMediaPayload;
+
+      if (_attachedFiles.isNotEmpty) {
+        final file = _attachedFiles.first;
+        final isVideo = _isVideoFile(file.path);
+
+        final uploadResult = await _fileService.uploadFileChunked(file, onProgress: (p) {
+          setState(() { _uploadProgress = p; });
+        });
+
+        singleMediaPayload = {
+          if (uploadResult.thumbBase64 != null) 'thumb_base64': uploadResult.thumbBase64,
+          if (uploadResult.thumbUrl != null) 'thumb_url': uploadResult.thumbUrl,
+          if (uploadResult.width > 0) 'width': uploadResult.width,
+          if (uploadResult.height > 0) 'height': uploadResult.height,
+          if (uploadResult.duration > 0) 'duration': uploadResult.duration,
+          'file_size': uploadResult.size,
+          'is_video': isVideo,
+        };
+
+        setState(() {
+          _isUploading = false;
+          _uploadProgress = 0.0;
+        });
+
+        messageType = isVideo ? 'video' : _getMessageTypeFromMimeType(uploadResult.mimeType);
+        content = effectiveContentText; // Can be empty!
+        fileUrl = uploadResult.url;
+        fileName = uploadResult.fileName;
+
+        _clearAttachedFiles();
+      }
 
       final syncService = SyncService();
       String? pendingLocalId;
@@ -1582,6 +1836,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           entities: effectiveEntities,
           linkPreviewOptions: linkPreviewOptions,
           invertMedia: invertMedia,
+          mediaPayload: singleMediaPayload,
         );
       } catch (e) {
         debugPrint('SyncService createPendingMessage error: $e');
@@ -1635,6 +1890,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             entities: effectiveEntities,
             linkPreviewOptions: linkPreviewOptions,
             invertMedia: invertMedia,
+            mediaPayload: singleMediaPayload,
           );
 
           if (result['success'] == true) {
@@ -1667,6 +1923,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             }
           } else {
             // 5. Пометить как failed
+            final errMsg = result['message']?.toString() ?? 'Failed to send message';
+            debugPrint('ChatService.sendMessage returned false: $errMsg');
             await syncService.markMessageFailed(pendingLocalId);
             if (mounted) {
               setState(() {
@@ -1677,6 +1935,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                       _messages[idx].copyWith(sendStatus: 2); // failed
                 }
               });
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(errMsg)),
+              );
             }
           }
         } catch (e) {
@@ -1691,6 +1952,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                     _messages[idx].copyWith(sendStatus: 2); // failed
               }
             });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to send message: $e')),
+            );
           }
         }
       } else {
@@ -1701,6 +1965,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           messageType: messageType,
           fileUrl: fileUrl,
           fileName: fileName,
+          mediaPayload: singleMediaPayload,
         );
 
         if (mounted) {
@@ -1723,35 +1988,20 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           }
         }
       }
-
-      // Send additional files as separate messages
-      for (int i = 1; i < uploadResults.length; i++) {
-        final upload = uploadResults[i];
-        final additionalMessageType =
-            _getMessageTypeFromMimeType(upload.mimeType);
-
-        final additionalResult = await ChatService.sendMessage(
-          chatId: widget.chatId,
-          content: upload.fileName,
-          messageType: additionalMessageType,
-          fileUrl: upload.url,
-          fileName: upload.fileName,
-        );
-
-        if (mounted && additionalResult['success'] == true) {
-          final additionalMsg = additionalResult['message'] as Message;
-          setState(() {
-            // Дедупликация: не добавлять если WS уже принёс это сообщение
-            if (!_messages.any((m) => m.id == additionalMsg.id)) {
-              _messages.insert(0, additionalMsg);
-            }
-          });
-        }
-      }
     } catch (e) {
       debugPrint('Send message error: $e');
       if (mounted) {
-        setState(() => _isSending = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSending = false;
+          _isUploading = false;
+          _uploadProgress = 0.0;
+        });
       }
     }
   }
@@ -2041,46 +2291,40 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                         top: topPadding,
                         bottom: _inputHeight + bottomOffset,
                       ),
-                      itemCount: _messages.length +
+                      itemCount: _feedItems.length +
                           (_showUnreadDivider && _firstUnreadMessageId != null
                               ? 1
                               : 0),
                       itemBuilder: (context, index) {
                         // Insert unread divider between unread and read messages.
-                        // In a reverse=true ListView: index 0 = bottom (newest), N = top (oldest).
-                        // _messages[0] = newest, _messages[N] = oldest.
-                        // first_unread_message is the OLDEST unread (highest index among unread).
-                        // Layout: [newer unread...] [first_unread] | DIVIDER | [last_read] [older read...]
                         if (_showUnreadDivider &&
                             _firstUnreadMessageId != null) {
-                          final unreadIndex = _messages
-                              .indexWhere((m) => m.id == _firstUnreadMessageId);
+                          final unreadIndex = _feedItems.indexWhere((item) =>
+                              item.id == _firstUnreadMessageId ||
+                              (item is FeedAlbumItem &&
+                                  item.album.items.any((ai) => ai.id == _firstUnreadMessageId)));
                           if (unreadIndex != -1) {
-                            // Divider goes AFTER the first unread message,
-                            // between unread (lower indices = newer) and read (higher indices = older)
                             final dividerPosition = unreadIndex + 1;
 
                             if (index == dividerPosition) {
                               return _buildUnreadDivider();
                             }
                             if (index < dividerPosition) {
-                              // Unread messages (newer): direct index mapping
-                              return _buildMessageItem(index);
+                              return _buildFeedItem(index);
                             }
-                            // index > dividerPosition: read messages (older), shift by 1 for divider
                             final adjustedIndex = index - 1;
                             if (adjustedIndex >= 0 &&
-                                adjustedIndex < _messages.length) {
-                              return _buildMessageItem(adjustedIndex);
+                                adjustedIndex < _feedItems.length) {
+                              return _buildFeedItem(adjustedIndex);
                             }
                           }
                         }
 
-                        if (index < 0 || index >= _messages.length) {
+                        if (index < 0 || index >= _feedItems.length) {
                           return const SizedBox.shrink();
                         }
 
-                        return _buildMessageItem(index);
+                        return _buildFeedItem(index);
                       },
                     ),
                   ),
@@ -2266,8 +2510,97 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     );
   }
 
-  Widget _buildMessageItem(int index) {
-    final message = _messages[index];
+  Widget _buildFeedItem(int index) {
+    if (index < 0 || index >= _feedItems.length) {
+      return const SizedBox.shrink();
+    }
+    final item = _feedItems[index];
+    if (item is FeedAlbumItem) {
+      return _buildAlbumFeedItem(item.album, index);
+    } else if (item is FeedSingleItem) {
+      return _buildMessageItem(item.message, index);
+    }
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildAlbumFeedItem(MediaAlbum album, int index) {
+    final message = album.primaryMessage;
+    final key = _messageKeys.putIfAbsent(message.id, () => GlobalKey());
+    final bool isMe = message.senderId == _currentUserId;
+
+    Widget albumWidget = MediaAlbumWidget(
+      key: key,
+      album: album,
+      isMe: isMe,
+      currentUserId: _currentUserId ?? '',
+      chatType: _chatType,
+      formatTime: _formatTime,
+      onFileTap: (url, name, type) => _openFile(url, name, type),
+    );
+
+    albumWidget = Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: albumWidget,
+    );
+
+    albumWidget = SwipeToReplyWrapper(
+      onReply: () => _startReply(message),
+      enabled: true,
+      child: albumWidget,
+    );
+
+    if (!isMe && !album.isRead) {
+      albumWidget = VisibleMessageDetector(
+        messageId: message.id,
+        onMessageSeen: () {
+          for (final ai in album.items) {
+            _onMessageVisible(ai.id);
+          }
+        },
+        visibilityThreshold: 0.3,
+        visibleDuration: const Duration(milliseconds: 300),
+        child: albumWidget,
+      );
+    }
+
+    albumWidget = GestureDetector(
+      onTap: () {
+        _showContextMenu(message, isMe, key);
+      },
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: double.infinity,
+        color: Colors.transparent,
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: albumWidget,
+      ),
+    );
+
+    final prevItem =
+        index < _feedItems.length - 1 ? _feedItems[index + 1] : null;
+    final currentDt = DateTime.tryParse(message.createdAt) ?? DateTime.now();
+    final prevDt = prevItem != null
+        ? (DateTime.tryParse(prevItem.createdAt) ?? DateTime.now())
+        : null;
+    final currentDate = _dateOnly(currentDt);
+    final prevDate = prevDt != null ? _dateOnly(prevDt) : null;
+
+    final items = <Widget>[];
+    if (currentDate != prevDate) {
+      items.add(DateSeparator(dateLabel: _formatDateLabel(currentDt)));
+    }
+
+    items.add(albumWidget);
+
+    return RepaintBoundary(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: items,
+      ),
+    );
+  }
+
+  Widget _buildMessageItem(Message message, int index) {
     final key = _messageKeys.putIfAbsent(message.id, () => GlobalKey());
     final bool isMe = message.senderId == _currentUserId;
     final isHighlighted = _highlightMessageId == message.id;
@@ -2326,11 +2659,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     );
 
     // Add date separator if needed
-    final prevMessage =
-        index < _messages.length - 1 ? _messages[index + 1] : null;
+    final prevItem =
+        index < _feedItems.length - 1 ? _feedItems[index + 1] : null;
     final currentDt = DateTime.tryParse(message.createdAt) ?? DateTime.now();
-    final prevDt = prevMessage != null
-        ? (DateTime.tryParse(prevMessage.createdAt) ?? DateTime.now())
+    final prevDt = prevItem != null
+        ? (DateTime.tryParse(prevItem.createdAt) ?? DateTime.now())
         : null;
     final currentDate = _dateOnly(currentDt);
     final prevDate = prevDt != null ? _dateOnly(prevDt) : null;
@@ -2818,7 +3151,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
       // 2. Upload file to MinIO storage
       setState(() => _isUploading = true);
-      final uploadResult = await _fileService.uploadFile(
+      final uploadResult = await _fileService.uploadFileChunked(
         file,
         onProgress: (progress) {
           if (mounted) setState(() => _uploadProgress = progress);
@@ -3090,92 +3423,153 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   /// Show attachment picker bottom sheet
-  void _showAttachmentPicker() {
-    final theme = Theme.of(context);
-    final iconColor = theme.colorScheme.onSurface;
+  void _showAttachmentPicker() async {
+    final result = await AttachmentPickerBottomSheet.show(context, allowPoll: true);
+    if (result == null || !mounted) return;
 
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: iconoir.Camera(color: iconColor, width: 24, height: 24),
-              title: const Text('Camera'),
-              onTap: () {
-                Navigator.pop(context);
-                _takePhoto();
-              },
-            ),
-            ListTile(
-              leading: iconoir.MediaImage(color: iconColor, width: 24, height: 24),
-              title: const Text('Photo from Gallery'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickMedia('image');
-              },
-            ),
-            ListTile(
-              leading: iconoir.VideoCamera(color: iconColor, width: 24, height: 24),
-              title: const Text('Video'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickMedia('video');
-              },
-            ),
-            ListTile(
-              leading: iconoir.Page(color: iconColor, width: 24, height: 24),
-              title: const Text('Document'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickDocument();
-              },
-            ),
-            ListTile(
-              leading: iconoir.MapPin(color: iconColor, width: 24, height: 24),
-              title: const Text('Location'),
-              onTap: () {
-                Navigator.pop(context);
-                _sendLocation();
-              },
-            ),
-            ListTile(
-              leading: iconoir.User(color: iconColor, width: 24, height: 24),
-              title: const Text('Contact'),
-              onTap: () {
-                Navigator.pop(context);
-                _sendContact();
-              },
-            ),
-          ],
-        ),
+    if (result.files != null && result.files!.isNotEmpty) {
+      if (result.asDocument) {
+        setState(() {
+          for (final file in result.files!) {
+            _attachedFiles.add(file);
+            _attachedFileNames.add(p.basename(file.path));
+          }
+        });
+        if (result.sendImmediately) {
+          _sendMessage();
+        }
+      } else if (result.sendImmediately) {
+        setState(() {
+          for (final file in result.files!) {
+            _attachedFiles.add(file);
+            _attachedFileNames.add(p.basename(file.path));
+          }
+        });
+        _sendMessage();
+      } else {
+        await _openMediaSendScreen(result.files!);
+      }
+      return;
+    }
+
+    switch (result.action) {
+      case AttachmentPickerAction.camera:
+        _takePhoto();
+        break;
+      case AttachmentPickerAction.gallery:
+        _pickMedia('media');
+        break;
+      case AttachmentPickerAction.file:
+        _pickDocument();
+        break;
+      case AttachmentPickerAction.location:
+        _sendLocation();
+        break;
+      case AttachmentPickerAction.contact:
+        _sendContact();
+        break;
+      case AttachmentPickerAction.music:
+        _pickAudio();
+        break;
+      case AttachmentPickerAction.poll:
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PollCreateScreen(chatId: widget.chatId),
+          ),
+        );
+        break;
+      case null:
+        break;
+    }
+  }
+
+  Future<void> _pickAudio() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.audio,
+        allowMultiple: true,
+      );
+      if (result != null && result.files.isNotEmpty) {
+        setState(() {
+          for (final file in result.files) {
+            if (file.path != null) {
+              _attachedFiles.add(File(file.path!));
+              _attachedFileNames.add(file.name);
+            }
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick audio: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _openMediaSendScreen(List<File> files) async {
+    if (files.isEmpty) return;
+    final result = await Navigator.push<MediaSendResult>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => MediaSendScreen(initialFiles: files),
       ),
     );
+
+    if (result != null && result.files.isNotEmpty && mounted) {
+      setState(() {
+        for (final file in result.files) {
+          _attachedFiles.add(file);
+          _attachedFileNames.add(p.basename(file.path));
+        }
+        if (result.caption != null && result.caption!.isNotEmpty) {
+          _textController.text = result.caption!;
+        }
+      });
+      _sendMessage();
+    }
   }
 
   /// Pick and send media (image or video)
   Future<void> _pickMedia(String type) async {
     try {
-      final XFile? pickedFile;
-      if (type == 'image') {
-        pickedFile = await _imagePicker.pickImage(
-          source: ImageSource.gallery,
-          maxWidth: 1920,
-          maxHeight: 1920,
-          imageQuality: 85,
+      if (type == 'video') {
+        final result = await FilePicker.platform.pickFiles(
+          type: FileType.video,
+          allowMultiple: true,
         );
+        if (result != null && result.files.isNotEmpty) {
+          final List<File> picked = [];
+          for (final file in result.files) {
+            if (file.path != null) {
+              picked.add(File(file.path!));
+            }
+          }
+          if (picked.isNotEmpty) {
+            await _openMediaSendScreen(picked);
+          }
+        }
       } else {
-        pickedFile = await _imagePicker.pickVideo(
-          source: ImageSource.gallery,
-          maxDuration: const Duration(minutes: 10),
-        );
-      }
-
-      if (pickedFile != null) {
-        setState(() {
-          _attachedFiles.add(File(pickedFile!.path));
-          _attachedFileNames.add(pickedFile.name);
-        });
+        List<XFile> pickedMedia = [];
+        try {
+          pickedMedia = await _imagePicker.pickMultipleMedia(
+            maxWidth: 1920,
+            maxHeight: 1920,
+            imageQuality: 95,
+          );
+        } catch (_) {
+          pickedMedia = await _imagePicker.pickMultiImage(
+            maxWidth: 1920,
+            maxHeight: 1920,
+            imageQuality: 95,
+          );
+        }
+        if (pickedMedia.isNotEmpty) {
+          final picked = pickedMedia.map((x) => File(x.path)).toList();
+          await _openMediaSendScreen(picked);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -3193,14 +3587,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         source: ImageSource.camera,
         maxWidth: 1920,
         maxHeight: 1920,
-        imageQuality: 85,
+        imageQuality: 95,
       );
 
       if (photo != null) {
-        setState(() {
-          _attachedFiles.add(File(photo.path));
-          _attachedFileNames.add(photo.name);
-        });
+        await _openMediaSendScreen([File(photo.path)]);
       }
     } catch (e) {
       if (mounted) {

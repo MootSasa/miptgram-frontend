@@ -3,6 +3,7 @@ import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:provider/provider.dart';
 import 'dart:async';
+import 'dart:convert';
 import '../../services/chat_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/websocket_service.dart';
@@ -462,16 +463,16 @@ class _ChannelScreenState extends State<ChannelScreen> {
               _messages.add(m);
             }
           }
+          final dateMap = <String, int>{};
+          for (final m in _messages) {
+            dateMap[m.id] = DateTime.tryParse(m.createdAt)?.millisecondsSinceEpoch ?? 0;
+          }
           _messages.sort((a, b) {
-            try {
-              final ta = DateTime.parse(a.createdAt);
-              final tb = DateTime.parse(b.createdAt);
-              final cmp = tb.compareTo(ta);
-              if (cmp != 0) return cmp;
-              return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
-            } catch (_) {
-              return 0;
-            }
+            final ta = dateMap[a.id] ?? 0;
+            final tb = dateMap[b.id] ?? 0;
+            final cmp = tb.compareTo(ta);
+            if (cmp != 0) return cmp;
+            return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
           });
           _isLoadingMore = false;
         });
@@ -514,16 +515,16 @@ class _ChannelScreenState extends State<ChannelScreen> {
             _messages.add(m);
           }
         }
+        final dateMap = <String, int>{};
+        for (final m in _messages) {
+          dateMap[m.id] = DateTime.tryParse(m.createdAt)?.millisecondsSinceEpoch ?? 0;
+        }
         _messages.sort((a, b) {
-          try {
-            final ta = DateTime.parse(a.createdAt);
-            final tb = DateTime.parse(b.createdAt);
-            final cmp = tb.compareTo(ta);
-            if (cmp != 0) return cmp;
-            return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
-          } catch (_) {
-            return 0;
-          }
+          final ta = dateMap[a.id] ?? 0;
+          final tb = dateMap[b.id] ?? 0;
+          final cmp = tb.compareTo(ta);
+          if (cmp != 0) return cmp;
+          return (int.tryParse(b.id) ?? 0).compareTo(int.tryParse(a.id) ?? 0);
         });
         _isLoadingMore = false;
       });
@@ -559,7 +560,27 @@ class _ChannelScreenState extends State<ChannelScreen> {
       senderName: Value(msg.senderName),
       senderAvatarUrl: Value(msg.senderAvatarUrl),
       createdAt: Value(msg.createdAt),
+      reactions: msg.reactions.isNotEmpty || msg.myReactions.isNotEmpty
+          ? Value(jsonEncode({
+              'reactions': msg.reactions,
+              'my_reactions': msg.myReactions.toList(),
+            }))
+          : const Value.absent(),
       isRound: Value(msg.isRound),
+      groupedId: Value(msg.groupedId),
+      entities: msg.entities.isNotEmpty
+          ? Value(jsonEncode(msg.entities.map((e) => e.toJson()).toList()))
+          : const Value.absent(),
+      linkPreviewOptions: msg.linkPreviewOptions != null
+          ? Value(jsonEncode(msg.linkPreviewOptions!.toJson()))
+          : const Value.absent(),
+      mediaPayload: msg.mediaPayload != null && msg.mediaPayload!.isNotEmpty
+          ? Value(jsonEncode(msg.mediaPayload))
+          : const Value.absent(),
+      invertMedia: Value(msg.invertMedia),
+      isForward: Value(msg.isForward),
+      forwardFromId: Value(msg.forwardFromId),
+      forwardFromName: Value(msg.forwardFromName),
     );
   }
 
@@ -802,6 +823,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
             }
           }
         } else {
+          final errMsg = result['message']?.toString() ?? 'Failed to send message';
+          debugPrint('ChatService.sendMessage in channel returned false: $errMsg');
           await syncService.markMessageFailed(pendingLocalId);
           if (mounted) {
             setState(() {
@@ -812,10 +835,13 @@ class _ChannelScreenState extends State<ChannelScreen> {
                     _messages[idx].copyWith(sendStatus: 2); // failed
               }
             });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(errMsg)),
+            );
           }
         }
       } catch (e) {
-        debugPrint('ChatService.sendMessage exception: $e');
+        debugPrint('ChatService.sendMessage in channel exception: $e');
         await syncService.markMessageFailed(pendingLocalId);
         if (mounted) {
           setState(() {
@@ -826,6 +852,9 @@ class _ChannelScreenState extends State<ChannelScreen> {
                   _messages[idx].copyWith(sendStatus: 2); // failed
             }
           });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to send message: $e')),
+          );
         }
       }
     } else {

@@ -802,6 +802,12 @@ class $MessagesTable extends Messages
       defaultConstraints:
           GeneratedColumn.constraintIsAlways('CHECK ("is_round" IN (0, 1))'),
       defaultValue: const Constant(false));
+  static const VerificationMeta _mediaPayloadMeta =
+      const VerificationMeta('mediaPayload');
+  @override
+  late final GeneratedColumn<String> mediaPayload = GeneratedColumn<String>(
+      'media_payload', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         localId,
@@ -835,7 +841,8 @@ class $MessagesTable extends Messages
         reactions,
         linkPreviewOptions,
         invertMedia,
-        isRound
+        isRound,
+        mediaPayload
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1015,6 +1022,12 @@ class $MessagesTable extends Messages
       context.handle(_isRoundMeta,
           isRound.isAcceptableOrUnknown(data['is_round']!, _isRoundMeta));
     }
+    if (data.containsKey('media_payload')) {
+      context.handle(
+          _mediaPayloadMeta,
+          mediaPayload.isAcceptableOrUnknown(
+              data['media_payload']!, _mediaPayloadMeta));
+    }
     return context;
   }
 
@@ -1088,6 +1101,8 @@ class $MessagesTable extends Messages
           .read(DriftSqlType.bool, data['${effectivePrefix}invert_media'])!,
       isRound: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}is_round'])!,
+      mediaPayload: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}media_payload']),
     );
   }
 
@@ -1130,6 +1145,7 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
   final String? linkPreviewOptions;
   final bool invertMedia;
   final bool isRound;
+  final String? mediaPayload;
   const DbMessage(
       {required this.localId,
       this.serverId,
@@ -1162,7 +1178,8 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       this.reactions,
       this.linkPreviewOptions,
       required this.invertMedia,
-      required this.isRound});
+      required this.isRound,
+      this.mediaPayload});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -1230,6 +1247,9 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
     }
     map['invert_media'] = Variable<bool>(invertMedia);
     map['is_round'] = Variable<bool>(isRound);
+    if (!nullToAbsent || mediaPayload != null) {
+      map['media_payload'] = Variable<String>(mediaPayload);
+    }
     return map;
   }
 
@@ -1299,6 +1319,9 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
           : Value(linkPreviewOptions),
       invertMedia: Value(invertMedia),
       isRound: Value(isRound),
+      mediaPayload: mediaPayload == null && nullToAbsent
+          ? const Value.absent()
+          : Value(mediaPayload),
     );
   }
 
@@ -1341,6 +1364,7 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
           serializer.fromJson<String?>(json['linkPreviewOptions']),
       invertMedia: serializer.fromJson<bool>(json['invertMedia']),
       isRound: serializer.fromJson<bool>(json['isRound']),
+      mediaPayload: serializer.fromJson<String?>(json['mediaPayload']),
     );
   }
   @override
@@ -1379,6 +1403,7 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       'linkPreviewOptions': serializer.toJson<String?>(linkPreviewOptions),
       'invertMedia': serializer.toJson<bool>(invertMedia),
       'isRound': serializer.toJson<bool>(isRound),
+      'mediaPayload': serializer.toJson<String?>(mediaPayload),
     };
   }
 
@@ -1414,7 +1439,8 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
           Value<String?> reactions = const Value.absent(),
           Value<String?> linkPreviewOptions = const Value.absent(),
           bool? invertMedia,
-          bool? isRound}) =>
+          bool? isRound,
+          Value<String?> mediaPayload = const Value.absent()}) =>
       DbMessage(
         localId: localId ?? this.localId,
         serverId: serverId.present ? serverId.value : this.serverId,
@@ -1462,6 +1488,8 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
             : this.linkPreviewOptions,
         invertMedia: invertMedia ?? this.invertMedia,
         isRound: isRound ?? this.isRound,
+        mediaPayload:
+            mediaPayload.present ? mediaPayload.value : this.mediaPayload,
       );
   DbMessage copyWithCompanion(MessagesCompanion data) {
     return DbMessage(
@@ -1521,6 +1549,9 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
       invertMedia:
           data.invertMedia.present ? data.invertMedia.value : this.invertMedia,
       isRound: data.isRound.present ? data.isRound.value : this.isRound,
+      mediaPayload: data.mediaPayload.present
+          ? data.mediaPayload.value
+          : this.mediaPayload,
     );
   }
 
@@ -1558,7 +1589,8 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
           ..write('reactions: $reactions, ')
           ..write('linkPreviewOptions: $linkPreviewOptions, ')
           ..write('invertMedia: $invertMedia, ')
-          ..write('isRound: $isRound')
+          ..write('isRound: $isRound, ')
+          ..write('mediaPayload: $mediaPayload')
           ..write(')'))
         .toString();
   }
@@ -1596,7 +1628,8 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
         reactions,
         linkPreviewOptions,
         invertMedia,
-        isRound
+        isRound,
+        mediaPayload
       ]);
   @override
   bool operator ==(Object other) =>
@@ -1633,7 +1666,8 @@ class DbMessage extends DataClass implements Insertable<DbMessage> {
           other.reactions == this.reactions &&
           other.linkPreviewOptions == this.linkPreviewOptions &&
           other.invertMedia == this.invertMedia &&
-          other.isRound == this.isRound);
+          other.isRound == this.isRound &&
+          other.mediaPayload == this.mediaPayload);
 }
 
 class MessagesCompanion extends UpdateCompanion<DbMessage> {
@@ -1669,6 +1703,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
   final Value<String?> linkPreviewOptions;
   final Value<bool> invertMedia;
   final Value<bool> isRound;
+  final Value<String?> mediaPayload;
   final Value<int> rowid;
   const MessagesCompanion({
     this.localId = const Value.absent(),
@@ -1703,6 +1738,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
     this.linkPreviewOptions = const Value.absent(),
     this.invertMedia = const Value.absent(),
     this.isRound = const Value.absent(),
+    this.mediaPayload = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   MessagesCompanion.insert({
@@ -1738,6 +1774,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
     this.linkPreviewOptions = const Value.absent(),
     this.invertMedia = const Value.absent(),
     this.isRound = const Value.absent(),
+    this.mediaPayload = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : localId = Value(localId),
         chatId = Value(chatId),
@@ -1777,6 +1814,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
     Expression<String>? linkPreviewOptions,
     Expression<bool>? invertMedia,
     Expression<bool>? isRound,
+    Expression<String>? mediaPayload,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1814,6 +1852,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
         'link_preview_options': linkPreviewOptions,
       if (invertMedia != null) 'invert_media': invertMedia,
       if (isRound != null) 'is_round': isRound,
+      if (mediaPayload != null) 'media_payload': mediaPayload,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1851,6 +1890,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
       Value<String?>? linkPreviewOptions,
       Value<bool>? invertMedia,
       Value<bool>? isRound,
+      Value<String?>? mediaPayload,
       Value<int>? rowid}) {
     return MessagesCompanion(
       localId: localId ?? this.localId,
@@ -1885,6 +1925,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
       linkPreviewOptions: linkPreviewOptions ?? this.linkPreviewOptions,
       invertMedia: invertMedia ?? this.invertMedia,
       isRound: isRound ?? this.isRound,
+      mediaPayload: mediaPayload ?? this.mediaPayload,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1988,6 +2029,9 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
     if (isRound.present) {
       map['is_round'] = Variable<bool>(isRound.value);
     }
+    if (mediaPayload.present) {
+      map['media_payload'] = Variable<String>(mediaPayload.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -2029,6 +2073,7 @@ class MessagesCompanion extends UpdateCompanion<DbMessage> {
           ..write('linkPreviewOptions: $linkPreviewOptions, ')
           ..write('invertMedia: $invertMedia, ')
           ..write('isRound: $isRound, ')
+          ..write('mediaPayload: $mediaPayload, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3007,6 +3052,7 @@ typedef $$MessagesTableCreateCompanionBuilder = MessagesCompanion Function({
   Value<String?> linkPreviewOptions,
   Value<bool> invertMedia,
   Value<bool> isRound,
+  Value<String?> mediaPayload,
   Value<int> rowid,
 });
 typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
@@ -3042,6 +3088,7 @@ typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
   Value<String?> linkPreviewOptions,
   Value<bool> invertMedia,
   Value<bool> isRound,
+  Value<String?> mediaPayload,
   Value<int> rowid,
 });
 
@@ -3157,6 +3204,9 @@ class $$MessagesTableFilterComposer
 
   ColumnFilters<bool> get isRound => $composableBuilder(
       column: $table.isRound, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get mediaPayload => $composableBuilder(
+      column: $table.mediaPayload, builder: (column) => ColumnFilters(column));
 }
 
 class $$MessagesTableOrderingComposer
@@ -3272,6 +3322,10 @@ class $$MessagesTableOrderingComposer
 
   ColumnOrderings<bool> get isRound => $composableBuilder(
       column: $table.isRound, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get mediaPayload => $composableBuilder(
+      column: $table.mediaPayload,
+      builder: (column) => ColumnOrderings(column));
 }
 
 class $$MessagesTableAnnotationComposer
@@ -3378,6 +3432,9 @@ class $$MessagesTableAnnotationComposer
 
   GeneratedColumn<bool> get isRound =>
       $composableBuilder(column: $table.isRound, builder: (column) => column);
+
+  GeneratedColumn<String> get mediaPayload => $composableBuilder(
+      column: $table.mediaPayload, builder: (column) => column);
 }
 
 class $$MessagesTableTableManager extends RootTableManager<
@@ -3435,6 +3492,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             Value<String?> linkPreviewOptions = const Value.absent(),
             Value<bool> invertMedia = const Value.absent(),
             Value<bool> isRound = const Value.absent(),
+            Value<String?> mediaPayload = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               MessagesCompanion(
@@ -3470,6 +3528,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             linkPreviewOptions: linkPreviewOptions,
             invertMedia: invertMedia,
             isRound: isRound,
+            mediaPayload: mediaPayload,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -3505,6 +3564,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             Value<String?> linkPreviewOptions = const Value.absent(),
             Value<bool> invertMedia = const Value.absent(),
             Value<bool> isRound = const Value.absent(),
+            Value<String?> mediaPayload = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               MessagesCompanion.insert(
@@ -3540,6 +3600,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             linkPreviewOptions: linkPreviewOptions,
             invertMedia: invertMedia,
             isRound: isRound,
+            mediaPayload: mediaPayload,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0

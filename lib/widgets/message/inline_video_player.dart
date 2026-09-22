@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
 import 'package:video_player/video_player.dart';
+import '../../services/media_cache_manager.dart';
 
 /// Inline video player for chat messages
 /// Shows a thumbnail with play button, expands to play inline
@@ -31,27 +32,45 @@ class _InlineVideoPlayerState extends State<InlineVideoPlayer> {
     _initController();
   }
 
-  void _initController() {
-    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
-    _controller!.initialize().then((_) {
-      if (mounted) {
-        setState(() {
-          _isInitialized = true;
-          _error = null;
-        });
-        if (widget.autoplay) {
-          _controller!.play();
-          _isPlaying = true;
-        }
-        _controller!.addListener(_onVideoUpdate);
+  Future<void> _initController() async {
+    final currentUrl = widget.url;
+    try {
+      final cachedFile = await MediaCacheManager.instance.getCachedFile(currentUrl);
+      if (!mounted || widget.url != currentUrl) return;
+
+      final controller = cachedFile != null && await cachedFile.exists()
+          ? VideoPlayerController.file(cachedFile)
+          : VideoPlayerController.networkUrl(Uri.parse(currentUrl));
+
+      if (!mounted || widget.url != currentUrl) {
+        controller.dispose();
+        return;
       }
-    }).catchError((error) {
-      if (mounted) {
+
+      _controller = controller;
+      await controller.initialize();
+
+      if (!mounted || widget.url != currentUrl) {
+        controller.dispose();
+        return;
+      }
+
+      setState(() {
+        _isInitialized = true;
+        _error = null;
+      });
+      if (widget.autoplay) {
+        controller.play();
+        _isPlaying = true;
+      }
+      controller.addListener(_onVideoUpdate);
+    } catch (error) {
+      if (mounted && widget.url == currentUrl) {
         setState(() {
           _error = error.toString();
         });
       }
-    });
+    }
   }
 
   void _onVideoUpdate() {

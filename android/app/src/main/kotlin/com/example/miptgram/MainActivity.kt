@@ -1,14 +1,17 @@
 package com.example.miptgram
 
+import android.graphics.Bitmap
 import android.graphics.RectF
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
 import android.os.Build
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 
 class MainActivity : FlutterFragmentActivity() {
@@ -45,6 +48,49 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                 } else {
                     result.error("INVALID_ARGS", "Missing paths", null)
+                }
+            } else if (call.method == "getVideoThumbnail") {
+                val videoPath = call.argument<String>("videoPath")
+                if (videoPath != null) {
+                    try {
+                        val retriever = MediaMetadataRetriever()
+                        retriever.setDataSource(videoPath)
+                        val bitmap = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        val widthStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                        val heightStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                        val durStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        val rotationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                        
+                        var w = widthStr?.toIntOrNull() ?: 0
+                        var h = heightStr?.toIntOrNull() ?: 0
+                        val rot = rotationStr?.toIntOrNull() ?: 0
+                        if (rot == 90 || rot == 270) {
+                            val tmp = w
+                            w = h
+                            h = tmp
+                        }
+                        val durMs = durStr?.toLongOrNull() ?: 0L
+                        val durSec = (durMs / 1000L).toInt()
+
+                        var thumbBytes: ByteArray? = null
+                        if (bitmap != null) {
+                            val stream = ByteArrayOutputStream()
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 60, stream)
+                            thumbBytes = stream.toByteArray()
+                        }
+                        retriever.release()
+
+                        result.success(mapOf(
+                            "thumbnail" to thumbBytes,
+                            "width" to w,
+                            "height" to h,
+                            "duration" to durSec
+                        ))
+                    } catch (e: Exception) {
+                        result.success(null)
+                    }
+                } else {
+                    result.error("INVALID_ARGS", "Missing videoPath", null)
                 }
             } else {
                 result.notImplemented()

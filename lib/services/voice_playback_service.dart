@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'video_note_playback_service.dart';
+import 'media_cache_manager.dart';
 
 /// Singleton service managing in-chat voice message playback, speed toggling, and auto-advance queue.
 class VoicePlaybackService with ChangeNotifier {
@@ -102,10 +103,27 @@ class VoicePlaybackService with ChangeNotifier {
     notifyListeners();
 
     try {
+      String playPath = audioUrl;
       if (audioUrl.startsWith('http://') || audioUrl.startsWith('https://')) {
-        await _player.setUrl(audioUrl);
+        final cached = await MediaCacheManager.instance.getCachedFile(audioUrl);
+        if (cached != null && await cached.exists()) {
+          playPath = cached.path;
+        } else {
+          // Download to local cache asynchronously so repeated listening is instant & offline-ready
+          final downloaded = await MediaCacheManager.instance.downloadMedia(audioUrl);
+          if (downloaded != null && await downloaded.exists()) {
+            playPath = downloaded.path;
+          }
+        }
+      }
+
+      if (playPath.startsWith('http://') || playPath.startsWith('https://')) {
+        await _player.setUrl(playPath);
       } else {
-        await _player.setFilePath(audioUrl);
+        final localFile = playPath.startsWith('file://')
+            ? playPath.replaceFirst('file://', '')
+            : playPath;
+        await _player.setFilePath(localFile);
       }
       await _player.setSpeed(_playbackSpeed);
       await _player.play();

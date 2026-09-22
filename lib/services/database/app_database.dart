@@ -81,6 +81,9 @@ class Messages extends Table {
   // Round video note flag
   BoolColumn get isRound => boolean().withDefault(const Constant(false))();
 
+  // Dedicated media payload (waveform, duration, thumb, metadata)
+  TextColumn get mediaPayload => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {localId};
 }
@@ -125,7 +128,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -206,6 +209,11 @@ class AppDatabase extends _$AppDatabase {
           if (from < 7) {
             await customStatement(
               'ALTER TABLE messages ADD COLUMN is_round INTEGER NOT NULL DEFAULT 0',
+            );
+          }
+          if (from < 8) {
+            await customStatement(
+              'ALTER TABLE messages ADD COLUMN media_payload TEXT',
             );
           }
         },

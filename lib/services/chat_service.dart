@@ -23,6 +23,7 @@ class Chat {
   final String? lastSeen; // Last seen time for private chats
   final bool isPinned; // Whether chat is pinned
   final String? otherUserId;
+  final String? lastMessageGroupedId;
 
   Chat({
     required this.id,
@@ -40,6 +41,7 @@ class Chat {
     this.lastSeen,
     this.isPinned = false,
     this.otherUserId,
+    this.lastMessageGroupedId,
   });
 
   /// True if the last message in this chat is a round video note («кружочек»)
@@ -74,6 +76,7 @@ class Chat {
       lastSeen: json['last_seen']?.toString(),
       isPinned: json['is_pinned'] ?? false,
       otherUserId: json['other_user_id']?.toString() ?? json['otherUserId']?.toString(),
+      lastMessageGroupedId: json['last_message_grouped_id']?.toString(),
     );
   }
 
@@ -93,6 +96,7 @@ class Chat {
     String? lastSeen,
     bool? isPinned,
     String? otherUserId,
+    String? lastMessageGroupedId,
   }) {
     return Chat(
       id: id ?? this.id,
@@ -110,6 +114,7 @@ class Chat {
       lastSeen: lastSeen ?? this.lastSeen,
       isPinned: isPinned ?? this.isPinned,
       otherUserId: otherUserId ?? this.otherUserId,
+      lastMessageGroupedId: lastMessageGroupedId ?? this.lastMessageGroupedId,
     );
   }
 }
@@ -357,6 +362,9 @@ class Message {
   final List<int>? waveform;
   final int? duration;
 
+  // Media album & message extra payload (dimensions, thumb_base64, file_size, etc.)
+  final Map<String, dynamic>? mediaPayload;
+
   Message({
     required this.id,
     required this.chatId,
@@ -393,10 +401,18 @@ class Message {
     this.isRound = false,
     this.waveform,
     this.duration,
+    this.mediaPayload,
   });
 
   /// Whether this message has a reply or quote
   bool get hasReply => replyToMessageId != null && replyToMessageId!.isNotEmpty;
+
+  String? get thumbBase64 => mediaPayload?['thumb_base64'] as String?;
+  String? get thumbUrl => mediaPayload?['thumb_url'] as String? ?? mediaPayload?['thumbnail_url'] as String?;
+  int? get mediaWidth => (mediaPayload?['width'] as num?)?.toInt();
+  int? get mediaHeight => (mediaPayload?['height'] as num?)?.toInt();
+  int? get mediaDuration => (mediaPayload?['duration'] as num?)?.toInt();
+  int? get mediaFileSize => (mediaPayload?['file_size'] as num?)?.toInt();
 
   factory Message.fromJson(Map<String, dynamic> json) {
     // Parse replyInfo from nested object or flat fields
@@ -484,28 +500,57 @@ class Message {
       readAt: json['read_at']?.toString(),
       isQuote: json['is_quote'] ?? false,
       quoteText: json['quote_text']?.toString(),
-      quoteOffset: json['quote_offset'] as int? ?? 0,
-      quoteLength: json['quote_length'] as int? ?? 0,
+      quoteOffset: (json['quote_offset'] as num?)?.toInt() ?? 0,
+      quoteLength: (json['quote_length'] as num?)?.toInt() ?? 0,
       replyInfo: replyInfo,
       localId: json['local_id']?.toString(),
-      sendStatus: json['send_status'] ?? 1,
+      sendStatus: (json['send_status'] as num?)?.toInt() ?? 1,
       senderNameColorId: json['sender_name_color_id']?.toString(),
       senderReplyStripStyle: json['sender_reply_strip_style']?.toString(),
       isForward: json['is_forward'] ?? false,
       forwardFromId: json['forward_from_id']?.toString(),
       forwardFromName: json['forward_from_name']?.toString(),
       groupedId: json['grouped_id']?.toString(),
-      entities: (json['entities'] as List?)
-              ?.map((e) => MessageEntity.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          const [],
-      linkPreviewOptions: json['link_preview_options'] != null
-          ? LinkPreviewOptions.fromJson(
-              json['link_preview_options'] is String
-                  ? jsonDecode(json['link_preview_options'])
-                  : json['link_preview_options'] as Map<String, dynamic>,
-            )
-          : null,
+      entities: () {
+        final raw = json['entities'];
+        if (raw is List) {
+          return raw
+              .whereType<Map>()
+              .map((e) => MessageEntity.fromJson(Map<String, dynamic>.from(e)))
+              .toList();
+        } else if (raw is String && raw.isNotEmpty && raw != 'null') {
+          try {
+            final decoded = jsonDecode(raw);
+            if (decoded is List) {
+              return decoded
+                  .whereType<Map>()
+                  .map((e) => MessageEntity.fromJson(Map<String, dynamic>.from(e)))
+                  .toList();
+            }
+          } catch (_) {}
+        }
+        return const <MessageEntity>[];
+      }(),
+      linkPreviewOptions: () {
+        final raw = json['link_preview_options'];
+        if (raw == null) return null;
+        if (raw is Map) {
+          try {
+            return LinkPreviewOptions.fromJson(Map<String, dynamic>.from(raw));
+          } catch (_) {
+            return null;
+          }
+        }
+        if (raw is String && raw.isNotEmpty && raw != 'null' && raw != '{}') {
+          try {
+            final decoded = jsonDecode(raw);
+            if (decoded is Map) {
+              return LinkPreviewOptions.fromJson(Map<String, dynamic>.from(decoded));
+            }
+          } catch (_) {}
+        }
+        return null;
+      }(),
       invertMedia: json['invert_media'] == true ||
           json['invert_media'] == 1 ||
           json['invert_media'] == 'true',
@@ -514,6 +559,18 @@ class Message {
       isRound: json['is_round'] == true || json['message_type'] == 'round',
       waveform: waveform,
       duration: duration,
+      mediaPayload: json['media_payload'] is Map
+          ? Map<String, dynamic>.from(json['media_payload'] as Map)
+          : (json['media_payload'] is String && (json['media_payload'] as String).isNotEmpty
+              ? (() {
+                  try {
+                    final decoded = jsonDecode(json['media_payload'] as String);
+                    return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
+                  } catch (_) {
+                    return null;
+                  }
+                })()
+              : null),
     );
   }
 
@@ -568,30 +625,41 @@ class Message {
     }
 
     LinkPreviewOptions? parsedLinkPreviewOptions;
-    List<int>? dbWaveform;
-    int? dbDuration;
-    if (model.messageType == 'voice' &&
-        model.linkPreviewOptions != null &&
-        model.linkPreviewOptions!.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(model.linkPreviewOptions!);
-        if (decoded is Map) {
-          if (decoded['waveform'] is List) {
-            dbWaveform = (decoded['waveform'] as List)
-                .map((e) => (e as num).toInt())
-                .toList();
-          }
-          if (decoded['duration'] is num) {
-            dbDuration = (decoded['duration'] as num).toInt();
-          }
-        }
-      } catch (_) {}
-    } else if (model.linkPreviewOptions != null &&
+    if (model.linkPreviewOptions != null &&
         model.linkPreviewOptions!.isNotEmpty) {
       try {
         final decoded = jsonDecode(model.linkPreviewOptions!);
         if (decoded is Map<String, dynamic>) {
           parsedLinkPreviewOptions = LinkPreviewOptions.fromJson(decoded);
+        }
+      } catch (_) {}
+    }
+
+    Map<String, dynamic>? dbMediaPayload;
+    List<int>? dbWaveform;
+    int? dbDuration;
+    // Prefer dedicated mediaPayload column, fall back to linkPreviewOptions for legacy data
+    final rawMediaPayload = (model.mediaPayload != null && model.mediaPayload!.isNotEmpty)
+        ? model.mediaPayload
+        : (model.messageType == 'voice' ? model.linkPreviewOptions : null);
+
+    if (rawMediaPayload != null && rawMediaPayload.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawMediaPayload);
+        if (decoded is Map<String, dynamic>) {
+          dbMediaPayload = decoded;
+        } else if (decoded is Map) {
+          dbMediaPayload = Map<String, dynamic>.from(decoded);
+        }
+        if (dbMediaPayload != null) {
+          if (dbMediaPayload['waveform'] is List) {
+            dbWaveform = (dbMediaPayload['waveform'] as List)
+                .map((e) => (e as num).toInt())
+                .toList();
+          }
+          if (dbMediaPayload['duration'] is num) {
+            dbDuration = (dbMediaPayload['duration'] as num).toInt();
+          }
         }
       } catch (_) {}
     }
@@ -629,6 +697,7 @@ class Message {
       isRound: model.isRound,
       waveform: dbWaveform,
       duration: dbDuration,
+      mediaPayload: dbMediaPayload,
     );
   }
 
@@ -669,6 +738,7 @@ class Message {
     bool? isRound,
     List<int>? waveform,
     int? duration,
+    Map<String, dynamic>? mediaPayload,
   }) {
     return Message(
       id: id ?? this.id,
@@ -706,6 +776,7 @@ class Message {
       isRound: isRound ?? this.isRound,
       waveform: waveform ?? this.waveform,
       duration: duration ?? this.duration,
+      mediaPayload: mediaPayload ?? this.mediaPayload,
     );
   }
 }
@@ -1080,6 +1151,8 @@ class ChatService {
     bool isRound = false,
     List<int>? waveform,
     int? duration,
+    String? groupedId,
+    Map<String, dynamic>? mediaPayload,
   }) async {
     try {
       final token = await AuthService.getToken();
@@ -1103,6 +1176,8 @@ class ChatService {
       if (effectiveIsRound) body['is_round'] = true;
       if (waveform != null && waveform.isNotEmpty) body['waveform'] = waveform;
       if (duration != null && duration > 0) body['duration'] = duration;
+      if (groupedId != null && groupedId.isNotEmpty) body['grouped_id'] = groupedId;
+      if (mediaPayload != null && mediaPayload.isNotEmpty) body['media_payload'] = mediaPayload;
       if (replyToMessageId != null) {
         body['reply_to_message_id'] = replyToMessageId;
         if (isQuote) {
@@ -1145,9 +1220,36 @@ class ChatService {
 
       final data = jsonDecode(response.body);
       if (response.statusCode == 200 && data['success'] == true) {
+        Message parsedMessage;
+        try {
+          final rawMsg = data['message'];
+          if (rawMsg is Map) {
+            parsedMessage = Message.fromJson(Map<String, dynamic>.from(rawMsg));
+          } else {
+            throw const FormatException('Expected map for message');
+          }
+        } catch (parseError) {
+          debugPrint('Error parsing sent message: $parseError');
+          final rawMsg = data['message'] is Map ? (data['message'] as Map) : {};
+          parsedMessage = Message(
+            id: rawMsg['id']?.toString() ?? localId ?? '',
+            chatId: chatId,
+            senderId: rawMsg['sender_id']?.toString() ?? '',
+            content: rawMsg['content']?.toString() ?? content,
+            messageType: rawMsg['message_type']?.toString() ?? effectiveMessageType,
+            isEdited: rawMsg['is_edited'] == true,
+            createdAt: rawMsg['created_at']?.toString() ?? DateTime.now().toIso8601String(),
+            senderName: rawMsg['sender_name']?.toString() ?? 'You',
+            fileUrl: rawMsg['file_url']?.toString() ?? fileUrl,
+            fileName: rawMsg['file_name']?.toString() ?? fileName,
+            localId: localId,
+            sendStatus: 1,
+            groupedId: rawMsg['grouped_id']?.toString() ?? groupedId,
+          );
+        }
         return {
           'success': true,
-          'message': Message.fromJson(data['message']),
+          'message': parsedMessage,
         };
       } else {
         return {
@@ -1157,6 +1259,91 @@ class ChatService {
       }
     } catch (e) {
       debugPrint('Send message error: $e');
+      return {'success': false, 'message': 'Network error: ${e.toString()}'};
+    }
+  }
+
+  /// Отправить медиа-альбом (2-10 фото/видео) с общим grouped_id
+  static Future<Map<String, dynamic>> sendMediaAlbum({
+    required String chatId,
+    required List<Map<String, dynamic>> items,
+    String? groupedId,
+    String? caption,
+    List<MessageEntity>? entities,
+    bool invertMedia = false,
+    String? replyToMessageId,
+  }) async {
+    try {
+      final token = await AuthService.getToken();
+      if (token == null) {
+        return {'success': false, 'message': 'Not authenticated'};
+      }
+
+      final body = <String, dynamic>{
+        'items': items,
+      };
+      if (groupedId != null && groupedId.isNotEmpty) {
+        body['grouped_id'] = groupedId;
+      }
+      if (caption != null && caption.isNotEmpty) {
+        body['caption'] = caption;
+      }
+      if (entities != null && entities.isNotEmpty) {
+        body['entities'] = entities.map((e) => e.toJson()).toList();
+      }
+      if (invertMedia) {
+        body['invert_media'] = true;
+      }
+      if (replyToMessageId != null && replyToMessageId.isNotEmpty) {
+        body['reply_to_message_id'] = replyToMessageId;
+      }
+
+      if (AppConfig.enableDebugLogging) {
+        debugPrint(
+            'SendMediaAlbum: POST ${AppConfig.baseUrl}/api/chats/$chatId/messages/album');
+        debugPrint('SendMediaAlbum: body = $body');
+      }
+
+      final response = await http.post(
+        Uri.parse('${AppConfig.baseUrl}/api/chats/$chatId/messages/album'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(body),
+      );
+
+      if (AppConfig.enableDebugLogging) {
+        debugPrint(
+            'SendMediaAlbum: Response ${response.statusCode}: ${response.body}');
+      }
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200 && data['success'] == true) {
+        final rawMessages = data['messages'] as List<dynamic>? ?? [];
+        final parsedMessages = <Message>[];
+        for (final m in rawMessages) {
+          try {
+            if (m is Map) {
+              parsedMessages.add(Message.fromJson(Map<String, dynamic>.from(m)));
+            }
+          } catch (e) {
+            debugPrint('Failed to parse album message: $e');
+          }
+        }
+        return {
+          'success': true,
+          'grouped_id': data['grouped_id'],
+          'messages': parsedMessages,
+        };
+      } else {
+        return {
+          'success': false,
+          'message': data['message'] ?? 'Failed to send media album',
+        };
+      }
+    } catch (e) {
+      debugPrint('Send media album error: $e');
       return {'success': false, 'message': 'Network error: ${e.toString()}'};
     }
   }

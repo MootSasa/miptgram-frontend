@@ -10,7 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///
 /// Usage:
 /// ```dart
-/// import 'package:miptgram/config/app_config.dart';
+/// import 'package:theaver/config/app_config.dart';
 ///
 /// final url = '${AppConfig.baseUrl}/api/endpoint';
 /// ```
@@ -140,7 +140,7 @@ class AppConfig {
   // URL Getters (4-Tier Precedence)
   // ============================================
 
-  /// Active API Base URL (e.g. `https://api.miptgram.ru` or `http://192.168.1.50:8080`)
+  /// Active API Base URL (e.g. `https://api.theaver.app` or `http://192.168.1.50:8080`)
   static String get baseUrl {
     if (_customApiUrl != null && _customApiUrl!.isNotEmpty) {
       return _customApiUrl!;
@@ -174,7 +174,7 @@ class AppConfig {
     return isProduction ? defaultProdWsBaseUrl : defaultDevWsBaseUrl;
   }
 
-  /// Active Storage Base URL (e.g. `https://storage.miptgram.ru` or `http://192.168.1.50:9000`)
+  /// Active Storage Base URL (e.g. `https://storage.theaver.app` or `http://192.168.1.50:9000`)
   static String get storageUrl {
     if (_customStorageUrl != null && _customStorageUrl!.isNotEmpty) {
       return _customStorageUrl!;
@@ -194,7 +194,7 @@ class AppConfig {
     return isProduction ? defaultProdStorageBaseUrl : defaultDevStorageBaseUrl;
   }
 
-  /// Active Web Base URL (e.g. `https://miptgram.ru` or `http://192.168.1.50:3000`)
+  /// Active Web Base URL (e.g. `https://theaver.app` or `http://192.168.1.50:3000`)
   static String get webBaseUrl {
     if (_customWebUrl != null && _customWebUrl!.isNotEmpty) {
       return _customWebUrl!;
@@ -252,7 +252,7 @@ class AppConfig {
       final uri = Uri.parse(trimmed.contains('://') ? trimmed : 'http://$trimmed');
       
       // Check for production domain pattern: api.theaver.app -> storage.theaver.app
-      if (uri.host == 'api.theaver.app' || uri.host == 'api.miptgram.ru') {
+      if (uri.host == 'api.theaver.app' || uri.host == 'api.theaver.app') {
         return '${uri.scheme}://storage.theaver.app';
       }
       if (uri.host.startsWith('api.')) {
@@ -356,7 +356,7 @@ class AppConfig {
 
       _webDiscoveredWebUrl = '$scheme://$host${isStandardPort ? '' : ':$port'}';
 
-      if (host == 'theaver.app' || host == 'app.theaver.app' || host == 'miptgram.ru' || host == 'app.miptgram.ru') {
+      if (host == 'theaver.app' || host == 'app.theaver.app' || host == 'theaver.app' || host == 'app.theaver.app') {
         _webDiscoveredApiUrl = defaultProdApiBaseUrl;
         _webDiscoveredWsUrl = defaultProdWsBaseUrl;
         _webDiscoveredStorageUrl = defaultProdStorageBaseUrl;
@@ -398,7 +398,7 @@ class AppConfig {
   // ============================================
 
   /// Application name
-  static const String appName = 'Miptgram';
+  static const String appName = 'Theaver';
 
   /// Compile-time / default application version
   static const String appVersion = String.fromEnvironment('APP_VERSION', defaultValue: '1.0.0');

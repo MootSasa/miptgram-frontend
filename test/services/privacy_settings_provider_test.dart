@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:miptgram/services/privacy_settings_provider.dart';
+import 'package:theaver/services/privacy_settings_provider.dart';
 
 void main() {
   group('PrivacySettingsProvider TTL Tests', () {

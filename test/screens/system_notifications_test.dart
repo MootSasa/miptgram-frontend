@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:miptgram/services/chat_service.dart';
+import 'package:theaver/services/chat_service.dart';
 
 void main() {
   group('System Notifications Message Parsing Tests', () {

@@ -48,7 +48,7 @@ Future<void> _showBackgroundNotification(
   const iosDetails = DarwinNotificationDetails();
   const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
   final chatId = data['chat_id'] ?? '';
-  final chatName = data['chat_name'] ?? 'Miptgram';
+  final chatName = data['chat_name'] ?? 'Theaver';
   final senderName = data['sender_name'] ?? '';
   final messageText = data['message_text'] ?? '';
   await localNotifications.show(
@@ -582,7 +582,7 @@ class NotificationService {
       setAsGroupSummary: true, groupKey: 'miptgram_summary', autoCancel: false,
     );
     const details = NotificationDetails(android: androidDetails);
-    await _localNotifications.show(-1, 'Miptgram', '$count непрочитанных', details);
+    await _localNotifications.show(-1, 'Theaver', '$count непрочитанных', details);
   }
 
   Future<void> cancelChatNotifications(String chatId) async {

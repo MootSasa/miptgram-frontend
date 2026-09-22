@@ -5,11 +5,11 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
-import 'package:miptgram/services/chat_service.dart';
-import 'package:miptgram/widgets/message/message_bubble.dart';
-import 'package:miptgram/widgets/message/fullscreen_photo_viewer.dart';
-import 'package:miptgram/widgets/message/document_message_widget.dart';
-import 'package:miptgram/l10n/app_localizations.dart';
+import 'package:theaver/services/chat_service.dart';
+import 'package:theaver/widgets/message/message_bubble.dart';
+import 'package:theaver/widgets/message/fullscreen_photo_viewer.dart';
+import 'package:theaver/widgets/message/document_message_widget.dart';
+import 'package:theaver/l10n/app_localizations.dart';
 
 /// 1x1 transparent PNG for mock HTTP image responses
 final Uint8List kTransparentImageBytes = Uint8List.fromList(<int>[

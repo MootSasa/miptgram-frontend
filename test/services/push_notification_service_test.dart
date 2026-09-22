@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:miptgram/services/push_service_detector.dart';
-import 'package:miptgram/services/desktop_tray_service.dart';
+import 'package:theaver/services/push_service_detector.dart';
+import 'package:theaver/services/desktop_tray_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

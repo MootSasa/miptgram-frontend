@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:miptgram/screens/settings/storage_screen.dart';
-import 'package:miptgram/services/cache_service.dart';
-import 'package:miptgram/services/liquid_glass_provider.dart';
-import 'package:miptgram/services/settings_service.dart';
-import 'package:miptgram/l10n/app_localizations.dart';
+import 'package:theaver/screens/settings/storage_screen.dart';
+import 'package:theaver/services/cache_service.dart';
+import 'package:theaver/services/liquid_glass_provider.dart';
+import 'package:theaver/services/settings_service.dart';
+import 'package:theaver/l10n/app_localizations.dart';
 
 class _TestAppLocalizations extends AppLocalizations {
   final Map<String, String> translations;
@@ -44,7 +44,7 @@ final Map<String, String> _kStorageTranslations = {
   'storage_audio': 'Аудио / Голосовые',
   'storage_files': 'Файлы / Документы',
   'storage_other': 'Прочее',
-  'storage_cloud_note': 'Все медиафайлы останутся в облаке Miptgram и при необходимости загрузятся снова.',
+  'storage_cloud_note': 'Все медиафайлы останутся в облаке Theaver и при необходимости загрузятся снова.',
   'storage_keep_media_section': 'Хранить медиа',
   'storage_keep_media_desc': 'Файлы, к которым вы не обращались, будут удалены с устройства.',
   'storage_keep_3days': '3 дня',
@@ -156,7 +156,7 @@ void main() {
 
       // Check bottom sheet contents
       expect(find.text('Очистить кэш'), findsWidgets);
-      expect(find.text('Все медиафайлы останутся в облаке Miptgram и при необходимости загрузятся снова.'), findsOneWidget);
+      expect(find.text('Все медиафайлы останутся в облаке Theaver и при необходимости загрузятся снова.'), findsOneWidget);
       expect(find.text('Снять все'), findsOneWidget);
     });
 
@@ -213,7 +213,7 @@ void main() {
       await tester.tap(find.text('Очистить кэш').first);
       await tester.pumpAndSettle();
 
-      expect(find.text('Все медиафайлы останутся в облаке Miptgram и при необходимости загрузятся снова.'), findsOneWidget);
+      expect(find.text('Все медиафайлы останутся в облаке Theaver и при необходимости загрузятся снова.'), findsOneWidget);
     });
   });
 }

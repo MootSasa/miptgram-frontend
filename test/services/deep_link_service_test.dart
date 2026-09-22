@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:miptgram/services/deep_link_service.dart';
+import 'package:theaver/services/deep_link_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

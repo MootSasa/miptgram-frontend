@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:miptgram/widgets/chat/reactions_panel.dart';
-import 'package:miptgram/services/chat_service.dart';
+import 'package:theaver/widgets/chat/reactions_panel.dart';
+import 'package:theaver/services/chat_service.dart';
 
 Widget createTestApp(Widget child) {
   return MaterialApp(

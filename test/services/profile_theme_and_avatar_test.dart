@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:miptgram/services/account_manager.dart';
-import 'package:miptgram/services/profile_theme_provider.dart';
-import 'package:miptgram/utils/image_utils.dart';
+import 'package:theaver/services/account_manager.dart';
+import 'package:theaver/services/profile_theme_provider.dart';
+import 'package:theaver/utils/image_utils.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

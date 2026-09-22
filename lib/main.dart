@@ -66,11 +66,11 @@ void main() async {
     await DesktopTrayService().init();
   }
 
-  runApp(const MiptgramApp());
+  runApp(const TheaverApp());
 }
 
-class MiptgramApp extends StatelessWidget {
-  const MiptgramApp({super.key});
+class TheaverApp extends StatelessWidget {
+  const TheaverApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -93,7 +93,7 @@ class MiptgramApp extends StatelessWidget {
       child: Consumer2<ThemeProvider, LocaleProvider>(
         builder: (context, themeProvider, localeProvider, child) {
           return MaterialApp(
-            title: 'Miptgram',
+            title: 'Theaver',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.light(),
             darkTheme: AppTheme.dark(),

@@ -2,17 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
-import 'package:miptgram/l10n/app_localizations.dart';
-import 'package:miptgram/models/name_color_preset.dart';
-import 'package:miptgram/services/chat_service.dart';
-import 'package:miptgram/services/profile_theme_provider.dart';
-import 'package:miptgram/utils/date_time_utils.dart';
-import 'package:miptgram/widgets/chat/message_reply_info.dart';
-import 'package:miptgram/widgets/chat/reply_preview_bar.dart';
-import 'package:miptgram/widgets/profile/reply_strip_painter.dart';
+import 'package:theaver/l10n/app_localizations.dart';
+import 'package:theaver/models/name_color_preset.dart';
+import 'package:theaver/services/chat_service.dart';
+import 'package:theaver/services/profile_theme_provider.dart';
+import 'package:theaver/utils/date_time_utils.dart';
+import 'package:theaver/widgets/chat/message_reply_info.dart';
+import 'package:theaver/widgets/chat/reply_preview_bar.dart';
+import 'package:theaver/widgets/profile/reply_strip_painter.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
-import 'package:miptgram/widgets/message/message_bubble.dart';
-import 'package:miptgram/widgets/message/message_status_widget.dart';
+import 'package:theaver/widgets/message/message_bubble.dart';
+import 'package:theaver/widgets/message/message_status_widget.dart';
 
 class _TestAppLocalizations extends AppLocalizations {
   final Map<String, String> translations;

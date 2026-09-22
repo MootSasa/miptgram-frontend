@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:miptgram/services/wallpaper_provider.dart';
-import 'package:miptgram/services/chat_service.dart';
+import 'package:theaver/services/wallpaper_provider.dart';
+import 'package:theaver/services/chat_service.dart';
 
 Message _createTestMessage({
   required String id,

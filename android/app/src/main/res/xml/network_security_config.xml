@@ -7,13 +7,13 @@
             <certificates src="user" />
         </trust-anchors>
     </base-config>
-    <!-- Домены Theaver / Miptgram (строго HTTPS) -->
+    <!-- Домены Theaver / Theaver (строго HTTPS) -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">theaver.app</domain>
         <domain includeSubdomains="true">api.theaver.app</domain>
         <domain includeSubdomains="true">storage.theaver.app</domain>
-        <domain includeSubdomains="true">miptgram.ru</domain>
-        <domain includeSubdomains="true">api.miptgram.ru</domain>
-        <domain includeSubdomains="true">storage.miptgram.ru</domain>
+        <domain includeSubdomains="true">theaver.app</domain>
+        <domain includeSubdomains="true">api.theaver.app</domain>
+        <domain includeSubdomains="true">storage.theaver.app</domain>
     </domain-config>
 </network-security-config>

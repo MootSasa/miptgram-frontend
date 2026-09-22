@@ -1,20 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:iconoir_flutter/iconoir_flutter.dart' as iconoir;
-import 'package:miptgram/services/chat_service.dart';
-import 'package:miptgram/services/video_note_recorder_service.dart';
-import 'package:miptgram/widgets/chat/liquid_glass_input_field.dart';
-import 'package:miptgram/widgets/chat/round_video_recording_overlay.dart';
-import 'package:miptgram/widgets/message/message_bubble.dart';
-import 'package:miptgram/widgets/message/video_message_widget.dart';
-import 'package:miptgram/widgets/chat/round_video_thumbnail.dart';
-import 'package:miptgram/l10n/app_localizations.dart';
+import 'package:theaver/services/chat_service.dart';
+import 'package:theaver/services/video_note_recorder_service.dart';
+import 'package:theaver/widgets/chat/liquid_glass_input_field.dart';
+import 'package:theaver/widgets/chat/round_video_recording_overlay.dart';
+import 'package:theaver/widgets/message/message_bubble.dart';
+import 'package:theaver/widgets/message/video_message_widget.dart';
+import 'package:theaver/widgets/chat/round_video_thumbnail.dart';
+import 'package:theaver/l10n/app_localizations.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 import 'package:video_player/video_player.dart';
-import 'package:miptgram/services/video_note_playback_service.dart';
-import 'package:miptgram/widgets/chat/message_context_menu.dart';
+import 'package:theaver/services/video_note_playback_service.dart';
+import 'package:theaver/widgets/chat/message_context_menu.dart';
 import 'package:provider/provider.dart';
-import 'package:miptgram/services/profile_theme_provider.dart';
+import 'package:theaver/services/profile_theme_provider.dart';
 
 class _TestAppLocalizations extends AppLocalizations {
   final Map<String, String> translations;

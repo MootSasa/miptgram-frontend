@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:miptgram/services/account_manager.dart';
-import 'package:miptgram/services/websocket_service.dart';
+import 'package:theaver/services/account_manager.dart';
+import 'package:theaver/services/websocket_service.dart';
 
 void main() {
   group('DeviceSession Model Tests', () {

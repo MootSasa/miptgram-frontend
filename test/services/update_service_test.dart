@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:miptgram/services/update_service.dart';
+import 'package:theaver/services/update_service.dart';
 
 void main() {
   group('AppUpdateInfo Model Tests', () {

@@ -1,5 +1,5 @@
-name: miptgram
-description: Miptgram - A secure messaging app.
+name: theaver
+description: Theaver - A secure messaging app.
 version: 1.0.0+1
 environment:
   sdk: ">=3.0.0 <4.0.0"

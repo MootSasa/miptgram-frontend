@@ -187,7 +187,7 @@ void main() {
                   Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => const FullscreenPhotoViewer(
-                        url: 'https://storage.miptgram.ru/files/photo.jpg',
+                        url: 'https://storage.theaver.app/files/photo.jpg',
                         tag: 'test_tag',
                       ),
                     ),
@@ -226,7 +226,7 @@ void main() {
         isEdited: false,
         createdAt: '2026-09-04T12:00:00Z',
         senderName: 'Alice',
-        fileUrl: 'https://storage.miptgram.ru/files/sunset.jpg',
+        fileUrl: 'https://storage.theaver.app/files/sunset.jpg',
         fileName: 'sunset.jpg',
       );
 
@@ -265,7 +265,7 @@ void main() {
         isEdited: false,
         createdAt: '2026-09-04T12:05:00Z',
         senderName: 'Alice',
-        fileUrl: 'https://storage.miptgram.ru/files/mountain.jpg',
+        fileUrl: 'https://storage.theaver.app/files/mountain.jpg',
         fileName: 'mountain.jpg',
       );
 
@@ -297,7 +297,7 @@ void main() {
         isEdited: false,
         createdAt: '2026-09-04T12:10:00Z',
         senderName: 'Bob',
-        fileUrl: 'https://storage.miptgram.ru/files/Project_Specification.pdf',
+        fileUrl: 'https://storage.theaver.app/files/Project_Specification.pdf',
         fileName: 'Project Specification.pdf',
       );
 
@@ -329,7 +329,7 @@ void main() {
         isEdited: false,
         createdAt: '2026-09-04T12:15:00Z',
         senderName: 'Charlie',
-        fileUrl: 'https://storage.miptgram.ru/files/audio_record.mp3',
+        fileUrl: 'https://storage.theaver.app/files/audio_record.mp3',
         fileName: 'audio_record.mp3',
       );
 

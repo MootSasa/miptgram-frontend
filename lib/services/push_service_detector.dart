@@ -101,7 +101,7 @@ class PushServiceDetector {
       // Проверяем через Firebase — если Firebase инициализирован,
       // значит GMS доступен
       // Альтернатива: нативный метод через MethodChannel
-      const channel = MethodChannel('com.example.miptgram/push_detector');
+      const channel = MethodChannel('app.theaver.messenger/push_detector');
       return await channel.invokeMethod<bool>('isGmsAvailable') ?? false;
     } catch (e) {
       // Если MethodChannel не настроен — пробуем через Firebase
@@ -115,7 +115,7 @@ class PushServiceDetector {
   /// Использует MethodChannel для вызова нативного кода Android.
   Future<bool> _checkHmsAvailability() async {
     try {
-      const channel = MethodChannel('com.example.miptgram/push_detector');
+      const channel = MethodChannel('app.theaver.messenger/push_detector');
       return await channel.invokeMethod<bool>('isHmsAvailable') ?? false;
     } catch (e) {
       debugPrint('PushServiceDetector: HMS MethodChannel not available');

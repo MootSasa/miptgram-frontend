@@ -12,7 +12,7 @@ class HMSPushService {
   static final HMSPushService _instance = HMSPushService._internal();
 
   static const MethodChannel _channel =
-      MethodChannel('com.example.miptgram/hms_push');
+      MethodChannel('app.theaver.messenger/hms_push');
 
   final StreamController<String> _tokenController =
       StreamController<String>.broadcast();

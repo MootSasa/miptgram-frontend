@@ -32,22 +32,22 @@ class ParsedDeepLink {
 ///
 /// Supported URL formats:
 /// - Profiles:
-///   `https://miptgram.ru/u/{userId}`
+///   `https://theaver.app/u/{userId}`
 ///   `http://<ip-or-domain>[:port]/u/{userId}`
 ///   `http://<ip-or-domain>[:port]/#/u/{userId}`
-///   `miptgram://u/{userId}` or `miptgram:///u/{userId}`
+///   `theaver://u/{userId}` or `miptgram://u/{userId}`
 ///
 /// - Group / Channel Invites:
-///   `https://miptgram.ru/join/{inviteCode}`
+///   `https://theaver.app/join/{inviteCode}`
 ///   `http://<ip-or-domain>[:port]/join/{inviteCode}`
 ///   `http://<ip-or-domain>[:port]/#/join/{inviteCode}`
-///   `miptgram://join/{inviteCode}` or `miptgram:///join/{inviteCode}`
+///   `theaver://join/{inviteCode}` or `miptgram://join/{inviteCode}`
 ///
 /// - Channels:
-///   `https://miptgram.ru/c/{channelName}`
+///   `https://theaver.app/c/{channelName}`
 ///   `http://<ip-or-domain>[:port]/c/{channelName}`
 ///   `http://<ip-or-domain>[:port]/#/c/{channelName}`
-///   `miptgram://c/{channelName}` or `miptgram:///c/{channelName}`
+///   `theaver://c/{channelName}` or `miptgram://c/{channelName}`
 class DeepLinkService {
   DeepLinkService._();
   static final DeepLinkService _instance = DeepLinkService._();
@@ -87,8 +87,8 @@ class DeepLinkService {
       } catch (_) {}
     }
 
-    // 2. Check custom scheme: miptgram://
-    if (uri.scheme == 'miptgram') {
+    // 2. Check custom scheme: theaver:// or miptgram://
+    if (uri.scheme == 'theaver' || uri.scheme == 'miptgram') {
       final host = uri.host.toLowerCase();
       if (host == 'u' || host == 'user') {
         final id = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : uri.queryParameters['id'];

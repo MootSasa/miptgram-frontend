@@ -101,7 +101,7 @@ void main() {
 
     test('getValidAvatarUrl handles data URLs and full http/https URLs', () {
       expect(getValidAvatarUrl('data:image/png;base64,iVBORw0KGgo='), isNotNull);
-      expect(getValidAvatarUrl('https://miptgram.ru/avatar.jpg'), equals('https://miptgram.ru/avatar.jpg'));
+      expect(getValidAvatarUrl('https://theaver.app/avatar.jpg'), equals('https://theaver.app/avatar.jpg'));
       expect(getValidAvatarUrl('http://192.168.1.1:8080/avatar.jpg'), equals('http://192.168.1.1:8080/avatar.jpg'));
     });
 

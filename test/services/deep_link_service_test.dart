@@ -6,21 +6,21 @@ void main() {
 
   group('DeepLinkService URI Parsing', () {
     test('parses web production profile URLs', () {
-      final parsed = DeepLinkService.parseUri(Uri.parse('https://miptgram.ru/u/user_prod_123'));
+      final parsed = DeepLinkService.parseUri(Uri.parse('https://theaver.app/u/user_prod_123'));
       expect(parsed, isNotNull);
       expect(parsed!.type, equals(DeepLinkType.userProfile));
       expect(parsed.identifier, equals('user_prod_123'));
     });
 
     test('parses web production group invite URLs', () {
-      final parsed = DeepLinkService.parseUri(Uri.parse('https://miptgram.ru/join/inv_code_456'));
+      final parsed = DeepLinkService.parseUri(Uri.parse('https://theaver.app/join/inv_code_456'));
       expect(parsed, isNotNull);
       expect(parsed!.type, equals(DeepLinkType.groupInvite));
       expect(parsed.identifier, equals('inv_code_456'));
     });
 
     test('parses web production channel URLs', () {
-      final parsed = DeepLinkService.parseUri(Uri.parse('https://miptgram.ru/c/general_channel'));
+      final parsed = DeepLinkService.parseUri(Uri.parse('https://theaver.app/c/general_channel'));
       expect(parsed, isNotNull);
       expect(parsed!.type, equals(DeepLinkType.channel));
       expect(parsed.identifier, equals('general_channel'));
@@ -41,6 +41,23 @@ void main() {
       expect(channel, isNotNull);
       expect(channel!.type, equals(DeepLinkType.channel));
       expect(channel.identifier, equals('lan_news'));
+    });
+
+    test('parses custom scheme theaver:// URLs', () {
+      final profile = DeepLinkService.parseUri(Uri.parse('theaver://u/custom_user_1'));
+      expect(profile, isNotNull);
+      expect(profile!.type, equals(DeepLinkType.userProfile));
+      expect(profile.identifier, equals('custom_user_1'));
+
+      final invite = DeepLinkService.parseUri(Uri.parse('theaver://join/custom_invite_2'));
+      expect(invite, isNotNull);
+      expect(invite!.type, equals(DeepLinkType.groupInvite));
+      expect(invite.identifier, equals('custom_invite_2'));
+
+      final channel = DeepLinkService.parseUri(Uri.parse('theaver://c/custom_channel_3'));
+      expect(channel, isNotNull);
+      expect(channel!.type, equals(DeepLinkType.channel));
+      expect(channel.identifier, equals('custom_channel_3'));
     });
 
     test('parses custom scheme miptgram:// URLs', () {

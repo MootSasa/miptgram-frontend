@@ -84,7 +84,7 @@ def main():
 
     args = parser.parse_args()
 
-    api_url = (args.api_url or os.environ.get("MIPTGRAM_API_URL") or "https://api.miptgram.ru").rstrip("/")
+    api_url = (args.api_url or os.environ.get("MIPTGRAM_API_URL") or "https://api.theaver.app").rstrip("/")
     admin_secret = args.admin_secret or os.environ.get("MIPTGRAM_ADMIN_SECRET") or ""
 
     if not admin_secret:

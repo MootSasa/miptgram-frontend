@@ -45,20 +45,26 @@ android:networkSecurityConfig="@xml/network_security_config">
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- Deep link: https://miptgram.ru/u/{userId}, /join/{code}, /c/{channelName} -->
+            <!-- Deep link: https://theaver.app/u/{userId}, /join/{code}, /c/{channelName} -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="theaver.app" android:pathPrefix="/u/"/>
+                <data android:scheme="https" android:host="theaver.app" android:pathPrefix="/join/"/>
+                <data android:scheme="https" android:host="theaver.app" android:pathPrefix="/c/"/>
                 <data android:scheme="https" android:host="miptgram.ru" android:pathPrefix="/u/"/>
                 <data android:scheme="https" android:host="miptgram.ru" android:pathPrefix="/join/"/>
                 <data android:scheme="https" android:host="miptgram.ru" android:pathPrefix="/c/"/>
             </intent-filter>
-            <!-- Deep link: miptgram://u, miptgram://join, miptgram://c -->
+            <!-- Deep link: theaver:// and miptgram:// schemes -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="theaver" android:host="u" android:pathPrefix="/"/>
+                <data android:scheme="theaver" android:host="join" android:pathPrefix="/"/>
+                <data android:scheme="theaver" android:host="c" android:pathPrefix="/"/>
                 <data android:scheme="miptgram" android:host="u" android:pathPrefix="/"/>
                 <data android:scheme="miptgram" android:host="join" android:pathPrefix="/"/>
                 <data android:scheme="miptgram" android:host="c" android:pathPrefix="/"/>

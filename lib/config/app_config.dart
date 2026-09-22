@@ -38,10 +38,10 @@ class AppConfig {
   // ============================================
   // Tier 4: Built-in Defaults
   // ============================================
-  static const String defaultProdApiBaseUrl = 'https://api.miptgram.ru';
-  static const String defaultProdStorageBaseUrl = 'https://storage.miptgram.ru';
-  static const String defaultProdWsBaseUrl = 'wss://api.miptgram.ru/api/ws';
-  static const String defaultProdWebBaseUrl = 'https://miptgram.ru';
+  static const String defaultProdApiBaseUrl = 'https://api.theaver.app';
+  static const String defaultProdStorageBaseUrl = 'https://storage.theaver.app';
+  static const String defaultProdWsBaseUrl = 'wss://api.theaver.app/api/ws';
+  static const String defaultProdWebBaseUrl = 'https://theaver.app';
 
   static const String defaultDevApiBaseUrl = 'http://localhost:8080';
   static const String defaultDevStorageBaseUrl = 'http://localhost:9000';
@@ -154,7 +154,7 @@ class AppConfig {
     return isProduction ? defaultProdApiBaseUrl : defaultDevApiBaseUrl;
   }
 
-  /// Active WebSocket URL (e.g. `wss://api.miptgram.ru/api/ws` or `ws://192.168.1.50:8080/api/ws`)
+  /// Active WebSocket URL (e.g. `wss://api.theaver.app/api/ws` or `ws://192.168.1.50:8080/api/ws`)
   static String get wsUrl {
     if (_customWsUrl != null && _customWsUrl!.isNotEmpty) {
       return _customWsUrl!;
@@ -251,9 +251,9 @@ class AppConfig {
     try {
       final uri = Uri.parse(trimmed.contains('://') ? trimmed : 'http://$trimmed');
       
-      // Check for production domain pattern: api.miptgram.ru -> storage.miptgram.ru
-      if (uri.host == 'api.miptgram.ru') {
-        return '${uri.scheme}://storage.miptgram.ru';
+      // Check for production domain pattern: api.theaver.app -> storage.theaver.app
+      if (uri.host == 'api.theaver.app' || uri.host == 'api.miptgram.ru') {
+        return '${uri.scheme}://storage.theaver.app';
       }
       if (uri.host.startsWith('api.')) {
         final domain = uri.host.substring(4);
@@ -356,7 +356,7 @@ class AppConfig {
 
       _webDiscoveredWebUrl = '$scheme://$host${isStandardPort ? '' : ':$port'}';
 
-      if (host == 'miptgram.ru' || host == 'app.miptgram.ru') {
+      if (host == 'theaver.app' || host == 'app.theaver.app' || host == 'miptgram.ru' || host == 'app.miptgram.ru') {
         _webDiscoveredApiUrl = defaultProdApiBaseUrl;
         _webDiscoveredWsUrl = defaultProdWsBaseUrl;
         _webDiscoveredStorageUrl = defaultProdStorageBaseUrl;

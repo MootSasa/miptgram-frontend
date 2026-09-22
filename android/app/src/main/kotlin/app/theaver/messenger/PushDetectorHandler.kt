@@ -1,4 +1,4 @@
-package com.example.miptgram
+package app.theaver.messenger
 
 import android.content.Context
 import android.content.pm.PackageManager
@@ -18,8 +18,8 @@ import io.flutter.plugin.common.MethodChannel
 class PushDetectorHandler(private val context: Context) {
 
     companion object {
-        private const val PUSH_DETECTOR_CHANNEL = "com.example.miptgram/push_detector"
-        private const val HMS_PUSH_CHANNEL = "com.example.miptgram/hms_push"
+        private const val PUSH_DETECTOR_CHANNEL = "app.theaver.messenger/push_detector"
+        private const val HMS_PUSH_CHANNEL = "app.theaver.messenger/hms_push"
     }
 
     fun setup(flutterEngine: FlutterEngine) {

@@ -1,4 +1,4 @@
-package com.example.miptgram
+package app.theaver.messenger
 
 import android.graphics.Bitmap
 import android.graphics.RectF

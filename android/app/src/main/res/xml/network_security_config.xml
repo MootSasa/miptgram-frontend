@@ -7,11 +7,8 @@
             <certificates src="user" />
         </trust-anchors>
     </base-config>
-    <!-- Домены Theaver / Theaver (строго HTTPS) -->
+    <!-- Домены Theaver (строго HTTPS) -->
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">theaver.app</domain>
-        <domain includeSubdomains="true">api.theaver.app</domain>
-        <domain includeSubdomains="true">storage.theaver.app</domain>
         <domain includeSubdomains="true">theaver.app</domain>
         <domain includeSubdomains="true">api.theaver.app</domain>
         <domain includeSubdomains="true">storage.theaver.app</domain>

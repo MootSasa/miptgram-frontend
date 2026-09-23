@@ -25,7 +25,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   bool _isSendingTest = false;
 
   Future<void> _handleSendTestNotification() async {
-    HapticUtils.lightImpact();
+    HapticUtils.tap();
     setState(() => _isSendingTest = true);
 
     final res = await NotificationService().sendTestNotification();

@@ -49,6 +49,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.9.0")
     // HMS Core Push Kit is provided by the huawei_push Flutter plugin
+    implementation("com.huawei.agconnect:agconnect-core:1.9.1.300")
 }
 
 flutter {
@@ -57,5 +58,9 @@ flutter {
 
 if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
+}
+
+if (file("agconnect-services.json").exists()) {
+    apply(plugin = "com.huawei.agconnect")
 }
 

@@ -1,18 +1,21 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
+import 'package:huawei_push/huawei_push.dart';
 
 /// Сервис Huawei Push Kit для устройств без Google Play Services.
 ///
-/// Обёртка над HMS Push Plugin, предоставляющая API,
-/// аналогичное FirebaseMessaging для унификации в NotificationService.
+/// Интегрирован с официальным плагином Huawei Push Kit (huawei_push),
+/// предоставляя унифицированное API для NotificationService.
 class HMSPushService {
-  HMSPushService._internal();
+  HMSPushService._internal() {
+    if (Platform.isAndroid) {
+      setupMessageHandlers();
+    }
+  }
   factory HMSPushService() => _instance;
   static final HMSPushService _instance = HMSPushService._internal();
-
-  static const MethodChannel _channel =
-      MethodChannel('app.theaver.messenger/hms_push');
 
   final StreamController<String> _tokenController =
       StreamController<String>.broadcast();
@@ -39,9 +42,11 @@ class HMSPushService {
 
   /// Запрос разрешений на уведомления (HMS Push)
   Future<void> requestPermission() async {
+    if (!Platform.isAndroid) return;
     try {
-      await _channel.invokeMethod<bool>('requestPermission');
-      debugPrint('HMSPushService: permission requested');
+      await Push.setAutoInitEnabled(true);
+      await Push.turnOnPush();
+      debugPrint('HMSPushService: autoInit enabled, push turned on');
     } catch (e) {
       debugPrint('HMSPushService: permission request failed: $e');
     }
@@ -49,10 +54,39 @@ class HMSPushService {
 
   /// Получить HMS Push токен
   Future<String?> getToken() async {
+    if (!Platform.isAndroid) return null;
     try {
-      _token = await _channel.invokeMethod<String>('getToken');
-      debugPrint('HMSPushService: token obtained');
-      return _token;
+      if (_token != null && _token!.isNotEmpty) {
+        return _token;
+      }
+
+      final completer = Completer<String?>();
+      late StreamSubscription sub;
+      sub = Push.getTokenStream.listen((token) {
+        _token = token;
+        _tokenController.add(token);
+        if (!completer.isCompleted) {
+          completer.complete(token);
+        }
+      }, onError: (e) {
+        debugPrint('HMSPushService: getTokenStream error: $e');
+        if (!completer.isCompleted) {
+          completer.complete(null);
+        }
+      });
+
+      // Запрос токена от HMS Core (HCM — default scope)
+      Push.getToken('');
+
+      // Ожидание токена до 5 секунд
+      Future.delayed(const Duration(seconds: 5), () {
+        if (!completer.isCompleted) {
+          completer.complete(_token);
+        }
+        sub.cancel();
+      });
+
+      return await completer.future;
     } catch (e) {
       debugPrint('HMSPushService: getToken failed: $e');
       return null;
@@ -61,8 +95,9 @@ class HMSPushService {
 
   /// Подписаться на тему (HMS Push topic messaging)
   Future<void> subscribeToTopic(String topic) async {
+    if (!Platform.isAndroid) return;
     try {
-      await _channel.invokeMethod<bool>('subscribeToTopic', {'topic': topic});
+      await Push.subscribe(topic);
       debugPrint('HMSPushService: subscribed to topic $topic');
     } catch (e) {
       debugPrint('HMSPushService: subscribeToTopic failed: $e');
@@ -71,8 +106,9 @@ class HMSPushService {
 
   /// Отписаться от темы
   Future<void> unsubscribeFromTopic(String topic) async {
+    if (!Platform.isAndroid) return;
     try {
-      await _channel.invokeMethod<bool>('unsubscribeFromTopic', {'topic': topic});
+      await Push.unsubscribe(topic);
       debugPrint('HMSPushService: unsubscribed from topic $topic');
     } catch (e) {
       debugPrint('HMSPushService: unsubscribeFromTopic failed: $e');
@@ -81,8 +117,9 @@ class HMSPushService {
 
   /// Удалить токен (при выходе из аккаунта)
   Future<void> deleteToken() async {
+    if (!Platform.isAndroid) return;
     try {
-      await _channel.invokeMethod<bool>('deleteToken');
+      await Push.deleteToken('');
       _token = null;
       debugPrint('HMSPushService: token deleted');
     } catch (e) {
@@ -91,29 +128,72 @@ class HMSPushService {
   }
 
   /// Инициализация обработчиков сообщений
-  ///
-  /// Вызывается автоматически при создании.
-  /// Настраивает MethodChannel callback для получения
-  /// push-сообщений и обновлений токена от нативного кода.
   void setupMessageHandlers() {
-    _channel.setMethodCallHandler((call) async {
-      switch (call.method) {
-        case 'onTokenRefresh':
-          _token = call.arguments as String?;
-          if (_token != null) {
-            _tokenController.add(_token!);
-          }
-          break;
-        case 'onMessageReceived':
-          final data = Map<String, dynamic>.from(call.arguments ?? {});
-          _messageController.add(data);
-          break;
-        case 'onMessageOpenedApp':
-          final data = Map<String, dynamic>.from(call.arguments ?? {});
-          _messageOpenedAppController.add(data);
-          break;
-      }
+    Push.getTokenStream.listen((token) {
+      debugPrint('HMSPushService: token received: ${token.substring(0, token.length > 20 ? 20 : token.length)}...');
+      _token = token;
+      _tokenController.add(token);
+    }, onError: (e) {
+      debugPrint('HMSPushService: token error: $e');
     });
+
+    Push.onMessageReceivedStream.listen((RemoteMessage message) {
+      debugPrint('HMSPushService: onMessageReceived');
+      Map<String, dynamic> data = {};
+      if (message.dataOfMap != null && message.dataOfMap!.isNotEmpty) {
+        data = Map<String, dynamic>.from(message.dataOfMap!);
+      } else if (message.data != null && message.data!.isNotEmpty) {
+        try {
+          data = Map<String, dynamic>.from(json.decode(message.data!));
+        } catch (_) {
+          data = {'data': message.data};
+        }
+      }
+      _messageController.add(data);
+    }, onError: (e) {
+      debugPrint('HMSPushService: message error: $e');
+    });
+
+    Push.onNotificationOpenedApp.listen((dynamic event) {
+      debugPrint('HMSPushService: onNotificationOpenedApp: $event');
+      Map<String, dynamic> data = _extractMap(event);
+      if (data.isNotEmpty) {
+        _messageOpenedAppController.add(data);
+      }
+    }, onError: (e) {
+      debugPrint('HMSPushService: notification open error: $e');
+    });
+
+    // Проверка начального уведомления при холодном старте
+    Push.getInitialNotification().then((dynamic event) {
+      if (event != null) {
+        debugPrint('HMSPushService: getInitialNotification: $event');
+        Map<String, dynamic> data = _extractMap(event);
+        if (data.isNotEmpty) {
+          _messageOpenedAppController.add(data);
+        }
+      }
+    }).catchError((e) {
+      debugPrint('HMSPushService: getInitialNotification error: $e');
+    });
+  }
+
+  Map<String, dynamic> _extractMap(dynamic event) {
+    if (event == null) return {};
+    if (event is Map) {
+      return Map<String, dynamic>.from(event);
+    }
+    if (event is String && event.isNotEmpty) {
+      try {
+        final decoded = json.decode(event);
+        if (decoded is Map) {
+          return Map<String, dynamic>.from(decoded);
+        }
+      } catch (_) {
+        return {'data': event};
+      }
+    }
+    return {};
   }
 
   /// Освободить ресурсы

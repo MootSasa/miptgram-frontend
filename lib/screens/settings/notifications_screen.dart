@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../services/notification_service.dart';
 import '../../services/notification_settings_provider.dart';
 import '../../services/liquid_glass_provider.dart';
 import '../../services/settings_service.dart';
@@ -21,6 +22,30 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
+  bool _isSendingTest = false;
+
+  Future<void> _handleSendTestNotification() async {
+    HapticUtils.lightImpact();
+    setState(() => _isSendingTest = true);
+
+    final res = await NotificationService().sendTestNotification();
+
+    if (!mounted) return;
+    setState(() => _isSendingTest = false);
+
+    final success = res['success'] == true;
+    final message = res['message'] ?? (success ? 'Тестовое уведомление отправлено' : 'Ошибка отправки');
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: success ? const Color(0xFF2E7D32) : Colors.redAccent,
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -103,6 +128,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     HapticUtils.selection();
                     provider.updateGlobalSettings(notificationsEnabled: value);
                   },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.notifications_active_outlined,
+                      color: Color(0xFF0088CC)),
+                  title: const Text('Отправить тестовое уведомление'),
+                  subtitle: const Text('Проверить локальные и Push-уведомления'),
+                  trailing: _isSendingTest
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send_rounded, size: 20, color: Color(0xFF0088CC)),
+                  onTap: _isSendingTest ? null : _handleSendTestNotification,
                 ),
               ],
             ),

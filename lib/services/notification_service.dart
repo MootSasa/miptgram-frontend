@@ -514,22 +514,30 @@ class NotificationService {
         break;
       case 'new_message':
         if (data.containsKey('chat_id')) {
-          final chatId = data['chat_id']!;
-          final messageText = data['message_text'] ?? '';
+          final chatId = data['chat_id']!.toString();
+          final senderName = data['sender_name']?.toString() ?? '';
+          final chatName = (data['chat_name']?.toString().isNotEmpty == true)
+              ? data['chat_name']!.toString()
+              : (senderName.isNotEmpty ? senderName : 'Theaver');
+          final messageText = (data['message_text']?.toString().isNotEmpty == true)
+              ? data['message_text']!.toString()
+              : (data['content']?.toString() ?? 'Новое сообщение');
+          final isGroup = data['is_group'] == 'true' || data['is_group'] == true;
+
           if (shouldShowNotification(chatId) && !_isDuplicateNotification(chatId, messageText)) {
             showInAppBanner(
               chatId: chatId,
-              chatName: data['chat_name'] ?? '',
-              senderName: data['sender_name'] ?? '',
+              chatName: chatName,
+              senderName: senderName,
               messageText: messageText,
-              isGroup: data['is_group'] == 'true',
+              isGroup: isGroup,
             );
             showMessageNotification(
               chatId: chatId,
-              chatName: data['chat_name'] ?? 'Theaver',
-              senderName: data['sender_name'] ?? '',
-              messageText: data['message_text'] ?? '',
-              isGroup: data['is_group'] == 'true',
+              chatName: chatName,
+              senderName: senderName,
+              messageText: messageText,
+              isGroup: isGroup,
             );
           }
         }
@@ -572,9 +580,11 @@ class NotificationService {
 
     final effective = _settingsProvider?.getEffectiveSettings(chatId);
     final showPreview = effective?.previewEnabled ?? true;
-    final title = showPreview ? (isGroup ? '$chatName ($senderName)' : chatName) : 'Theaver';
+    final displayChatName = chatName.isNotEmpty ? chatName : (senderName.isNotEmpty ? senderName : 'Theaver');
+    final displayText = messageText.isNotEmpty ? messageText : 'Новое сообщение';
+    final title = showPreview ? (isGroup ? '$displayChatName ($senderName)' : displayChatName) : 'Theaver';
     final body = showPreview
-        ? (isGroup ? '$senderName: $messageText' : messageText)
+        ? (isGroup ? (senderName.isNotEmpty ? '$senderName: $displayText' : displayText) : displayText)
         : 'Новое сообщение';
 
     // Desktop (Windows, Linux, macOS)

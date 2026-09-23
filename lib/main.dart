@@ -83,7 +83,7 @@ class TheaverApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => LocaleProvider()),
         ChangeNotifierProvider(create: (_) => LiquidGlassProvider()..init()),
         ChangeNotifierProvider(create: (_) => UnreadCountProvider()..initialize()),
-        ChangeNotifierProvider(create: (_) => NotificationSettingsProvider()..init()),
+        ChangeNotifierProvider(create: (_) => NotificationSettingsProvider()..init(), lazy: false),
         ChangeNotifierProvider(create: (_) => PrivacySettingsProvider()..loadAll()),
         ChangeNotifierProvider(create: (_) => WallpaperProvider()..init()),
         ChangeNotifierProvider(create: (_) => ProfileThemeProvider()..init()),

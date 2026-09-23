@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/account_manager.dart';
 import '../../services/auth_service.dart';
+import '../../services/notification_service.dart';
 import '../main/main_screen.dart';
 import 'login_screen.dart';
 import '../../utils/swipe_back_route.dart';
@@ -73,6 +74,9 @@ class _SplashScreenState extends State<SplashScreen> {
       final result = await AuthService.getCurrentUser();
       if (result['success'] != true) {
         debugPrint('Token verification failed: ${result['message']}');
+      } else {
+        // Register current push token on server for this active session
+        NotificationService().registerCurrentToken();
       }
     } catch (e) {
       debugPrint('Background update error: $e');

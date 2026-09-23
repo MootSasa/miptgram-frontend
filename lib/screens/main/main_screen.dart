@@ -39,6 +39,7 @@ import '../../utils/date_time_utils.dart';
 import '../../services/update_service.dart';
 import '../settings/widgets/update_dialog.dart';
 import '../../widgets/chat/round_video_thumbnail.dart';
+import '../../widgets/notifications/notification_permission_dialog.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({Key? key}) : super(key: key);
@@ -117,6 +118,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     // 4. Проверка обновлений в фоне
     _checkForUpdates();
+
+    // 5. Запрос разрешения на уведомления при первом входе
+    _checkNotificationPermission();
+  }
+
+  Future<void> _checkNotificationPermission() async {
+    // Небольшая задержка, чтобы дать экрану полностью отрендериться
+    await Future.delayed(const Duration(milliseconds: 1200));
+    if (!mounted) return;
+    await NotificationPermissionDialog.checkAndPrompt(context);
   }
 
   Future<void> _checkForUpdates() async {

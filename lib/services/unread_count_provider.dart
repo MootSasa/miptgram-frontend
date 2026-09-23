@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'websocket_service.dart';
 import 'chat_service.dart';
 import 'auth_service.dart';
+import 'notification_service.dart';
 
 /// Provider that manages unread message counts per chat.
 /// It is the single source of truth for unread counts on the client.
@@ -44,6 +45,7 @@ class UnreadCountProvider extends ChangeNotifier {
   /// Set currently open chat (called when navigating into a chat screen)
   void setOpenChat(String? chatId) {
     _currentlyOpenChatId = chatId;
+    NotificationService().currentActiveChatId = chatId;
   }
 
   /// Initialize: load counts from server and subscribe to WebSocket

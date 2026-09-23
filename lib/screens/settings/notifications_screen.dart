@@ -432,21 +432,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-      child: Text(
-        title.toUpperCase(),
-        style: TextStyle(
-          color: const Color(0xFF0088CC),
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-
   String _vibrationLabel(VibrationPattern pattern, AppLocalizations l10n) {
     switch (pattern) {
       case VibrationPattern.default_:

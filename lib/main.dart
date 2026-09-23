@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'services/notification_service.dart';
 import 'config/app_config.dart';
 import 'services/desktop_tray_service.dart';
 import 'theme/theme_provider.dart';
@@ -26,7 +28,7 @@ import 'l10n/app_localizations.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  print('DEBUG: main() started');
+  debugPrint('main() started');
 
   // Initialize AppConfig (4-tier dynamic environment configuration)
   await AppConfig.init();
@@ -45,7 +47,8 @@ void main() async {
   if (pushType == PushServiceType.gms) {
     try {
       await Firebase.initializeApp();
-      debugPrint('Firebase initialized successfully');
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+      debugPrint('Firebase initialized successfully with background handler');
     } catch (e) {
       debugPrint('Firebase initialization skipped: $e');
     }

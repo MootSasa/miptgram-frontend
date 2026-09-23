@@ -21,7 +21,13 @@ import '../config/app_config.dart';
 
 /// Фоновый обработчик FCM сообщений (должен быть top-level функцией)
 @pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // Если сообщение содержит notification-payload, Google Play Services уже показал его в шторке
+  if (message.notification != null) {
+    debugPrint('NotificationService: background notification already displayed by system tray');
+    return;
+  }
+
   await Firebase.initializeApp();
   final localNotifications = FlutterLocalNotificationsPlugin();
   const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -50,6 +56,8 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     await _showBackgroundNotification(localNotifications, data);
   }
 }
+
+const _firebaseMessagingBackgroundHandler = firebaseMessagingBackgroundHandler;
 
 Future<void> _showBackgroundNotification(
   FlutterLocalNotificationsPlugin localNotifications,
@@ -107,6 +115,23 @@ class NotificationService {
   String? get pushToken => _pushToken;
   bool get isInitialized => _initialized;
   PushServiceType get pushServiceType => _detector.serviceType;
+
+  /// ID чата, открытого прямо сейчас на экране пользователя (для подавления уведомлений)
+  String? currentActiveChatId;
+
+  /// Кэш недавно показанных уведомлений для защиты от дублирования (WebSocket + FCM)
+  final Map<String, DateTime> _recentlyShownNotifications = {};
+
+  bool _isDuplicateNotification(String chatId, String messageText) {
+    final now = DateTime.now();
+    _recentlyShownNotifications.removeWhere((_, time) => now.difference(time).inSeconds > 10);
+    final key = '$chatId:$messageText';
+    if (_recentlyShownNotifications.containsKey(key)) {
+      return true;
+    }
+    _recentlyShownNotifications[key] = now;
+    return false;
+  }
 
   StreamSubscription? _wsSubscription;
 
@@ -178,10 +203,15 @@ class NotificationService {
           return;
         }
 
+        if (chatId.isEmpty) return;
+        if (!shouldShowNotification(chatId)) return;
+
         final chatName = data['chat_name']?.toString() ?? data['sender_name']?.toString() ?? 'Theaver';
         final senderName = data['sender_name']?.toString() ?? '';
         final messageText = data['content']?.toString() ?? 'Новое сообщение';
         final isGroup = data['is_group'] == true || data['is_group'] == 'true';
+
+        if (_isDuplicateNotification(chatId, messageText)) return;
 
         if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
           bool isFocused = false;
@@ -206,6 +236,22 @@ class NotificationService {
               isGroup: isGroup,
             );
           }
+        } else {
+          // Мобильные платформы (Android / iOS): показать баннер и шторку
+          showInAppBanner(
+            chatId: chatId,
+            chatName: chatName,
+            senderName: senderName,
+            messageText: messageText,
+            isGroup: isGroup,
+          );
+          await showMessageNotification(
+            chatId: chatId,
+            chatName: chatName,
+            senderName: senderName,
+            messageText: messageText,
+            isGroup: isGroup,
+          );
         }
       }
     });
@@ -466,12 +512,13 @@ class NotificationService {
       case 'new_message':
         if (data.containsKey('chat_id')) {
           final chatId = data['chat_id']!;
-          if (shouldShowNotification(chatId)) {
+          final messageText = data['message_text'] ?? '';
+          if (shouldShowNotification(chatId) && !_isDuplicateNotification(chatId, messageText)) {
             showInAppBanner(
               chatId: chatId,
               chatName: data['chat_name'] ?? '',
               senderName: data['sender_name'] ?? '',
-              messageText: data['message_text'] ?? '',
+              messageText: messageText,
               isGroup: data['is_group'] == 'true',
             );
             showMessageNotification(
@@ -632,6 +679,9 @@ class NotificationService {
   // ============ Logic ============
 
   bool shouldShowNotification(String chatId, {bool isMention = false}) {
+    if (chatId.isNotEmpty && currentActiveChatId == chatId) {
+      return false;
+    }
     if (_settingsProvider == null) return true;
     return _settingsProvider!.shouldShowNotification(chatId, isMention: isMention);
   }

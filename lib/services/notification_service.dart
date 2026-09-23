@@ -662,7 +662,7 @@ class NotificationService {
       channelDescription: 'Счётчик непрочитанных',
       importance: Importance.low, priority: Priority.low,
       playSound: false, enableVibration: false,
-      setAsGroupSummary: true, groupKey: 'miptgram_summary', autoCancel: false,
+      setAsGroupSummary: true, groupKey: 'theaver_summary', autoCancel: false,
     );
     const details = NotificationDetails(android: androidDetails);
     await _localNotifications.show(-1, 'Theaver', '$count непрочитанных', details);

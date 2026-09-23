@@ -290,7 +290,7 @@ class AppUpdateService {
   }) async {
     try {
       final tempDir = await getTemporaryDirectory();
-      final savePath = '${tempDir.path}/miptgram_update.apk';
+      final savePath = '${tempDir.path}/theaver_update.apk';
       final file = File(savePath);
       if (await file.exists()) {
         try {

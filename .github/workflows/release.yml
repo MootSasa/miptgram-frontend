@@ -140,19 +140,19 @@ jobs:
           OUTPUT_DIR="build/app/outputs/flutter-apk"
           
           if [ -f "$OUTPUT_DIR/app-release.apk" ]; then
-            cp "$OUTPUT_DIR/app-release.apk" "dist/android/miptgram-v${VER}-${CH}-universal.apk"
+            cp "$OUTPUT_DIR/app-release.apk" "dist/android/theaver-v${VER}-${CH}-universal.apk"
           fi
           
           for apk in "$OUTPUT_DIR"/*arm64-v8a*.apk; do
-            [ -f "$apk" ] && cp "$apk" "dist/android/miptgram-v${VER}-${CH}-arm64-v8a.apk"
+            [ -f "$apk" ] && cp "$apk" "dist/android/theaver-v${VER}-${CH}-arm64-v8a.apk"
           done
           
           for apk in "$OUTPUT_DIR"/*armeabi-v7a*.apk; do
-            [ -f "$apk" ] && cp "$apk" "dist/android/miptgram-v${VER}-${CH}-armeabi-v7a.apk"
+            [ -f "$apk" ] && cp "$apk" "dist/android/theaver-v${VER}-${CH}-armeabi-v7a.apk"
           done
           
           for apk in "$OUTPUT_DIR"/*x86_64*.apk; do
-            [ -f "$apk" ] && cp "$apk" "dist/android/miptgram-v${VER}-${CH}-x86_64.apk"
+            [ -f "$apk" ] && cp "$apk" "dist/android/theaver-v${VER}-${CH}-x86_64.apk"
           done
           
           echo "Prepared Android binaries:"
@@ -201,7 +201,7 @@ jobs:
           $ch = "${{ needs.prepare-release.outputs.channel }}"
           $releaseDir = "build/windows/x64/runner/Release"
           New-Item -ItemType Directory -Force -Path "dist/windows"
-          $zipOutput = "dist/windows/miptgram-v${ver}-${ch}-windows-x64.zip"
+          $zipOutput = "dist/windows/theaver-v${ver}-${ch}-windows-x64.zip"
           
           Write-Host "Compressing $releaseDir into $zipOutput..."
           Compress-Archive -Path "$releaseDir\*" -DestinationPath $zipOutput -Force
@@ -264,7 +264,7 @@ jobs:
           CH="${{ needs.prepare-release.outputs.channel }}"
           BUNDLE_DIR="build/linux/x64/release/bundle"
           mkdir -p dist/linux
-          ARCHIVE_NAME="dist/linux/miptgram-v${VER}-${CH}-linux-x64.tar.gz"
+          ARCHIVE_NAME="dist/linux/theaver-v${VER}-${CH}-linux-x64.tar.gz"
           
           tar -czf "$ARCHIVE_NAME" -C "$BUNDLE_DIR" .
           echo "Created $ARCHIVE_NAME"
@@ -318,41 +318,41 @@ jobs:
           cd "$PRODUCTS_DIR"
           
           # 1. Universal ZIP
-          ditto -c -k --keepParent "$APP_NAME" "$OUT_DIR/miptgram-v${VER}-${CH}-macos-universal.zip"
+          ditto -c -k --keepParent "$APP_NAME" "$OUT_DIR/theaver-v${VER}-${CH}-macos-universal.zip"
           echo "Created Universal ZIP"
           
           # 2. ARM64 (Apple Silicon M-series)
-          cp -R "$APP_NAME" "miptgram-arm64.app"
-          APP_BIN="miptgram-arm64.app/Contents/MacOS/${APP_NAME%.app}"
+          cp -R "$APP_NAME" "theaver-arm64.app"
+          APP_BIN="theaver-arm64.app/Contents/MacOS/${APP_NAME%.app}"
           if [ -f "$APP_BIN" ]; then
             lipo "$APP_BIN" -thin arm64 -output "$APP_BIN" 2>/dev/null || true
           fi
-          for FW in miptgram-arm64.app/Contents/Frameworks/*.framework; do
+          for FW in theaver-arm64.app/Contents/Frameworks/*.framework; do
             [ -d "$FW" ] || continue
             FW_NAME=$(basename "$FW" .framework)
             if [ -f "$FW/$FW_NAME" ]; then
               lipo "$FW/$FW_NAME" -thin arm64 -output "$FW/$FW_NAME" 2>/dev/null || true
             fi
           done
-          ditto -c -k --keepParent "miptgram-arm64.app" "$OUT_DIR/miptgram-v${VER}-${CH}-macos-arm64.zip"
-          rm -rf "miptgram-arm64.app"
+          ditto -c -k --keepParent "theaver-arm64.app" "$OUT_DIR/theaver-v${VER}-${CH}-macos-arm64.zip"
+          rm -rf "theaver-arm64.app"
           echo "Created ARM64 ZIP"
           
           # 3. x86_64 (Intel)
-          cp -R "$APP_NAME" "miptgram-x86_64.app"
-          APP_BIN_INTEL="miptgram-x86_64.app/Contents/MacOS/${APP_NAME%.app}"
+          cp -R "$APP_NAME" "theaver-x86_64.app"
+          APP_BIN_INTEL="theaver-x86_64.app/Contents/MacOS/${APP_NAME%.app}"
           if [ -f "$APP_BIN_INTEL" ]; then
             lipo "$APP_BIN_INTEL" -thin x86_64 -output "$APP_BIN_INTEL" 2>/dev/null || true
           fi
-          for FW in miptgram-x86_64.app/Contents/Frameworks/*.framework; do
+          for FW in theaver-x86_64.app/Contents/Frameworks/*.framework; do
             [ -d "$FW" ] || continue
             FW_NAME=$(basename "$FW" .framework)
             if [ -f "$FW/$FW_NAME" ]; then
               lipo "$FW/$FW_NAME" -thin x86_64 -output "$FW/$FW_NAME" 2>/dev/null || true
             fi
           done
-          ditto -c -k --keepParent "miptgram-x86_64.app" "$OUT_DIR/miptgram-v${VER}-${CH}-macos-x64.zip"
-          rm -rf "miptgram-x86_64.app"
+          ditto -c -k --keepParent "theaver-x86_64.app" "$OUT_DIR/theaver-v${VER}-${CH}-macos-x64.zip"
+          rm -rf "theaver-x86_64.app"
           echo "Created x86_64 ZIP"
           
           echo "Prepared macOS binaries:"
@@ -434,7 +434,7 @@ jobs:
               echo "Packaging Runner.app into IPA..."
               mkdir -p Payload
               cp -R build/ios/iphoneos/Runner.app Payload/
-              zip -r -y "dist/ios/miptgram-v${VER}-${CH}-ios.ipa" Payload
+              zip -r -y "dist/ios/theaver-v${VER}-${CH}-ios.ipa" Payload
               rm -rf Payload
             fi
           else
@@ -445,7 +445,7 @@ jobs:
             if [ -d "build/ios/iphoneos/Runner.app" ]; then
               mkdir -p Payload
               cp -R build/ios/iphoneos/Runner.app Payload/
-              zip -r -y "dist/ios/miptgram-v${VER}-${CH}-ios-unsigned.ipa" Payload
+              zip -r -y "dist/ios/theaver-v${VER}-${CH}-ios-unsigned.ipa" Payload
               rm -rf Payload
             fi
           fi
@@ -544,7 +544,7 @@ jobs:
             exit 1
           fi
 
-      - name: Deploy to Miptgram API & MinIO Storage
+      - name: Deploy to Theaver API & MinIO Storage
         continue-on-error: true
         env:
           MIPTGRAM_API_URL: ${{ secrets.MIPTGRAM_API_URL }}
@@ -567,7 +567,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare-release.outputs.tag_name }}
-          name: Miptgram ${{ needs.prepare-release.outputs.tag_name }} (${{ needs.prepare-release.outputs.channel }})
+          name: Theaver ${{ needs.prepare-release.outputs.tag_name }} (${{ needs.prepare-release.outputs.channel }})
           body_path: release_notes.md
           prerelease: ${{ needs.prepare-release.outputs.is_prerelease == 'true' }}
           draft: false

@@ -119,7 +119,7 @@ jobs:
       - name: Upload All Android APKs (Archive)
         uses: actions/upload-artifact@v4
         with:
-          name: miptgram-android-${{ inputs.build_type }}-all-apks
+          name: theaver-android-${{ inputs.build_type }}-all-apks
           path: |
             ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/*.apk
             ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/*.sha1
@@ -130,7 +130,7 @@ jobs:
         if: ${{ inputs.target_format == 'universal' || inputs.target_format == 'all' }}
         uses: actions/upload-artifact@v4
         with:
-          name: miptgram-android-${{ inputs.build_type }}-universal
+          name: theaver-android-${{ inputs.build_type }}-universal
           path: ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/app-universal-${{ inputs.build_type }}.apk
           if-no-files-found: warn
           retention-days: 30
@@ -139,7 +139,7 @@ jobs:
         if: ${{ inputs.target_format == 'split-per-abi' || inputs.target_format == 'all' }}
         uses: actions/upload-artifact@v4
         with:
-          name: miptgram-android-${{ inputs.build_type }}-arm64-v8a
+          name: theaver-android-${{ inputs.build_type }}-arm64-v8a
           path: ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/*arm64-v8a*.apk
           if-no-files-found: warn
           retention-days: 30
@@ -148,7 +148,7 @@ jobs:
         if: ${{ inputs.target_format == 'split-per-abi' || inputs.target_format == 'all' }}
         uses: actions/upload-artifact@v4
         with:
-          name: miptgram-android-${{ inputs.build_type }}-armeabi-v7a
+          name: theaver-android-${{ inputs.build_type }}-armeabi-v7a
           path: ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/*armeabi-v7a*.apk
           if-no-files-found: warn
           retention-days: 30
@@ -157,7 +157,7 @@ jobs:
         if: ${{ inputs.target_format == 'split-per-abi' || inputs.target_format == 'all' }}
         uses: actions/upload-artifact@v4
         with:
-          name: miptgram-android-${{ inputs.build_type }}-x86_64
+          name: theaver-android-${{ inputs.build_type }}-x86_64
           path: ${{ steps.locate_project.outputs.path }}/build/app/outputs/flutter-apk/*x86_64*.apk
           if-no-files-found: warn
           retention-days: 30

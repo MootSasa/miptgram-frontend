@@ -188,7 +188,7 @@ def analyze_commits(commits):
 
 
 def generate_changelog(version, channel, categorized):
-    lines = [f"# Miptgram v{version} ({channel.capitalize()})\n"]
+    lines = [f"# Theaver v{version} ({channel.capitalize()})\n"]
 
     section_titles = [
         ("feat", "🚀 Новые функции (Features)"),

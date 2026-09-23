@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/notification_service.dart';
+import '../../services/push_service_detector.dart';
 import '../../services/notification_settings_provider.dart';
 import '../../services/liquid_glass_provider.dart';
 import '../../services/settings_service.dart';
@@ -44,6 +45,32 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+
+  String _getPushServiceTitle() {
+    switch (NotificationService().pushServiceType) {
+      case PushServiceType.hms:
+        return 'Служба Push: Huawei Push Kit';
+      case PushServiceType.gms:
+        return 'Служба Push: Google FCM';
+      case PushServiceType.none:
+        return 'Служба Push: Только локальные';
+    }
+  }
+
+  String _getPushServiceSubtitle() {
+    final detector = PushServiceDetector();
+    final hasToken = NotificationService().pushToken != null &&
+        NotificationService().pushToken!.isNotEmpty;
+    final tokenStatus = hasToken ? 'Токен активен' : 'Токен ожидается';
+
+    if (detector.isHuaweiDevice) {
+      return '$tokenStatus • ${detector.hmsStatusDescription}';
+    }
+    final serviceName = NotificationService().pushServiceType == PushServiceType.gms
+        ? 'Google Play Services'
+        : 'Без cloud push';
+    return '$tokenStatus • $serviceName';
   }
 
   @override
@@ -142,6 +169,30 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         )
                       : const Icon(Icons.send_rounded, size: 20, color: Color(0xFF0088CC)),
                   onTap: _isSendingTest ? null : _handleSendTestNotification,
+                ),
+                ListTile(
+                  leading: Icon(
+                    NotificationService().pushServiceType == PushServiceType.hms
+                        ? Icons.cloud_done_rounded
+                        : (NotificationService().pushServiceType == PushServiceType.gms
+                            ? Icons.cloud_done_rounded
+                            : Icons.cloud_off_rounded),
+                    color: NotificationService().pushServiceType != PushServiceType.none
+                        ? const Color(0xFF2E7D32)
+                        : Colors.orange,
+                  ),
+                  title: Text(_getPushServiceTitle()),
+                  subtitle: Text(_getPushServiceSubtitle()),
+                  trailing: (PushServiceDetector().hmsStatusCode != null &&
+                          PushServiceDetector().hmsStatusCode != 0 &&
+                          PushServiceDetector().isHuaweiDevice)
+                      ? TextButton(
+                          onPressed: () {
+                            PushServiceDetector().resolveHmsError();
+                          },
+                          child: const Text('Исправить'),
+                        )
+                      : null,
                 ),
               ],
             ),

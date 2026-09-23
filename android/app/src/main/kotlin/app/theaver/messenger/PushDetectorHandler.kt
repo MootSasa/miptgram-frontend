@@ -33,6 +33,9 @@ class PushDetectorHandler(private val context: Context) {
                     "isHmsAvailable" -> {
                         result.success(isHmsAvailable())
                     }
+                    "isHuaweiDevice" -> {
+                        result.success(isHuaweiDevice())
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -53,39 +56,80 @@ class PushDetectorHandler(private val context: Context) {
 
     /**
      * Check if Google Play Services are available on this device.
-     * Uses PackageManager to check for the GMS core package.
+     * Uses GoogleApiAvailability via reflection, and blocks false positives on Huawei devices.
      */
     private fun isGmsAvailable(): Boolean {
+        val isHuawei = isHuaweiDevice()
+
+        // 1. Check via GoogleApiAvailability (ConnectionResult.SUCCESS = 0)
+        try {
+            val clazz = Class.forName("com.google.android.gms.common.GoogleApiAvailability")
+            val getInstanceMethod = clazz.getMethod("getInstance")
+            val instance = getInstanceMethod.invoke(null)
+            val isAvailableMethod = clazz.getMethod("isGooglePlayServicesAvailable", Context::class.java)
+            val statusCode = isAvailableMethod.invoke(instance, context) as? Int ?: -1
+            if (statusCode == 0) {
+                // If Google Play Services is actually functional, allow GMS
+                // UNLESS it's a Huawei device where HMS Core is installed and should take priority
+                if (isHuawei && isHmsAvailable()) {
+                    return false
+                }
+                return true
+            }
+            return false
+        } catch (_: Throwable) {
+            // GoogleApiAvailability class not found or reflection failed
+        }
+
+        // 2. Fallback check for non-Huawei devices
+        if (isHuawei) return false
         return try {
             val pm = context.packageManager
-            // Check for Google Play Services package
-            val gmsPackage = "com.google.android.gms"
-            pm.getPackageInfo(gmsPackage, 0)
-            // If we got here, GMS is installed
-            true
-        } catch (e: PackageManager.NameNotFoundException) {
-            false
-        } catch (e: Exception) {
+            val info = pm.getPackageInfo("com.google.android.gms", 0)
+            info.applicationInfo?.enabled == true
+        } catch (_: Throwable) {
             false
         }
     }
 
     /**
      * Check if HMS Core is available on this device.
-     * Uses PackageManager to check for the HMS Core package.
+     * Uses HuaweiApiAvailability via reflection, with fallbacks to package check.
      */
     private fun isHmsAvailable(): Boolean {
-        return try {
-            val pm = context.packageManager
-            // Check for HMS Core package
-            val hmsPackage = "com.huawei.hwid"
-            pm.getPackageInfo(hmsPackage, 0)
-            // If we got here, HMS Core is installed
-            true
-        } catch (e: PackageManager.NameNotFoundException) {
-            false
-        } catch (e: Exception) {
-            false
+        // 1. Check via HuaweiApiAvailability (ConnectionResult.SUCCESS = 0)
+        try {
+            val clazz = Class.forName("com.huawei.hms.api.HuaweiApiAvailability")
+            val getInstanceMethod = clazz.getMethod("getInstance")
+            val instance = getInstanceMethod.invoke(null)
+            val isAvailableMethod = clazz.getMethod("isHuaweiMobileServicesAvailable", Context::class.java)
+            val statusCode = isAvailableMethod.invoke(instance, context) as? Int ?: -1
+            if (statusCode == 0) {
+                return true
+            }
+        } catch (_: Throwable) {
+            // HuaweiApiAvailability class not found or reflection failed
         }
+
+        // 2. Fallback: check PackageManager for com.huawei.hwid
+        try {
+            val pm = context.packageManager
+            val info = pm.getPackageInfo("com.huawei.hwid", 0)
+            if (info.applicationInfo?.enabled == true) {
+                return true
+            }
+        } catch (_: Throwable) {}
+
+        // 3. Fallback: if it's a Huawei/Honor device, assume HMS capability
+        return isHuaweiDevice()
+    }
+
+    /**
+     * Check if the device is manufactured by Huawei or Honor.
+     */
+    private fun isHuaweiDevice(): Boolean {
+        val manufacturer = android.os.Build.MANUFACTURER.lowercase()
+        val brand = android.os.Build.BRAND.lowercase()
+        return manufacturer.contains("huawei") || brand.contains("huawei") || brand.contains("honor")
     }
 }

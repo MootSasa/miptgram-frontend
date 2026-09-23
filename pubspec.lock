@@ -789,6 +789,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.1.2"
+  huawei_hmsavailability:
+    dependency: "direct main"
+    description:
+      name: huawei_hmsavailability
+      sha256: ebeada4fc06d03891ac2e1164182292acb9c78bdf5799a7114d4e90f2566a7cc
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.13.0+300"
   huawei_push:
     dependency: "direct main"
     description:

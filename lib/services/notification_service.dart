@@ -299,9 +299,12 @@ class NotificationService {
 
     // Получение токена
     _pushToken = await _hmsPushService!.getToken();
-    debugPrint('NotificationService: HMS push token=${_pushToken?.substring(0, 20)}...');
+    final logToken = _pushToken != null
+        ? (_pushToken!.length > 20 ? '${_pushToken!.substring(0, 20)}...' : _pushToken!)
+        : 'null';
+    debugPrint('NotificationService: HMS push token=$logToken');
 
-    if (_pushToken != null) {
+    if (_pushToken != null && _pushToken!.isNotEmpty) {
       await _registerPushTokenOnServer(_pushToken!, 'hms');
     }
 

@@ -40,6 +40,7 @@ import '../../services/update_service.dart';
 import '../settings/widgets/update_dialog.dart';
 import '../../widgets/chat/round_video_thumbnail.dart';
 import '../../widgets/notifications/notification_permission_dialog.dart';
+import '../../services/notification_service.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({Key? key}) : super(key: key);

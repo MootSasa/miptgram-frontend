@@ -154,13 +154,15 @@ class NotificationService {
     }
   }
 
-  /// Кэш недавно показанных уведомлений для защиты от дублирования (WebSocket + FCM)
+  /// Кэш недавно показанных уведомлений для защиты от дублирования (гонка WebSocket и Push)
   final Map<String, DateTime> _recentlyShownNotifications = {};
 
-  bool _isDuplicateNotification(String chatId, String messageText) {
+  bool _isDuplicateNotification(String chatId, String messageText, {String? messageId}) {
     final now = DateTime.now();
-    _recentlyShownNotifications.removeWhere((_, time) => now.difference(time).inSeconds > 10);
-    final key = '$chatId:$messageText';
+    _recentlyShownNotifications.removeWhere((_, time) => now.difference(time).inSeconds > 2);
+    final key = (messageId != null && messageId.isNotEmpty)
+        ? '$chatId:$messageId'
+        : '$chatId:$messageText';
     if (_recentlyShownNotifications.containsKey(key)) {
       return true;
     }
@@ -245,8 +247,9 @@ class NotificationService {
         final senderName = data['sender_name']?.toString() ?? '';
         final messageText = data['content']?.toString() ?? 'Новое сообщение';
         final isGroup = data['is_group'] == true || data['is_group'] == 'true';
+        final messageId = data['id']?.toString() ?? data['message_id']?.toString();
 
-        if (_isDuplicateNotification(chatId, messageText)) return;
+        if (_isDuplicateNotification(chatId, messageText, messageId: messageId)) return;
 
         if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
           bool isFocused = false;
@@ -558,8 +561,9 @@ class NotificationService {
               ? data['message_text']!.toString()
               : (data['content']?.toString() ?? 'Новое сообщение');
           final isGroup = data['is_group'] == 'true' || data['is_group'] == true;
+          final messageId = data['id']?.toString() ?? data['message_id']?.toString();
 
-          if (shouldShowNotification(chatId) && !_isDuplicateNotification(chatId, messageText)) {
+          if (shouldShowNotification(chatId) && !_isDuplicateNotification(chatId, messageText, messageId: messageId)) {
             showInAppBanner(
               chatId: chatId,
               chatName: chatName,
@@ -655,6 +659,7 @@ class NotificationService {
       groupKey: 'chat_$chatId',
       setAsGroupSummary: false,
       autoCancel: true,
+      onlyAlertOnce: false,
       styleInformation: MessagingStyleInformation(
         Person(name: chatName),
         conversationTitle: isGroup ? chatName : null,

@@ -63,15 +63,6 @@ Future<void> _showBackgroundNotification(
   FlutterLocalNotificationsPlugin localNotifications,
   Map<String, dynamic> data,
 ) async {
-  const androidDetails = AndroidNotificationDetails(
-    'private_chats',
-    'Личные чаты',
-    channelDescription: 'Уведомления о новых сообщениях в личных чатах',
-    importance: Importance.high,
-    priority: Priority.high,
-  );
-  const iosDetails = DarwinNotificationDetails();
-  const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
   final chatId = data['chat_id']?.toString() ?? '';
   final chatName = data['chat_name']?.toString() ?? 'Theaver';
   final senderName = data['sender_name']?.toString() ?? '';
@@ -82,6 +73,28 @@ Future<void> _showBackgroundNotification(
   final body = (senderName.isNotEmpty && isGroup)
       ? '$senderName: $messageText'
       : messageText;
+  final channelId = isGroup ? 'group_chats' : 'private_chats';
+  final channelLabel = isGroup ? 'Групповые чаты' : 'Личные чаты';
+
+  final androidDetails = AndroidNotificationDetails(
+    channelId,
+    channelLabel,
+    channelDescription: isGroup
+        ? 'Уведомления о новых сообщениях в группах'
+        : 'Уведомления о новых сообщениях в личных чатах',
+    importance: Importance.high,
+    priority: Priority.high,
+    tag: 'chat_$chatId',
+    groupKey: 'com.theaver.messenger.MESSAGES',
+    autoCancel: true,
+    onlyAlertOnce: false,
+    styleInformation: BigTextStyleInformation(
+      body,
+      contentTitle: chatName,
+    ),
+  );
+  const iosDetails = DarwinNotificationDetails();
+  final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
   final notifId = int.tryParse(chatId) ?? chatId.hashCode;
   await localNotifications.show(
     notifId,
@@ -324,7 +337,8 @@ class NotificationService {
             messageText: messageText,
             isGroup: isGroup,
           );
-          if (!_isAppInForeground) {
+          // В фоне показываем локальное уведомление ТОЛЬКО если push-сервисы не активны (например, нет Google/Huawei)
+          if (!_isAppInForeground && (_pushToken == null || _pushToken!.isEmpty)) {
             await showMessageNotification(
               chatId: chatId,
               chatName: chatName,
@@ -615,14 +629,6 @@ class NotificationService {
                 messageText: messageText,
                 isGroup: isGroup,
               );
-            } else {
-              showMessageNotification(
-                chatId: chatId,
-                chatName: chatName,
-                senderName: senderName,
-                messageText: messageText,
-                isGroup: isGroup,
-              );
             }
           }
         }
@@ -702,15 +708,15 @@ class NotificationService {
       enableVibration: effective?.vibration != VibrationPattern.none,
       vibrationPattern: _getVibrationPattern(effective?.vibration),
       playSound: effective?.soundEnabled ?? true,
-      groupKey: 'chat_$chatId',
+      tag: 'chat_$chatId',
+      groupKey: 'com.theaver.messenger.MESSAGES',
       setAsGroupSummary: false,
       autoCancel: true,
       onlyAlertOnce: false,
-      styleInformation: MessagingStyleInformation(
-        Person(name: chatName),
-        conversationTitle: isGroup ? chatName : null,
-        groupConversation: isGroup,
-        messages: [Message(messageText, DateTime.now(), Person(name: senderName))],
+      styleInformation: BigTextStyleInformation(
+        body,
+        contentTitle: title,
+        summaryText: isGroup ? chatName : null,
       ),
     );
 
@@ -719,7 +725,8 @@ class NotificationService {
     );
 
     final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
-    await _localNotifications.show(chatId.hashCode, title, body, details, payload: chatId);
+    final notifId = int.tryParse(chatId) ?? chatId.hashCode;
+    await _localNotifications.show(notifId, title, body, details, payload: chatId);
   }
 
   Future<void> showCallNotification({

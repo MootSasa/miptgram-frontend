@@ -547,12 +547,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // При возврате из фона: переподключить WS если не подключён,
-      // затем обновить чаты если данных нет
+      // При возврате из фона: восстановить статус активного чата,
+      // переподключить WS если не подключён, затем обновить чаты
+      NotificationService().onAppResume();
       if (!_isWsConnected) {
         _wsService.tryReconnect();
         _loadChats();
       }
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      // При уходе в фон: снять подавление push-уведомлений для этого устройства
+      NotificationService().onAppPause();
     }
   }
 

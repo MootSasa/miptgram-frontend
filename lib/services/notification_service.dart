@@ -118,6 +118,41 @@ class NotificationService {
 
   /// ID чата, открытого прямо сейчас на экране пользователя (для подавления уведомлений)
   String? currentActiveChatId;
+  String? _lastActiveChatId;
+
+  /// Устанавливает текущий открытый чат на этом устройстве,
+  /// синхронизирует его с бэкендом через WebSocket для подавления push-уведомлений,
+  /// и удаляет уже висящие уведомления для этого чата из шторки.
+  void setActiveChat(String? chatId) {
+    currentActiveChatId = (chatId != null && chatId.isNotEmpty) ? chatId : null;
+    _lastActiveChatId = null;
+
+    if (currentActiveChatId != null) {
+      cancelChatNotifications(currentActiveChatId!);
+    }
+    WebSocketService().sendActiveChat(currentActiveChatId);
+  }
+
+  /// Вызывается при сворачивании приложения в фон:
+  /// пользователь больше не смотрит в экран чата, поэтому сервер должен слать push-уведомления.
+  void onAppPause() {
+    _lastActiveChatId = currentActiveChatId;
+    currentActiveChatId = null;
+    WebSocketService().sendActiveChat(null);
+  }
+
+  /// Вызывается при возврате приложения на передний план:
+  /// если пользователь оставался на экране чата, восстанавливаем активный статус и очищаем уведомления.
+  void onAppResume() {
+    if (_lastActiveChatId != null) {
+      currentActiveChatId = _lastActiveChatId;
+      _lastActiveChatId = null;
+      WebSocketService().sendActiveChat(currentActiveChatId);
+      if (currentActiveChatId != null) {
+        cancelChatNotifications(currentActiveChatId!);
+      }
+    }
+  }
 
   /// Кэш недавно показанных уведомлений для защиты от дублирования (WebSocket + FCM)
   final Map<String, DateTime> _recentlyShownNotifications = {};

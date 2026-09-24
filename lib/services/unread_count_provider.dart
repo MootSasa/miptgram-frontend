@@ -45,7 +45,7 @@ class UnreadCountProvider extends ChangeNotifier {
   /// Set currently open chat (called when navigating into a chat screen)
   void setOpenChat(String? chatId) {
     _currentlyOpenChatId = chatId;
-    NotificationService().currentActiveChatId = chatId;
+    NotificationService().setActiveChat(chatId);
   }
 
   /// Initialize: load counts from server and subscribe to WebSocket

@@ -9,12 +9,13 @@ import '../../l10n/app_localizations.dart';
 import '../../widgets/chat/liquid_glass_app_bar.dart';
 import '../../widgets/settings/settings_group.dart';
 import '../../utils/haptic_utils.dart';
+import 'chat_type_notifications_screen.dart';
+import 'in_app_notifications_screen.dart';
+import 'badge_settings_screen.dart';
+import 'notification_exceptions_screen.dart';
+import 'widgets/sound_picker_sheet.dart';
 
-/// Экран настроек уведомлений — полная реализация.
-///
-/// Поддерживает Liquid Glass и Classic режимы дизайна.
-/// Секции: главный переключатель, приватные чаты, группы, каналы,
-/// звонки, поведение, сброс per-chat настроек.
+/// Экран настроек уведомлений — полная реализация в стиле Telegram.
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({Key? key}) : super(key: key);
 
@@ -73,13 +74,93 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     return '$tokenStatus • $serviceName';
   }
 
+  String _repeatLabel(int minutes) {
+    if (minutes <= 0) return 'Выключен';
+    if (minutes < 60) return 'Через $minutes мин';
+    final hours = minutes ~/ 60;
+    return 'Через $hours ч';
+  }
+
+  void _showRepeatPicker(BuildContext context, int current, ValueChanged<int> onChanged) {
+    HapticUtils.tap();
+    final options = [0, 5, 10, 30, 60, 120];
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Повтор уведомлений',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+            ),
+            const Divider(height: 1),
+            ...options.map((m) => ListTile(
+                  title: Text(_repeatLabel(m)),
+                  trailing: m == current
+                      ? const Icon(Icons.check, color: Color(0xFF0088CC))
+                      : null,
+                  onTap: () {
+                    HapticUtils.selection();
+                    onChanged(m);
+                    Navigator.pop(ctx);
+                  },
+                )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showResetDialog(BuildContext context, NotificationSettingsProvider provider) {
+    HapticUtils.tap();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Сбросить все настройки'),
+        content: const Text(
+          'Сбросить все параметры уведомлений к исходным значениям '
+          'и удалить все персональные настройки для чатов? Действие необратимо.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Отмена'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              provider.resetAllSettings();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Все настройки уведомлений сброшены')),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Сбросить'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
-    // Инициализация провайдера при первом открытии
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final provider = context.read<NotificationSettingsProvider>();
-      provider.init();
+      context.read<NotificationSettingsProvider>().init();
     });
   }
 
@@ -92,17 +173,344 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       builder: (context, glassProvider, _) {
         final glassEnabled = glassProvider.enabled;
 
-        if (glassEnabled) {
-          final topPadding =
-              MediaQuery.of(context).padding.top + kToolbarHeight;
+        final content = Consumer<NotificationSettingsProvider>(
+          builder: (context, provider, _) {
+            final s = provider.globalSettings;
+            final exceptions = provider.exceptions;
 
+            final privateExCount = exceptions.where((e) => e.chatType == 'private').length;
+            final groupExCount = exceptions.where((e) => e.chatType == 'group').length;
+            final channelExCount = exceptions.where((e) => e.chatType == 'channel').length;
+
+            return ListView(
+              physics: const ClampingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              children: [
+                // === Главный переключатель и статус доставки ===
+                SettingsGroup(
+                  title: 'Служба уведомлений',
+                  children: [
+                    SwitchListTile(
+                      secondary: const Icon(Icons.notifications_active, color: Color(0xFF0088CC)),
+                      title: Text(l10n.translate('notifications_enabled')),
+                      subtitle: Text(l10n.translate('notifications_enabled_desc')),
+                      value: s.notificationsEnabled,
+                      onChanged: (value) {
+                        HapticUtils.selection();
+                        provider.updateGlobalSettings(notificationsEnabled: value);
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.notifications_active_outlined, color: Color(0xFF0088CC)),
+                      title: const Text('Отправить тестовое уведомление'),
+                      subtitle: const Text('Проверить локальные и Push-уведомления'),
+                      trailing: _isSendingTest
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.send_rounded, size: 20, color: Color(0xFF0088CC)),
+                      onTap: _isSendingTest ? null : _handleSendTestNotification,
+                    ),
+                    ListTile(
+                      leading: Icon(
+                        NotificationService().pushServiceType == PushServiceType.hms
+                            ? Icons.cloud_done_rounded
+                            : (NotificationService().pushServiceType == PushServiceType.gms
+                                ? Icons.cloud_done_rounded
+                                : Icons.cloud_off_rounded),
+                        color: NotificationService().pushServiceType != PushServiceType.none
+                            ? const Color(0xFF2E7D32)
+                            : Colors.orange,
+                      ),
+                      title: Text(_getPushServiceTitle()),
+                      subtitle: Text(_getPushServiceSubtitle()),
+                      trailing: (PushServiceDetector().hmsStatusCode != null &&
+                              PushServiceDetector().hmsStatusCode != 0 &&
+                              PushServiceDetector().isHuaweiDevice)
+                          ? TextButton(
+                              onPressed: () {
+                                PushServiceDetector().resolveHmsError();
+                              },
+                              child: const Text('Исправить'),
+                            )
+                          : null,
+                    ),
+                  ],
+                ),
+
+                if (!s.notificationsEnabled) ...[
+                  const SizedBox(height: 32),
+                  Center(
+                    child: Icon(Icons.notifications_off, size: 64, color: Colors.grey[400]),
+                  ),
+                  const SizedBox(height: 16),
+                  Center(
+                    child: Text(
+                      l10n.translate('notifications_disabled_hint'),
+                      style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+
+                if (s.notificationsEnabled) ...[
+                  // === Оповещения для чатов ===
+                  SettingsGroup(
+                    title: 'Оповещения для чатов',
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.person, color: Color(0xFF0088CC)),
+                        title: Text(l10n.translate('notifications_private_chats')),
+                        subtitle: Text(
+                          '${s.privateChatNotifications ? "Включены" : "Отключены"}'
+                          '${privateExCount > 0 ? " • $privateExCount исключений" : ""}',
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Switch(
+                              value: s.privateChatNotifications,
+                              onChanged: (val) {
+                                HapticUtils.selection();
+                                provider.updateGlobalSettings(privateChatNotifications: val);
+                              },
+                            ),
+                            const Icon(Icons.chevron_right, color: Colors.grey),
+                          ],
+                        ),
+                        onTap: () {
+                          HapticUtils.tap();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ChatTypeNotificationsScreen(
+                                category: ChatCategory.privateChats,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.group, color: Color(0xFF0088CC)),
+                        title: Text(l10n.translate('notifications_group_chats')),
+                        subtitle: Text(
+                          '${s.groupChatNotifications ? "Включены" : "Отключены"}'
+                          '${groupExCount > 0 ? " • $groupExCount исключений" : ""}',
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Switch(
+                              value: s.groupChatNotifications,
+                              onChanged: (val) {
+                                HapticUtils.selection();
+                                provider.updateGlobalSettings(groupChatNotifications: val);
+                              },
+                            ),
+                            const Icon(Icons.chevron_right, color: Colors.grey),
+                          ],
+                        ),
+                        onTap: () {
+                          HapticUtils.tap();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ChatTypeNotificationsScreen(
+                                category: ChatCategory.groupChats,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.campaign, color: Color(0xFF0088CC)),
+                        title: Text(l10n.translate('notifications_channels')),
+                        subtitle: Text(
+                          '${s.channelNotifications ? "Включены" : "Отключены"}'
+                          '${channelExCount > 0 ? " • $channelExCount исключений" : ""}',
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Switch(
+                              value: s.channelNotifications,
+                              onChanged: (val) {
+                                HapticUtils.selection();
+                                provider.updateGlobalSettings(channelNotifications: val);
+                              },
+                            ),
+                            const Icon(Icons.chevron_right, color: Colors.grey),
+                          ],
+                        ),
+                        onTap: () {
+                          HapticUtils.tap();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ChatTypeNotificationsScreen(
+                                category: ChatCategory.channels,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+
+                  // === Звонки ===
+                  SettingsGroup(
+                    title: l10n.translate('notifications_calls'),
+                    children: [
+                      SwitchListTile(
+                        secondary: const Icon(Icons.call, color: Color(0xFF0088CC)),
+                        title: Text(l10n.translate('notifications_call_notifications')),
+                        value: s.callNotifications,
+                        onChanged: (val) {
+                          HapticUtils.selection();
+                          provider.updateGlobalSettings(callNotifications: val);
+                        },
+                      ),
+                      if (s.callNotifications) ...[
+                        ListTile(
+                          title: const Text('Мелодия звонка'),
+                          subtitle: Text(s.callRingtone != null && s.callRingtone!.isNotEmpty
+                              ? s.callRingtone!
+                              : 'По умолчанию'),
+                          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                          onTap: () {
+                            SoundPickerSheet.show(
+                              context,
+                              title: 'Мелодия звонка',
+                              isRingtone: true,
+                              currentSoundId: s.callRingtone,
+                              onSelected: (tone) {
+                                provider.updateGlobalSettings(callRingtone: tone);
+                              },
+                            );
+                          },
+                        ),
+                        SwitchListTile(
+                          title: Text(l10n.translate('notifications_vibration')),
+                          value: s.callVibration,
+                          onChanged: (val) {
+                            HapticUtils.selection();
+                            provider.updateGlobalSettings(callVibration: val);
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
+
+                  // === Значок и в приложении ===
+                  SettingsGroup(
+                    title: 'Поведение',
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.badge, color: Color(0xFF0088CC)),
+                        title: Text(l10n.translate('notifications_badge')),
+                        subtitle: Text(s.badgeEnabled
+                            ? (s.badgeMode == BadgeMode.messages
+                                ? 'Включен • Количество сообщений'
+                                : 'Включен • Количество чатов')
+                            : 'Отключен'),
+                        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                        onTap: () {
+                          HapticUtils.tap();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const BadgeSettingsScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.phone_android, color: Color(0xFF0088CC)),
+                        title: const Text('Уведомления в приложении'),
+                        subtitle: const Text('Звуки, вибрация, предпросмотр'),
+                        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                        onTap: () {
+                          HapticUtils.tap();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const InAppNotificationsScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.update, color: Color(0xFF0088CC)),
+                        title: const Text('Повторять уведомления'),
+                        subtitle: Text(_repeatLabel(s.repeatNotifications)),
+                        onTap: () => _showRepeatPicker(
+                          context,
+                          s.repeatNotifications,
+                          (m) => provider.updateGlobalSettings(repeatNotifications: m),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // === Исключения ===
+                  SettingsGroup(
+                    title: 'Исключения',
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.tune, color: Color(0xFF0088CC)),
+                        title: const Text('Исключения'),
+                        subtitle: Text(
+                          exceptions.isEmpty
+                              ? 'Нет исключений'
+                              : '${exceptions.length} чатов с особыми настройками',
+                        ),
+                        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                        onTap: () {
+                          HapticUtils.tap();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const NotificationExceptionsScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+
+                  // === Сброс ===
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.0),
+                    child: Divider(height: 1),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.restore, color: Colors.redAccent),
+                    title: const Text(
+                      'Сбросить все настройки',
+                      style: TextStyle(color: Colors.redAccent),
+                    ),
+                    subtitle: const Text(
+                      'Сбросить все настройки уведомлений и удалить исключения',
+                    ),
+                    onTap: () => _showResetDialog(context, provider),
+                  ),
+                ],
+              ],
+            );
+          },
+        );
+
+        if (glassEnabled) {
+          final topPadding = MediaQuery.of(context).padding.top + kToolbarHeight;
           return Scaffold(
             body: Stack(
               children: [
                 Positioned.fill(
                   child: Padding(
                     padding: EdgeInsets.only(top: topPadding),
-                    child: _buildSettingsList(context, l10n, theme),
+                    child: content,
                   ),
                 ),
                 Positioned(
@@ -125,459 +533,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             title: Text(l10n.translate('notifications_title')),
             centerTitle: true,
           ),
-          body: _buildSettingsList(context, l10n, theme),
+          body: content,
         );
       },
-    );
-  }
-
-  Widget _buildSettingsList(
-      BuildContext context, AppLocalizations l10n, ThemeData theme) {
-    return Consumer<NotificationSettingsProvider>(
-      builder: (context, provider, _) {
-        final settings = provider.globalSettings;
-
-        return ListView(
-          physics: const ClampingScrollPhysics(),
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          children: [
-            // === Главный переключатель ===
-            SettingsGroup(
-              title: l10n.translate('notifications_main_section'),
-              children: [
-                SwitchListTile(
-                  secondary: const Icon(Icons.notifications_active,
-                      color: Color(0xFF0088CC)),
-                  title: Text(l10n.translate('notifications_enabled')),
-                  subtitle: Text(l10n.translate('notifications_enabled_desc')),
-                  value: settings.notificationsEnabled,
-                  onChanged: (value) {
-                    HapticUtils.selection();
-                    provider.updateGlobalSettings(notificationsEnabled: value);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.notifications_active_outlined,
-                      color: Color(0xFF0088CC)),
-                  title: const Text('Отправить тестовое уведомление'),
-                  subtitle: const Text('Проверить локальные и Push-уведомления'),
-                  trailing: _isSendingTest
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.send_rounded, size: 20, color: Color(0xFF0088CC)),
-                  onTap: _isSendingTest ? null : _handleSendTestNotification,
-                ),
-                ListTile(
-                  leading: Icon(
-                    NotificationService().pushServiceType == PushServiceType.hms
-                        ? Icons.cloud_done_rounded
-                        : (NotificationService().pushServiceType == PushServiceType.gms
-                            ? Icons.cloud_done_rounded
-                            : Icons.cloud_off_rounded),
-                    color: NotificationService().pushServiceType != PushServiceType.none
-                        ? const Color(0xFF2E7D32)
-                        : Colors.orange,
-                  ),
-                  title: Text(_getPushServiceTitle()),
-                  subtitle: Text(_getPushServiceSubtitle()),
-                  trailing: (PushServiceDetector().hmsStatusCode != null &&
-                          PushServiceDetector().hmsStatusCode != 0 &&
-                          PushServiceDetector().isHuaweiDevice)
-                      ? TextButton(
-                          onPressed: () {
-                            PushServiceDetector().resolveHmsError();
-                          },
-                          child: const Text('Исправить'),
-                        )
-                      : null,
-                ),
-              ],
-            ),
-
-            // Если уведомления выключены — показываем только главный переключатель
-            if (!settings.notificationsEnabled) ...[
-              const SizedBox(height: 32),
-              Center(
-                child: Icon(Icons.notifications_off,
-                    size: 64, color: Colors.grey[400]),
-              ),
-              const SizedBox(height: 16),
-              Center(
-                child: Text(
-                  l10n.translate('notifications_disabled_hint'),
-                  style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ],
-
-            if (settings.notificationsEnabled) ...[
-              // === Приватные чаты ===
-              SettingsGroup(
-                title: l10n.translate('notifications_private_chats'),
-                children: [
-                  SwitchListTile(
-                    secondary: const Icon(Icons.person, color: Color(0xFF0088CC)),
-                    title: Text(l10n.translate('notifications_private_messages')),
-                    value: settings.privateChatNotifications,
-                    onChanged: (value) {
-                      HapticUtils.selection();
-                      provider.updateGlobalSettings(
-                          privateChatNotifications: value);
-                    },
-                  ),
-                  if (settings.privateChatNotifications) ...[
-                    SwitchListTile(
-                      title: Text(l10n.translate('notifications_preview')),
-                      subtitle: Text(l10n.translate('notifications_preview_desc')),
-                      value: settings.privateChatPreview,
-                      onChanged: (value) {
-                        HapticUtils.selection();
-                        provider.updateGlobalSettings(privateChatPreview: value);
-                      },
-                    ),
-                    ListTile(
-                      title: Text(l10n.translate('notifications_sound')),
-                      subtitle: Text(settings.privateChatSound
-                          ? l10n.translate('notifications_sound_on')
-                          : l10n.translate('notifications_sound_off')),
-                      trailing: Switch(
-                        value: settings.privateChatSound,
-                        onChanged: (value) {
-                          HapticUtils.selection();
-                          provider.updateGlobalSettings(privateChatSound: value);
-                        },
-                      ),
-                    ),
-                    ListTile(
-                      title: Text(l10n.translate('notifications_vibration')),
-                      subtitle: Text(
-                          _vibrationLabel(settings.privateChatVibration, l10n)),
-                      onTap: () => _showVibrationPicker(
-                        context,
-                        settings.privateChatVibration,
-                        (pattern) => provider.updateGlobalSettings(
-                            privateChatVibration: pattern),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-
-              // === Групповые чаты ===
-              SettingsGroup(
-                title: l10n.translate('notifications_group_chats'),
-                children: [
-                  SwitchListTile(
-                    secondary: const Icon(Icons.group, color: Color(0xFF0088CC)),
-                    title: Text(l10n.translate('notifications_group_messages')),
-                    value: settings.groupChatNotifications,
-                    onChanged: (value) {
-                      HapticUtils.selection();
-                      provider.updateGlobalSettings(groupChatNotifications: value);
-                    },
-                  ),
-                  if (settings.groupChatNotifications) ...[
-                    SwitchListTile(
-                      title: Text(l10n.translate('notifications_preview')),
-                      value: settings.groupChatPreview,
-                      onChanged: (value) {
-                        HapticUtils.selection();
-                        provider.updateGlobalSettings(groupChatPreview: value);
-                      },
-                    ),
-                    ListTile(
-                      title: Text(l10n.translate('notifications_sound')),
-                      subtitle: Text(settings.groupChatSound
-                          ? l10n.translate('notifications_sound_on')
-                          : l10n.translate('notifications_sound_off')),
-                      trailing: Switch(
-                        value: settings.groupChatSound,
-                        onChanged: (value) {
-                          HapticUtils.selection();
-                          provider.updateGlobalSettings(groupChatSound: value);
-                        },
-                      ),
-                    ),
-                    ListTile(
-                      title: Text(l10n.translate('notifications_vibration')),
-                      subtitle: Text(
-                          _vibrationLabel(settings.groupChatVibration, l10n)),
-                      onTap: () => _showVibrationPicker(
-                        context,
-                        settings.groupChatVibration,
-                        (pattern) => provider.updateGlobalSettings(
-                            groupChatVibration: pattern),
-                      ),
-                    ),
-                    SwitchListTile(
-                      title: Text(l10n.translate('notifications_mentions')),
-                      subtitle: Text(l10n.translate('notifications_mentions_desc')),
-                      value: settings.mentionsNotifications,
-                      onChanged: (value) {
-                        HapticUtils.selection();
-                        provider.updateGlobalSettings(
-                            mentionsNotifications: value);
-                      },
-                    ),
-                  ],
-                ],
-              ),
-
-              // === Каналы ===
-              SettingsGroup(
-                title: l10n.translate('notifications_channels'),
-                children: [
-                  SwitchListTile(
-                    secondary: const Icon(Icons.campaign, color: Color(0xFF0088CC)),
-                    title: Text(l10n.translate('notifications_channel_messages')),
-                    value: settings.channelNotifications,
-                    onChanged: (value) {
-                      HapticUtils.selection();
-                      provider.updateGlobalSettings(channelNotifications: value);
-                    },
-                  ),
-                  if (settings.channelNotifications) ...[
-                    SwitchListTile(
-                      title: Text(l10n.translate('notifications_preview')),
-                      value: settings.channelPreview,
-                      onChanged: (value) {
-                        HapticUtils.selection();
-                        provider.updateGlobalSettings(channelPreview: value);
-                      },
-                    ),
-                    ListTile(
-                      title: Text(l10n.translate('notifications_sound')),
-                      subtitle: Text(settings.channelSound
-                          ? l10n.translate('notifications_sound_on')
-                          : l10n.translate('notifications_sound_off')),
-                      trailing: Switch(
-                        value: settings.channelSound,
-                        onChanged: (value) {
-                          HapticUtils.selection();
-                          provider.updateGlobalSettings(channelSound: value);
-                        },
-                      ),
-                    ),
-                    ListTile(
-                      title: Text(l10n.translate('notifications_vibration')),
-                      subtitle:
-                          Text(_vibrationLabel(settings.channelVibration, l10n)),
-                      onTap: () => _showVibrationPicker(
-                        context,
-                        settings.channelVibration,
-                        (pattern) => provider.updateGlobalSettings(
-                            channelVibration: pattern),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-
-              // === Звонки ===
-              SettingsGroup(
-                title: l10n.translate('notifications_calls'),
-                children: [
-                  SwitchListTile(
-                    secondary: const Icon(Icons.call, color: Color(0xFF0088CC)),
-                    title: Text(l10n.translate('notifications_call_notifications')),
-                    value: settings.callNotifications,
-                    onChanged: (value) {
-                      HapticUtils.selection();
-                      provider.updateGlobalSettings(callNotifications: value);
-                    },
-                  ),
-                  if (settings.callNotifications) ...[
-                    SwitchListTile(
-                      title: Text(l10n.translate('notifications_sound')),
-                      value: settings.callSound,
-                      onChanged: (value) {
-                        HapticUtils.selection();
-                        provider.updateGlobalSettings(callSound: value);
-                      },
-                    ),
-                    SwitchListTile(
-                      title: Text(l10n.translate('notifications_vibration')),
-                      value: settings.callVibration,
-                      onChanged: (value) {
-                        HapticUtils.selection();
-                        provider.updateGlobalSettings(callVibration: value);
-                      },
-                    ),
-                  ],
-                ],
-              ),
-
-              // === Поведение ===
-              SettingsGroup(
-                title: l10n.translate('notifications_behavior'),
-                children: [
-                  SwitchListTile(
-                    secondary: const Icon(Icons.badge, color: Color(0xFF0088CC)),
-                    title: Text(l10n.translate('notifications_badge')),
-                    subtitle: Text(l10n.translate('notifications_badge_desc')),
-                    value: settings.badgeEnabled,
-                    onChanged: (value) {
-                      HapticUtils.selection();
-                      provider.updateGlobalSettings(badgeEnabled: value);
-                    },
-                  ),
-                  SwitchListTile(
-                    secondary: const Icon(Icons.picture_in_picture_alt,
-                        color: Color(0xFF0088CC)),
-                    title: Text(l10n.translate('notifications_popup')),
-                    subtitle: Text(l10n.translate('notifications_popup_desc')),
-                    value: settings.popupEnabled,
-                    onChanged: (value) {
-                      HapticUtils.selection();
-                      provider.updateGlobalSettings(popupEnabled: value);
-                    },
-                  ),
-                  SwitchListTile(
-                    secondary: const Icon(Icons.visibility, color: Color(0xFF0088CC)),
-                    title: Text(l10n.translate('notifications_content_preview')),
-                    subtitle:
-                        Text(l10n.translate('notifications_content_preview_desc')),
-                    value: settings.contentPreview,
-                    onChanged: (value) {
-                      HapticUtils.selection();
-                      provider.updateGlobalSettings(contentPreview: value);
-                    },
-                  ),
-                  SwitchListTile(
-                    secondary: const Icon(Icons.notifications_off_outlined,
-                        color: Color(0xFF0088CC)),
-                    title: Text(l10n.translate('notifications_include_muted')),
-                    subtitle:
-                        Text(l10n.translate('notifications_include_muted_desc')),
-                    value: settings.includeMutedChats,
-                    onChanged: (value) {
-                      HapticUtils.selection();
-                      provider.updateGlobalSettings(includeMutedChats: value);
-                    },
-                  ),
-                ],
-              ),
-
-              // === Сброс ===
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 8.0),
-                child: Divider(height: 1),
-              ),
-              ListTile(
-                leading: const Icon(Icons.restore, color: Colors.orange),
-                title: Text(
-                  l10n.translate('notifications_reset_all'),
-                  style: const TextStyle(color: Colors.orange),
-                ),
-                subtitle: Text(l10n.translate('notifications_reset_all_desc')),
-                onTap: () => _showResetDialog(context, provider, l10n),
-              ),
-            ],
-          ],
-        );
-      },
-    );
-  }
-
-  String _vibrationLabel(VibrationPattern pattern, AppLocalizations l10n) {
-    switch (pattern) {
-      case VibrationPattern.default_:
-        return l10n.translate('vibration_default');
-      case VibrationPattern.none:
-        return l10n.translate('vibration_none');
-      case VibrationPattern.short:
-        return l10n.translate('vibration_short');
-      case VibrationPattern.long:
-        return l10n.translate('vibration_long');
-      case VibrationPattern.doubleShort:
-        return l10n.translate('vibration_double_short');
-      case VibrationPattern.tripleShort:
-        return l10n.translate('vibration_triple_short');
-    }
-  }
-
-  void _showVibrationPicker(
-    BuildContext context,
-    VibrationPattern current,
-    ValueChanged<VibrationPattern> onChanged,
-  ) {
-    final l10n = context.l10n;
-    HapticUtils.tap();
-
-    showModalBottomSheet(
-      context: context,
-      builder: (context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  l10n.translate('notifications_vibration'),
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ),
-              const Divider(height: 1),
-              ...VibrationPattern.values.map((pattern) => ListTile(
-                    title: Text(_vibrationLabel(pattern, l10n)),
-                    trailing: pattern == current
-                        ? const Icon(Icons.check, color: Color(0xFF0088CC))
-                        : null,
-                    onTap: () {
-                      HapticUtils.selection();
-                      onChanged(pattern);
-                      Navigator.pop(context);
-                    },
-                  )),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  void _showResetDialog(
-    BuildContext context,
-    NotificationSettingsProvider provider,
-    AppLocalizations l10n,
-  ) {
-    HapticUtils.tap();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(l10n.translate('notifications_reset_all')),
-        content: Text(l10n.translate('notifications_reset_confirm')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(l10n.translate('common_cancel')),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              provider.resetAllChatSettings();
-              ScaffoldMessenger.of(this.context).showSnackBar(
-                SnackBar(
-                  content:
-                      Text(l10n.translate('notifications_reset_done')),
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-              foregroundColor: Colors.white,
-            ),
-            child: Text(l10n.translate('notifications_reset_button')),
-          ),
-        ],
-      ),
     );
   }
 }
+

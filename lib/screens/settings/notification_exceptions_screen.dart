@@ -18,7 +18,7 @@ class NotificationExceptionsScreen extends StatelessWidget {
     } else if (s.muteState == MuteState.mutedUntil && s.muteUntil != null) {
       final hours = s.muteUntil!.difference(DateTime.now()).inHours;
       if (hours > 0) {
-        parts.add('Без звука на ${hours}ч');
+        parts.add('Без звука на $hoursч');
       } else {
         parts.add('Без звука');
       }
@@ -202,7 +202,7 @@ class NotificationExceptionsScreen extends StatelessWidget {
 
     return ListTile(
       leading: CircleAvatar(
-        backgroundColor: const Color(0xFF0088CC).withOpacity(0.15),
+        backgroundColor: const Color(0xFF0088CC).withValues(alpha: 0.15),
         child: Text(
           ex.chatTitle.isNotEmpty ? ex.chatTitle[0].toUpperCase() : '?',
           style: const TextStyle(

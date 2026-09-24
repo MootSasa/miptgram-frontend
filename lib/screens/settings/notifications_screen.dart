@@ -167,7 +167,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
 
     return Consumer<LiquidGlassProvider>(
       builder: (context, glassProvider, _) {

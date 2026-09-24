@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/notification_settings_provider.dart';
 import '../../services/liquid_glass_provider.dart';
-import '../../l10n/app_localizations.dart';
 import '../../widgets/chat/liquid_glass_app_bar.dart';
 import '../../widgets/settings/settings_group.dart';
 import '../../utils/haptic_utils.dart';
@@ -12,7 +11,6 @@ class InAppNotificationsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     const title = 'Уведомления в приложении';
 
     return Consumer<LiquidGlassProvider>(

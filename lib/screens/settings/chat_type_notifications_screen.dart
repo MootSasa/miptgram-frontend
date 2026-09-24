@@ -109,7 +109,6 @@ class ChatTypeNotificationsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
     final title = _getTitle(l10n);
 
     return Consumer<LiquidGlassProvider>(
@@ -296,7 +295,7 @@ class ChatTypeNotificationsScreen extends StatelessWidget {
 
                         return ListTile(
                           leading: CircleAvatar(
-                            backgroundColor: const Color(0xFF0088CC).withOpacity(0.15),
+                            backgroundColor: const Color(0xFF0088CC).withValues(alpha: 0.15),
                             child: Text(
                               ex.chatTitle.isNotEmpty ? ex.chatTitle[0].toUpperCase() : '?',
                               style: const TextStyle(

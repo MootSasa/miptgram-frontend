@@ -66,6 +66,7 @@ Future<void> _showBackgroundNotification(
   final chatId = data['chat_id']?.toString() ?? '';
   final chatName = data['chat_name']?.toString() ?? 'Theaver';
   final senderName = data['sender_name']?.toString() ?? '';
+  final messageId = data['id']?.toString() ?? data['message_id']?.toString();
   final messageText = (data['message_text']?.toString().isNotEmpty == true)
       ? data['message_text']!.toString()
       : (data['content']?.toString() ?? 'Новое сообщение');
@@ -84,7 +85,6 @@ Future<void> _showBackgroundNotification(
         : 'Уведомления о новых сообщениях в личных чатах',
     importance: Importance.high,
     priority: Priority.high,
-    tag: 'chat_$chatId',
     groupKey: 'com.theaver.messenger.MESSAGES',
     autoCancel: true,
     onlyAlertOnce: false,
@@ -95,7 +95,9 @@ Future<void> _showBackgroundNotification(
   );
   const iosDetails = DarwinNotificationDetails();
   final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
-  final notifId = int.tryParse(chatId) ?? chatId.hashCode;
+  final notifId = (messageId != null && messageId.isNotEmpty)
+      ? (int.tryParse(messageId) ?? (chatId.hashCode ^ messageId.hashCode))
+      : DateTime.now().millisecondsSinceEpoch.remainder(100000);
   await localNotifications.show(
     notifId,
     chatName,
@@ -139,6 +141,7 @@ class NotificationService {
   /// ID чата, открытого прямо сейчас на экране пользователя (для подавления уведомлений)
   String? currentActiveChatId;
   String? _lastActiveChatId;
+  final Map<String, List<int>> _chatNotificationIds = {};
 
   /// Устанавливает текущий открытый чат на этом устройстве,
   /// синхронизирует его с бэкендом через WebSocket для подавления push-уведомлений,
@@ -318,6 +321,7 @@ class NotificationService {
               senderName: senderName,
               messageText: messageText,
               isGroup: isGroup,
+              messageId: messageId,
             );
           } else {
             showInAppBanner(
@@ -345,6 +349,7 @@ class NotificationService {
               senderName: senderName,
               messageText: messageText,
               isGroup: isGroup,
+              messageId: messageId,
             );
           }
         }
@@ -666,6 +671,7 @@ class NotificationService {
     required String messageText,
     String? avatarPath,
     bool isGroup = false,
+    String? messageId,
   }) async {
     if (!shouldShowNotification(chatId)) return;
 
@@ -682,7 +688,7 @@ class NotificationService {
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       try {
         final notification = LocalNotification(
-          identifier: 'chat_$chatId',
+          identifier: messageId != null && messageId.isNotEmpty ? 'msg_$messageId' : 'chat_$chatId',
           title: title,
           body: body,
           silent: !(effective?.soundEnabled ?? true),
@@ -708,7 +714,6 @@ class NotificationService {
       enableVibration: effective?.vibration != VibrationPattern.none,
       vibrationPattern: _getVibrationPattern(effective?.vibration),
       playSound: effective?.soundEnabled ?? true,
-      tag: 'chat_$chatId',
       groupKey: 'com.theaver.messenger.MESSAGES',
       setAsGroupSummary: false,
       autoCancel: true,
@@ -725,7 +730,10 @@ class NotificationService {
     );
 
     final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
-    final notifId = int.tryParse(chatId) ?? chatId.hashCode;
+    final notifId = (messageId != null && messageId.isNotEmpty)
+        ? (int.tryParse(messageId) ?? (chatId.hashCode ^ messageId.hashCode))
+        : DateTime.now().millisecondsSinceEpoch.remainder(100000);
+    (_chatNotificationIds[chatId] ??= []).add(notifId);
     await _localNotifications.show(notifId, title, body, details, payload: chatId);
   }
 
@@ -775,6 +783,16 @@ class NotificationService {
   }
 
   Future<void> cancelChatNotifications(String chatId) async {
+    final ids = _chatNotificationIds.remove(chatId);
+    if (ids != null) {
+      for (final id in ids) {
+        await _localNotifications.cancel(id);
+      }
+    }
+    final parsed = int.tryParse(chatId);
+    if (parsed != null) {
+      await _localNotifications.cancel(parsed);
+    }
     await _localNotifications.cancel(chatId.hashCode);
   }
 

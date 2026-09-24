@@ -72,14 +72,21 @@ Future<void> _showBackgroundNotification(
   );
   const iosDetails = DarwinNotificationDetails();
   const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
-  final chatId = data['chat_id'] ?? '';
-  final chatName = data['chat_name'] ?? 'Theaver';
-  final senderName = data['sender_name'] ?? '';
-  final messageText = data['message_text'] ?? '';
+  final chatId = data['chat_id']?.toString() ?? '';
+  final chatName = data['chat_name']?.toString() ?? 'Theaver';
+  final senderName = data['sender_name']?.toString() ?? '';
+  final messageText = (data['message_text']?.toString().isNotEmpty == true)
+      ? data['message_text']!.toString()
+      : (data['content']?.toString() ?? 'Новое сообщение');
+  final isGroup = data['is_group'] == 'true' || data['is_group'] == true;
+  final body = (senderName.isNotEmpty && isGroup)
+      ? '$senderName: $messageText'
+      : messageText;
+  final notifId = int.tryParse(chatId) ?? chatId.hashCode;
   await localNotifications.show(
-    chatId.hashCode,
+    notifId,
     chatName,
-    senderName.isNotEmpty ? '$senderName: $messageText' : messageText,
+    body,
     details,
     payload: chatId,
   );
@@ -133,9 +140,13 @@ class NotificationService {
     WebSocketService().sendActiveChat(currentActiveChatId);
   }
 
+  bool _isAppInForeground = true;
+  bool get isAppInForeground => _isAppInForeground;
+
   /// Вызывается при сворачивании приложения в фон:
   /// пользователь больше не смотрит в экран чата, поэтому сервер должен слать push-уведомления.
   void onAppPause() {
+    _isAppInForeground = false;
     _lastActiveChatId = currentActiveChatId;
     currentActiveChatId = null;
     WebSocketService().sendActiveChat(null);
@@ -144,6 +155,7 @@ class NotificationService {
   /// Вызывается при возврате приложения на передний план:
   /// если пользователь оставался на экране чата, восстанавливаем активный статус и очищаем уведомления.
   void onAppResume() {
+    _isAppInForeground = true;
     if (_lastActiveChatId != null) {
       currentActiveChatId = _lastActiveChatId;
       _lastActiveChatId = null;
@@ -159,7 +171,7 @@ class NotificationService {
 
   bool _isDuplicateNotification(String chatId, String messageText, {String? messageId}) {
     final now = DateTime.now();
-    _recentlyShownNotifications.removeWhere((_, time) => now.difference(time).inSeconds > 2);
+    _recentlyShownNotifications.removeWhere((_, time) => now.difference(time).inSeconds > 10);
     final key = (messageId != null && messageId.isNotEmpty)
         ? '$chatId:$messageId'
         : '$chatId:$messageText';
@@ -233,8 +245,12 @@ class NotificationService {
     _wsSubscription = WebSocketService().eventStream.listen((event) async {
       if (event.type == WebSocketEventType.newMessage) {
         final data = event.data;
-        final chatId = data['chat_id']?.toString() ?? '';
-        final senderId = data['sender_id']?.toString() ?? '';
+        final msg = (data['message'] is Map)
+            ? Map<String, dynamic>.from(data['message'] as Map)
+            : <String, dynamic>{};
+
+        final chatId = data['chat_id']?.toString() ?? msg['chat_id']?.toString() ?? '';
+        final senderId = msg['sender_id']?.toString() ?? data['sender_id']?.toString() ?? '';
         final currentUserId = await AuthService.getUserId();
         if (senderId.isNotEmpty && currentUserId != null && senderId == currentUserId) {
           return;
@@ -243,11 +259,36 @@ class NotificationService {
         if (chatId.isEmpty) return;
         if (!shouldShowNotification(chatId)) return;
 
-        final chatName = data['chat_name']?.toString() ?? data['sender_name']?.toString() ?? 'Theaver';
-        final senderName = data['sender_name']?.toString() ?? '';
-        final messageText = data['content']?.toString() ?? 'Новое сообщение';
-        final isGroup = data['is_group'] == true || data['is_group'] == 'true';
-        final messageId = data['id']?.toString() ?? data['message_id']?.toString();
+        final senderName = msg['sender_name']?.toString() ?? data['sender_name']?.toString() ?? '';
+        final chatName = (data['chat_name']?.toString().isNotEmpty == true)
+            ? data['chat_name']!.toString()
+            : (senderName.isNotEmpty ? senderName : 'Theaver');
+
+        String messageText = msg['content']?.toString() ?? data['message_text']?.toString() ?? data['content']?.toString() ?? '';
+        if (messageText.isEmpty) {
+          final msgType = msg['message_type']?.toString() ?? '';
+          switch (msgType) {
+            case 'voice':
+              messageText = '🎤 Голосовое сообщение';
+              break;
+            case 'video_note':
+              messageText = '📹 Видеосообщение';
+              break;
+            case 'image':
+              messageText = '📷 Фотография';
+              break;
+            case 'video':
+              messageText = '🎥 Видео';
+              break;
+            case 'file':
+              messageText = '📎 Файл';
+              break;
+            default:
+              messageText = 'Новое сообщение';
+          }
+        }
+        final isGroup = data['is_group'] == true || data['is_group'] == 'true' || msg['is_group'] == true;
+        final messageId = msg['id']?.toString() ?? data['id']?.toString() ?? data['message_id']?.toString();
 
         if (_isDuplicateNotification(chatId, messageText, messageId: messageId)) return;
 
@@ -275,7 +316,7 @@ class NotificationService {
             );
           }
         } else {
-          // Мобильные платформы (Android / iOS): показать баннер и шторку
+          // Мобильные платформы (Android / iOS):
           showInAppBanner(
             chatId: chatId,
             chatName: chatName,
@@ -283,13 +324,15 @@ class NotificationService {
             messageText: messageText,
             isGroup: isGroup,
           );
-          await showMessageNotification(
-            chatId: chatId,
-            chatName: chatName,
-            senderName: senderName,
-            messageText: messageText,
-            isGroup: isGroup,
-          );
+          if (!_isAppInForeground) {
+            await showMessageNotification(
+              chatId: chatId,
+              chatName: chatName,
+              senderName: senderName,
+              messageText: messageText,
+              isGroup: isGroup,
+            );
+          }
         }
       }
     });
@@ -564,20 +607,23 @@ class NotificationService {
           final messageId = data['id']?.toString() ?? data['message_id']?.toString();
 
           if (shouldShowNotification(chatId) && !_isDuplicateNotification(chatId, messageText, messageId: messageId)) {
-            showInAppBanner(
-              chatId: chatId,
-              chatName: chatName,
-              senderName: senderName,
-              messageText: messageText,
-              isGroup: isGroup,
-            );
-            showMessageNotification(
-              chatId: chatId,
-              chatName: chatName,
-              senderName: senderName,
-              messageText: messageText,
-              isGroup: isGroup,
-            );
+            if (_isAppInForeground) {
+              showInAppBanner(
+                chatId: chatId,
+                chatName: chatName,
+                senderName: senderName,
+                messageText: messageText,
+                isGroup: isGroup,
+              );
+            } else {
+              showMessageNotification(
+                chatId: chatId,
+                chatName: chatName,
+                senderName: senderName,
+                messageText: messageText,
+                isGroup: isGroup,
+              );
+            }
           }
         }
         break;

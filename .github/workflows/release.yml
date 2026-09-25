@@ -61,6 +61,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fetch all tags
+        run: git fetch --tags --force
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -97,6 +100,18 @@ jobs:
       - name: Inject Version into pubspec.yaml
         run: |
           python3 -c "import re; p='pubspec.yaml'; s=open(p,'r',encoding='utf-8').read(); open(p,'w',encoding='utf-8').write(re.sub(r'version:\s*[^\n]+', 'version: ${{ needs.prepare-release.outputs.clean_version }}+${{ needs.prepare-release.outputs.build_number }}', s))"
+
+      - name: Setup Google and HMS Services Config
+        env:
+          GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          AGCONNECT_SERVICES: ${{ secrets.AGCONNECT_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES" ]; then
+            echo "$GOOGLE_SERVICES" > android/app/google-services.json
+          fi
+          if [ -n "$AGCONNECT_SERVICES" ]; then
+            echo "$AGCONNECT_SERVICES" > android/app/agconnect-services.json
+          fi
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -192,6 +207,8 @@ jobs:
 
       - name: Build Windows Executable
         shell: pwsh
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         run: flutter build windows --release
 
       - name: Package Windows Bundle into ZIP
@@ -241,7 +258,8 @@ jobs:
             libpulse-dev \
             libsecret-1-dev \
             libjsoncpp-dev \
-            libsqlite3-dev
+            libsqlite3-dev \
+            libnotify-dev
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -547,8 +565,10 @@ jobs:
       - name: Deploy to Theaver API & MinIO Storage
         continue-on-error: true
         env:
-          MIPTGRAM_API_URL: ${{ secrets.MIPTGRAM_API_URL }}
-          MIPTGRAM_ADMIN_SECRET: ${{ secrets.MIPTGRAM_ADMIN_SECRET }}
+          THEAVER_API_URL: ${{ secrets.THEAVER_API_URL || secrets.MIPTGRAM_API_URL }}
+          THEAVER_ADMIN_SECRET: ${{ secrets.THEAVER_ADMIN_SECRET || secrets.MIPTGRAM_ADMIN_SECRET }}
+          MIPTGRAM_API_URL: ${{ secrets.THEAVER_API_URL || secrets.MIPTGRAM_API_URL }}
+          MIPTGRAM_ADMIN_SECRET: ${{ secrets.THEAVER_ADMIN_SECRET || secrets.MIPTGRAM_ADMIN_SECRET }}
         run: |
           FORCE_FLAG=""
           if [ "${{ inputs.force_update }}" = "true" ]; then
@@ -567,6 +587,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare-release.outputs.tag_name }}
+          target_commitish: ${{ github.sha }}
           name: Theaver ${{ needs.prepare-release.outputs.tag_name }} (${{ needs.prepare-release.outputs.channel }})
           body_path: release_notes.md
           prerelease: ${{ needs.prepare-release.outputs.is_prerelease == 'true' }}

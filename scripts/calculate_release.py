@@ -45,22 +45,43 @@ def get_commit_count():
     return 1
 
 
+def parse_semver(v_str):
+    m = re.match(r"^(\d+)\.(\d+)\.(\d+)", v_str)
+    if m:
+        return int(m.group(1)), int(m.group(2)), int(m.group(3))
+    return 0, 0, 0
+
+
+def get_all_version_tags():
+    # Return list of version tags sorted by version descending
+    # First try tags reachable from HEAD
+    out, code = run_git(["tag", "--merged", "HEAD", "-l", "v[0-9]*", "--sort=-v:refname"])
+    if code == 0 and out.strip():
+        tags = [t.strip() for t in out.strip().splitlines() if t.strip()]
+        if tags:
+            return tags
+    # Fallback to all version tags in repo
+    out, code = run_git(["tag", "-l", "v[0-9]*", "--sort=-v:refname"])
+    if code == 0 and out.strip():
+        return [t.strip() for t in out.strip().splitlines() if t.strip()]
+    return []
+
+
 def get_latest_tag():
-    # Try finding latest version tag matching v*
-    tag, code = run_git(["describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"])
-    if code == 0 and tag:
-        return tag
+    tags = get_all_version_tags()
+    return tags[0] if tags else ""
+
+
+def get_latest_stable_tag():
+    tags = get_all_version_tags()
+    for t in tags:
+        clean = t.lstrip("v")
+        if re.match(r"^\d+\.\d+\.\d+$", clean):
+            return t
     return ""
 
 
-def get_base_version(pubspec_path="pubspec.yaml"):
-    tag = get_latest_tag()
-    if tag:
-        m = re.search(r"v?(\d+\.\d+\.\d+)", tag)
-        if m:
-            return m.group(1)
-    
-    # Try reading from pubspec.yaml
+def get_pubspec_version(pubspec_path="pubspec.yaml"):
     if os.path.exists(pubspec_path):
         try:
             with open(pubspec_path, "r", encoding="utf-8") as f:
@@ -72,28 +93,39 @@ def get_base_version(pubspec_path="pubspec.yaml"):
                             return ver
         except Exception:
             pass
+    return ""
 
-    return "1.0.0"
 
+def get_base_version(pubspec_path="pubspec.yaml"):
+    latest_tag = get_latest_tag()
+    tag_clean = re.sub(r"-[a-zA-Z0-9\.]+$", "", latest_tag).lstrip("v") if latest_tag else ""
+    tag_semver = parse_semver(tag_clean) if tag_clean else (0, 0, 0)
 
-def parse_semver(v_str):
-    m = re.match(r"^(\d+)\.(\d+)\.(\d+)", v_str)
-    if m:
-        return int(m.group(1)), int(m.group(2)), int(m.group(3))
-    return 1, 0, 0
+    pub_ver = get_pubspec_version(pubspec_path)
+    pub_semver = parse_semver(pub_ver) if pub_ver else (0, 0, 0)
+
+    major, minor, patch = max(tag_semver, pub_semver)
+    if (major, minor, patch) == (0, 0, 0):
+        return "1.0.0"
+    return f"{major}.{minor}.{patch}"
 
 
 def get_commits_since_tag(tag):
     if tag:
-        range_spec = f"{tag}..HEAD"
+        _, code = run_git(["rev-parse", tag])
+        if code == 0:
+            range_spec = f"{tag}..HEAD"
+        else:
+            range_spec = "HEAD~50..HEAD"
     else:
         # If no tag, take up to the last 50 commits
         range_spec = "HEAD~50..HEAD"
-        # Check if range is valid
-        _, code = run_git(["rev-parse", "HEAD~50"])
-        if code != 0:
-            range_spec = "HEAD"
     
+    # Check if range is valid
+    _, code = run_git(["rev-parse", range_spec.split("..")[0]])
+    if code != 0:
+        range_spec = "HEAD"
+
     output, code = run_git(["log", range_spec, "--pretty=format:%H|%s|%b<END_OF_COMMIT>"])
     if code != 0 or not output:
         # Fallback to all commits
@@ -235,9 +267,26 @@ def main():
     # Get build number (monotonically increasing commit count)
     build_number = get_commit_count()
     latest_tag = get_latest_tag()
+    latest_stable_tag = get_latest_stable_tag()
     base_ver_str = get_base_version()
-    major, minor, patch = parse_semver(base_ver_str)
-    commits = get_commits_since_tag(latest_tag if not is_tag_trigger else "")
+    base_major, base_minor, base_patch = parse_semver(base_ver_str)
+    pub_ver_str = get_pubspec_version()
+    pub_semver = parse_semver(pub_ver_str) if pub_ver_str else (0, 0, 0)
+
+    # Determine channel based on branch
+    if args.channel:
+        channel = args.channel
+    else:
+        branch = get_current_branch()
+        if branch in ("main", "master") or "stable" in branch:
+            channel = "stable"
+        elif "beta" in branch or "release" in branch:
+            channel = "beta"
+        else:
+            channel = "alpha"
+
+    changelog_tag = latest_stable_tag if (channel == "stable" and latest_stable_tag) else latest_tag
+    commits = get_commits_since_tag(changelog_tag if not is_tag_trigger else "")
     auto_bump, categorized = analyze_commits(commits)
 
     if is_tag_trigger:
@@ -254,37 +303,54 @@ def main():
             channel = "stable"
         is_prerelease = (channel != "stable")
     else:
-        # Determine channel based on branch
-        branch = get_current_branch()
-        if args.channel:
-            channel = args.channel
-        else:
-            if branch in ("main", "master") or "stable" in branch:
-                channel = "stable"
-            elif "beta" in branch or "release" in branch:
-                channel = "beta"
-            else:
-                channel = "alpha"
-
         bump = auto_bump if args.bump == "auto" else args.bump
+
+        is_latest_tag_prerelease = bool(re.search(r"-[a-zA-Z0-9\.]+", latest_tag))
+        tag_clean = re.sub(r"-[a-zA-Z0-9\.]+$", "", latest_tag).lstrip("v") if latest_tag else ""
+        tag_semver = parse_semver(tag_clean) if tag_clean else (0, 0, 0)
 
         if bump == "custom" and args.custom_version:
             clean_version = args.custom_version.lstrip("v")
-        elif bump == "major":
-            clean_version = f"{major + 1}.0.0"
-        elif bump == "minor":
-            clean_version = f"{major}.{minor + 1}.0"
-        else: # patch
-            clean_version = f"{major}.{minor}.{patch + 1}"
+        elif channel != "stable":
+            # In a pre-release channel:
+            # If the latest tag is already a pre-release for the current base version:
+            if tag_semver == (base_major, base_minor, base_patch) and is_latest_tag_prerelease:
+                if bump == "major":
+                    clean_version = f"{base_major + 1}.0.0"
+                elif args.bump == "minor":
+                    clean_version = f"{base_major}.{base_minor + 1}.0"
+                else:
+                    clean_version = base_ver_str
+            else:
+                # Starting or advancing version cycle
+                if pub_semver > tag_semver:
+                    clean_version = pub_ver_str
+                else:
+                    if bump == "major":
+                        clean_version = f"{base_major + 1}.0.0"
+                    elif bump == "minor":
+                        clean_version = f"{base_major}.{base_minor + 1}.0"
+                    else: # patch
+                        clean_version = f"{base_major}.{base_minor}.{base_patch + 1}"
 
-        # Append pre-release suffix based on channel
-        if channel == "beta":
-            version = f"{clean_version}-beta.{build_number}"
+            if channel == "beta":
+                version = f"{clean_version}-beta.{build_number}"
+            else:
+                version = f"{clean_version}-alpha.{build_number}"
             is_prerelease = True
-        elif channel == "alpha":
-            version = f"{clean_version}-alpha.{build_number}"
-            is_prerelease = True
-        else:
+        else: # channel == "stable"
+            if is_latest_tag_prerelease:
+                clean_version = tag_clean if tag_semver >= pub_semver else pub_ver_str
+            else:
+                if pub_semver > tag_semver:
+                    clean_version = pub_ver_str
+                else:
+                    if bump == "major":
+                        clean_version = f"{base_major + 1}.0.0"
+                    elif bump == "minor":
+                        clean_version = f"{base_major}.{base_minor + 1}.0"
+                    else:
+                        clean_version = f"{base_major}.{base_minor}.{base_patch + 1}"
             version = clean_version
             is_prerelease = False
 

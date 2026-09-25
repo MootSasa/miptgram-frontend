@@ -84,6 +84,19 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | flutter doctor --android-licenses || true
 
+      - name: Setup Google and HMS Services Config
+        working-directory: ${{ steps.locate_project.outputs.path }}
+        env:
+          GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          AGCONNECT_SERVICES: ${{ secrets.AGCONNECT_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES" ]; then
+            echo "$GOOGLE_SERVICES" > android/app/google-services.json
+          fi
+          if [ -n "$AGCONNECT_SERVICES" ]; then
+            echo "$AGCONNECT_SERVICES" > android/app/agconnect-services.json
+          fi
+
       - name: Install dependencies
         working-directory: ${{ steps.locate_project.outputs.path }}
         run: flutter pub get

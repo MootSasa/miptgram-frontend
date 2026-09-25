@@ -69,6 +69,8 @@ jobs:
       - name: Build Windows
         working-directory: ${{ steps.locate_project.outputs.path }}
         shell: pwsh
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         run: |
           $extraArgs = ""
           if ("${{ inputs.api_base_url }}" -ne "") {

@@ -63,7 +63,11 @@ jobs:
             liblzma-dev \
             libstdc++-12-dev \
             libasound2-dev \
-            libpulse-dev
+            libpulse-dev \
+            libsecret-1-dev \
+            libjsoncpp-dev \
+            libsqlite3-dev \
+            libnotify-dev
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2

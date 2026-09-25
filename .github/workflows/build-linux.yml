@@ -67,7 +67,8 @@ jobs:
             libsecret-1-dev \
             libjsoncpp-dev \
             libsqlite3-dev \
-            libnotify-dev
+            libnotify-dev \
+            libayatana-appindicator3-dev
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2

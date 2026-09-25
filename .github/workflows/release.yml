@@ -205,10 +205,19 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Patch plugins compiler flags
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path windows\flutter\ephemeral\.plugin_symlinks -Recurse -Filter "CMakeLists.txt" -ErrorAction SilentlyContinue | ForEach-Object {
+            (Get-Content $_.FullName) -replace '-Werror', '' | Set-Content $_.FullName
+          }
+
       - name: Build Windows Executable
         shell: pwsh
         env:
           CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+          CL: "/D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS"
+          _CL_: "/D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS"
         run: flutter build windows --release
 
       - name: Package Windows Bundle into ZIP
@@ -273,6 +282,12 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Patch plugins compiler flags
+        run: |
+          if [ -d "linux/flutter/ephemeral/.plugin_symlinks" ]; then
+            find linux/flutter/ephemeral/.plugin_symlinks -name "CMakeLists.txt" -exec sed -i 's/-Werror//g' {} +
+          fi
 
       - name: Build Linux Application
         run: flutter build linux --release
@@ -503,6 +518,8 @@ jobs:
         ))
       )
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

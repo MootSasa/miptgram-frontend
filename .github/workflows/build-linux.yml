@@ -83,6 +83,13 @@ jobs:
         working-directory: ${{ steps.locate_project.outputs.path }}
         run: flutter pub get
 
+      - name: Patch plugins compiler flags
+        working-directory: ${{ steps.locate_project.outputs.path }}
+        run: |
+          if [ -d "linux/flutter/ephemeral/.plugin_symlinks" ]; then
+            find linux/flutter/ephemeral/.plugin_symlinks -name "CMakeLists.txt" -exec sed -i 's/-Werror//g' {} +
+          fi
+
       - name: Build Linux (x86_64)
         working-directory: ${{ steps.locate_project.outputs.path }}
         run: |

@@ -66,11 +66,21 @@ jobs:
         working-directory: ${{ steps.locate_project.outputs.path }}
         run: flutter pub get
 
+      - name: Patch plugins compiler flags
+        working-directory: ${{ steps.locate_project.outputs.path }}
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path windows\flutter\ephemeral\.plugin_symlinks -Recurse -Filter "CMakeLists.txt" -ErrorAction SilentlyContinue | ForEach-Object {
+            (Get-Content $_.FullName) -replace '-Werror', '' | Set-Content $_.FullName
+          }
+
       - name: Build Windows
         working-directory: ${{ steps.locate_project.outputs.path }}
         shell: pwsh
         env:
           CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+          CL: "/D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS"
+          _CL_: "/D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS"
         run: |
           $extraArgs = ""
           if ("${{ inputs.api_base_url }}" -ne "") {

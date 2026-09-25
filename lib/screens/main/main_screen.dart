@@ -39,6 +39,8 @@ import '../../utils/date_time_utils.dart';
 import '../../services/update_service.dart';
 import '../settings/widgets/update_dialog.dart';
 import '../../widgets/chat/round_video_thumbnail.dart';
+import '../../widgets/notifications/notification_permission_dialog.dart';
+import '../../services/notification_service.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({Key? key}) : super(key: key);
@@ -117,6 +119,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     // 4. Проверка обновлений в фоне
     _checkForUpdates();
+
+    // 5. Запрос разрешения на уведомления при первом входе
+    _checkNotificationPermission();
+  }
+
+  Future<void> _checkNotificationPermission() async {
+    // Небольшая задержка, чтобы дать экрану полностью отрендериться
+    await Future.delayed(const Duration(milliseconds: 1200));
+    if (!mounted) return;
+    await NotificationPermissionDialog.checkAndPrompt(context);
   }
 
   Future<void> _checkForUpdates() async {
@@ -536,12 +548,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // При возврате из фона: переподключить WS если не подключён,
-      // затем обновить чаты если данных нет
+      // При возврате из фона: восстановить статус активного чата,
+      // переподключить WS если не подключён, затем обновить чаты
+      NotificationService().onAppResume();
       if (!_isWsConnected) {
         _wsService.tryReconnect();
         _loadChats();
       }
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      // При уходе в фон: снять подавление push-уведомлений для этого устройства
+      NotificationService().onAppPause();
     }
   }
 

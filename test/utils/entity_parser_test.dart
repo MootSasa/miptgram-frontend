@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
-import 'package:miptgram/utils/entity_parser.dart';
-import 'package:miptgram/services/chat_service.dart';
-import 'package:miptgram/widgets/chat/rich_text_editing_controller.dart';
-import 'package:miptgram/widgets/message/text_message_widget.dart';
+import 'package:theaver/utils/entity_parser.dart';
+import 'package:theaver/services/chat_service.dart';
+import 'package:theaver/widgets/chat/rich_text_editing_controller.dart';
+import 'package:theaver/widgets/message/text_message_widget.dart';
 
 void main() {
   group('EntityParser Markdown Parsing', () {

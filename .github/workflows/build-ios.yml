@@ -17,7 +17,7 @@ on:
         default: '3.41.9'
         type: string
       api_base_url:
-        description: 'Кастомный API Base URL (опционально, например https://api.miptgram.ru)'
+        description: 'Кастомный API Base URL (опционально, например https://api.theaver.app)'
         required: false
         default: ''
         type: string
@@ -83,13 +83,13 @@ jobs:
           
           mkdir -p Payload
           cp -R "$APP_DIR" Payload/
-          zip -r -y "miptgram-ios-${{ inputs.build_type }}-unsigned.ipa" Payload
+          zip -r -y "theaver-ios-${{ inputs.build_type }}-unsigned.ipa" Payload
           rm -rf Payload
 
       - name: Upload iOS Unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: miptgram-ios-${{ inputs.build_type }}-unsigned-ipa
-          path: miptgram-ios-${{ inputs.build_type }}-unsigned.ipa
+          name: theaver-ios-${{ inputs.build_type }}-unsigned-ipa
+          path: theaver-ios-${{ inputs.build_type }}-unsigned.ipa
           if-no-files-found: error
           retention-days: 30

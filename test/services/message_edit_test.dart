@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:miptgram/services/chat_service.dart';
-import 'package:miptgram/services/websocket_service.dart';
+import 'package:theaver/services/chat_service.dart';
+import 'package:theaver/services/websocket_service.dart';
 
 void main() {
   group('Message Editing Unit Tests', () {

@@ -69,7 +69,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('У вас установлена последняя версия Miptgram'),
+            content: Text('У вас установлена последняя версия Theaver'),
             duration: Duration(seconds: 3),
             behavior: SnackBarBehavior.floating,
           ),
@@ -249,7 +249,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'Miptgram v$appVersion (#$appBuild) ($systemAbi)',
+                    'Theaver v$appVersion (#$appBuild) ($systemAbi)',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
                     ),

@@ -1,8 +1,12 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'services/notification_service.dart';
 import 'config/app_config.dart';
+import 'services/desktop_tray_service.dart';
 import 'theme/theme_provider.dart';
 import 'theme/app_theme.dart';
 import 'screens/auth/splash_screen.dart';
@@ -24,7 +28,7 @@ import 'l10n/app_localizations.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  print('DEBUG: main() started');
+  debugPrint('main() started');
 
   // Initialize AppConfig (4-tier dynamic environment configuration)
   await AppConfig.init();
@@ -43,7 +47,8 @@ void main() async {
   if (pushType == PushServiceType.gms) {
     try {
       await Firebase.initializeApp();
-      debugPrint('Firebase initialized successfully');
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+      debugPrint('Firebase initialized successfully with background handler');
     } catch (e) {
       debugPrint('Firebase initialization skipped: $e');
     }
@@ -59,11 +64,16 @@ void main() async {
   // Initialize deep link service
   await DeepLinkService().init();
 
-  runApp(const MiptgramApp());
+  // Initialize desktop window and system tray
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    await DesktopTrayService().init();
+  }
+
+  runApp(const TheaverApp());
 }
 
-class MiptgramApp extends StatelessWidget {
-  const MiptgramApp({super.key});
+class TheaverApp extends StatelessWidget {
+  const TheaverApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -73,7 +83,7 @@ class MiptgramApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => LocaleProvider()),
         ChangeNotifierProvider(create: (_) => LiquidGlassProvider()..init()),
         ChangeNotifierProvider(create: (_) => UnreadCountProvider()..initialize()),
-        ChangeNotifierProvider(create: (_) => NotificationSettingsProvider()..init()),
+        ChangeNotifierProvider(create: (_) => NotificationSettingsProvider()..init(), lazy: false),
         ChangeNotifierProvider(create: (_) => PrivacySettingsProvider()..loadAll()),
         ChangeNotifierProvider(create: (_) => WallpaperProvider()..init()),
         ChangeNotifierProvider(create: (_) => ProfileThemeProvider()..init()),
@@ -86,7 +96,7 @@ class MiptgramApp extends StatelessWidget {
       child: Consumer2<ThemeProvider, LocaleProvider>(
         builder: (context, themeProvider, localeProvider, child) {
           return MaterialApp(
-            title: 'Miptgram',
+            title: 'Theaver',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.light(),
             darkTheme: AppTheme.dark(),

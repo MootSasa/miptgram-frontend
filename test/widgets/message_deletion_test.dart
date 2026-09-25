@@ -4,10 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:miptgram/l10n/app_localizations.dart';
-import 'package:miptgram/services/liquid_glass_provider.dart';
-import 'package:miptgram/services/websocket_service.dart';
-import 'package:miptgram/widgets/chat/message_context_menu.dart';
+import 'package:theaver/l10n/app_localizations.dart';
+import 'package:theaver/services/liquid_glass_provider.dart';
+import 'package:theaver/services/websocket_service.dart';
+import 'package:theaver/widgets/chat/message_context_menu.dart';
 
 class _TestAppLocalizations extends AppLocalizations {
   final Map<String, String> translations;

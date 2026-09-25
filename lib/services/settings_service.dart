@@ -653,6 +653,12 @@ enum MuteState {
   mutedUntil,
 }
 
+/// Режим подсчёта для бейджа
+enum BadgeMode {
+  messages,
+  chats,
+}
+
 /// Глобальные настройки уведомлений пользователя
 class GlobalNotificationSettings {
   // Главный переключатель
@@ -683,17 +689,28 @@ class GlobalNotificationSettings {
   final bool callNotifications;
   final bool callSound;
   final bool callVibration;
+  final String? callRingtone;
 
   // Упоминания
   final bool mentionsNotifications;
   final bool keywordsNotifications;
 
-  // Поведение
+  // Поведение и бейдж
   final bool badgeEnabled;
+  final BadgeMode badgeMode;
   final bool popupEnabled;
   final bool contentPreview;
   final bool includeMutedChats;
   final bool accountNotifications;
+
+  // In-App уведомления
+  final bool inAppSounds;
+  final bool inAppVibrate;
+  final bool inAppPreview;
+  final bool inAppChatSounds;
+
+  // Повтор уведомлений (в минутах, 0 = выкл)
+  final int repeatNotifications;
 
   GlobalNotificationSettings({
     this.notificationsEnabled = true,
@@ -715,13 +732,20 @@ class GlobalNotificationSettings {
     this.callNotifications = true,
     this.callSound = true,
     this.callVibration = true,
+    this.callRingtone,
     this.mentionsNotifications = true,
     this.keywordsNotifications = false,
     this.badgeEnabled = true,
+    this.badgeMode = BadgeMode.messages,
     this.popupEnabled = true,
     this.contentPreview = true,
     this.includeMutedChats = false,
     this.accountNotifications = true,
+    this.inAppSounds = true,
+    this.inAppVibrate = true,
+    this.inAppPreview = true,
+    this.inAppChatSounds = true,
+    this.repeatNotifications = 0,
   });
 
   factory GlobalNotificationSettings.defaults() => GlobalNotificationSettings();
@@ -746,43 +770,93 @@ class GlobalNotificationSettings {
     'callNotifications': callNotifications,
     'callSound': callSound,
     'callVibration': callVibration,
+    'callRingtone': callRingtone,
     'mentionsNotifications': mentionsNotifications,
     'keywordsNotifications': keywordsNotifications,
     'badgeEnabled': badgeEnabled,
+    'badgeMode': badgeMode.index,
     'popupEnabled': popupEnabled,
     'contentPreview': contentPreview,
     'includeMutedChats': includeMutedChats,
     'accountNotifications': accountNotifications,
+    'inAppSounds': inAppSounds,
+    'inAppVibrate': inAppVibrate,
+    'inAppPreview': inAppPreview,
+    'inAppChatSounds': inAppChatSounds,
+    'repeatNotifications': repeatNotifications,
+  };
+
+  Map<String, dynamic> toServerJson() => {
+    'notifications_enabled': notificationsEnabled,
+    'private_chat_notifications': privateChatNotifications,
+    'private_chat_preview': privateChatPreview,
+    'private_chat_sound': privateChatSound,
+    'private_chat_sound_uri': privateChatSoundUri ?? '',
+    'private_chat_vibration': _vibrationToString(privateChatVibration),
+    'group_chat_notifications': groupChatNotifications,
+    'group_chat_preview': groupChatPreview,
+    'group_chat_sound': groupChatSound,
+    'group_chat_sound_uri': groupChatSoundUri ?? '',
+    'group_chat_vibration': _vibrationToString(groupChatVibration),
+    'channel_notifications': channelNotifications,
+    'channel_preview': channelPreview,
+    'channel_sound': channelSound,
+    'channel_sound_uri': channelSoundUri ?? '',
+    'channel_vibration': _vibrationToString(channelVibration),
+    'call_notifications': callNotifications,
+    'call_sound': callSound,
+    'call_vibration': callVibration,
+    'call_ringtone': callRingtone ?? '',
+    'mentions_notifications': mentionsNotifications,
+    'keywords_notifications': keywordsNotifications,
+    'badge_enabled': badgeEnabled,
+    'badge_mode': badgeMode == BadgeMode.chats ? 'chats' : 'messages',
+    'popup_enabled': popupEnabled,
+    'content_preview': contentPreview,
+    'include_muted_chats': includeMutedChats,
+    'account_notifications': accountNotifications,
+    'in_app_sounds': inAppSounds,
+    'in_app_vibrate': inAppVibrate,
+    'in_app_preview': inAppPreview,
+    'in_app_chat_sounds': inAppChatSounds,
+    'repeat_notifications': repeatNotifications,
   };
 
   factory GlobalNotificationSettings.fromJson(Map<String, dynamic> json) {
     return GlobalNotificationSettings(
-      notificationsEnabled: json['notificationsEnabled'] ?? true,
-      privateChatNotifications: json['privateChatNotifications'] ?? true,
-      privateChatPreview: json['privateChatPreview'] ?? true,
-      privateChatSound: json['privateChatSound'] ?? true,
-      privateChatSoundUri: json['privateChatSoundUri'],
-      privateChatVibration: _parseVibration(json['privateChatVibration']),
-      groupChatNotifications: json['groupChatNotifications'] ?? true,
-      groupChatPreview: json['groupChatPreview'] ?? true,
-      groupChatSound: json['groupChatSound'] ?? true,
-      groupChatSoundUri: json['groupChatSoundUri'],
-      groupChatVibration: _parseVibration(json['groupChatVibration']),
-      channelNotifications: json['channelNotifications'] ?? true,
-      channelPreview: json['channelPreview'] ?? true,
-      channelSound: json['channelSound'] ?? true,
-      channelSoundUri: json['channelSoundUri'],
-      channelVibration: _parseVibration(json['channelVibration']),
-      callNotifications: json['callNotifications'] ?? true,
-      callSound: json['callSound'] ?? true,
-      callVibration: json['callVibration'] ?? true,
-      mentionsNotifications: json['mentionsNotifications'] ?? true,
-      keywordsNotifications: json['keywordsNotifications'] ?? false,
-      badgeEnabled: json['badgeEnabled'] ?? true,
-      popupEnabled: json['popupEnabled'] ?? true,
-      contentPreview: json['contentPreview'] ?? true,
-      includeMutedChats: json['includeMutedChats'] ?? false,
-      accountNotifications: json['accountNotifications'] ?? true,
+      notificationsEnabled: json['notificationsEnabled'] ?? json['notifications_enabled'] ?? true,
+      privateChatNotifications: json['privateChatNotifications'] ?? json['private_chat_notifications'] ?? true,
+      privateChatPreview: json['privateChatPreview'] ?? json['private_chat_preview'] ?? true,
+      privateChatSound: json['privateChatSound'] ?? json['private_chat_sound'] ?? true,
+      privateChatSoundUri: json['privateChatSoundUri'] ?? json['private_chat_sound_uri'],
+      privateChatVibration: _parseVibration(json['privateChatVibration'] ?? json['private_chat_vibration']),
+      groupChatNotifications: json['groupChatNotifications'] ?? json['group_chat_notifications'] ?? true,
+      groupChatPreview: json['groupChatPreview'] ?? json['group_chat_preview'] ?? true,
+      groupChatSound: json['groupChatSound'] ?? json['group_chat_sound'] ?? true,
+      groupChatSoundUri: json['groupChatSoundUri'] ?? json['group_chat_sound_uri'],
+      groupChatVibration: _parseVibration(json['groupChatVibration'] ?? json['group_chat_vibration']),
+      channelNotifications: json['channelNotifications'] ?? json['channel_notifications'] ?? true,
+      channelPreview: json['channelPreview'] ?? json['channel_preview'] ?? true,
+      channelSound: json['channelSound'] ?? json['channel_sound'] ?? true,
+      channelSoundUri: json['channelSoundUri'] ?? json['channel_sound_uri'],
+      channelVibration: _parseVibration(json['channelVibration'] ?? json['channel_vibration']),
+      callNotifications: json['callNotifications'] ?? json['call_notifications'] ?? true,
+      callSound: json['callSound'] ?? json['call_sound'] ?? true,
+      callVibration: json['callVibration'] ?? json['call_vibration'] ?? true,
+      callRingtone: json['callRingtone'] ?? json['call_ringtone'],
+      mentionsNotifications: json['mentionsNotifications'] ?? json['mentions_notifications'] ?? true,
+      keywordsNotifications: json['keywordsNotifications'] ?? json['keywords_notifications'] ?? false,
+      badgeEnabled: json['badgeEnabled'] ?? json['badge_enabled'] ?? true,
+      badgeMode: _parseBadgeMode(json['badgeMode'] ?? json['badge_mode']),
+      popupEnabled: json['popupEnabled'] ?? json['popup_enabled'] ?? true,
+      contentPreview: json['contentPreview'] ?? json['content_preview'] ?? true,
+      includeMutedChats: json['includeMutedChats'] ?? json['include_muted_chats'] ?? false,
+      accountNotifications: json['accountNotifications'] ?? json['account_notifications'] ?? true,
+      inAppSounds: json['inAppSounds'] ?? json['in_app_sounds'] ?? true,
+      inAppVibrate: json['inAppVibrate'] ?? json['in_app_vibrate'] ?? true,
+      inAppPreview: json['inAppPreview'] ?? json['in_app_preview'] ?? true,
+      inAppChatSounds: json['inAppChatSounds'] ?? json['in_app_chat_sounds'] ?? true,
+      repeatNotifications: json['repeatNotifications'] ?? json['repeat_notifications'] ?? 0,
     );
   }
 
@@ -790,7 +864,45 @@ class GlobalNotificationSettings {
     if (value is int && value >= 0 && value < VibrationPattern.values.length) {
       return VibrationPattern.values[value];
     }
+    if (value is String) {
+      switch (value) {
+        case 'none':
+          return VibrationPattern.none;
+        case 'short':
+          return VibrationPattern.short;
+        case 'long':
+          return VibrationPattern.long;
+        case 'double_short':
+          return VibrationPattern.doubleShort;
+        case 'triple_short':
+          return VibrationPattern.tripleShort;
+        default:
+          return VibrationPattern.default_;
+      }
+    }
     return VibrationPattern.default_;
+  }
+
+  static String _vibrationToString(VibrationPattern pattern) {
+    switch (pattern) {
+      case VibrationPattern.none:
+        return 'none';
+      case VibrationPattern.short:
+        return 'short';
+      case VibrationPattern.long:
+        return 'long';
+      case VibrationPattern.doubleShort:
+        return 'double_short';
+      case VibrationPattern.tripleShort:
+        return 'triple_short';
+      default:
+        return 'default';
+    }
+  }
+
+  static BadgeMode _parseBadgeMode(dynamic value) {
+    if (value == 'chats' || value == 1) return BadgeMode.chats;
+    return BadgeMode.messages;
   }
 
   GlobalNotificationSettings copyWith({
@@ -813,13 +925,20 @@ class GlobalNotificationSettings {
     bool? callNotifications,
     bool? callSound,
     bool? callVibration,
+    String? callRingtone,
     bool? mentionsNotifications,
     bool? keywordsNotifications,
     bool? badgeEnabled,
+    BadgeMode? badgeMode,
     bool? popupEnabled,
     bool? contentPreview,
     bool? includeMutedChats,
     bool? accountNotifications,
+    bool? inAppSounds,
+    bool? inAppVibrate,
+    bool? inAppPreview,
+    bool? inAppChatSounds,
+    int? repeatNotifications,
   }) {
     return GlobalNotificationSettings(
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
@@ -841,13 +960,20 @@ class GlobalNotificationSettings {
       callNotifications: callNotifications ?? this.callNotifications,
       callSound: callSound ?? this.callSound,
       callVibration: callVibration ?? this.callVibration,
+      callRingtone: callRingtone ?? this.callRingtone,
       mentionsNotifications: mentionsNotifications ?? this.mentionsNotifications,
       keywordsNotifications: keywordsNotifications ?? this.keywordsNotifications,
       badgeEnabled: badgeEnabled ?? this.badgeEnabled,
+      badgeMode: badgeMode ?? this.badgeMode,
       popupEnabled: popupEnabled ?? this.popupEnabled,
       contentPreview: contentPreview ?? this.contentPreview,
       includeMutedChats: includeMutedChats ?? this.includeMutedChats,
       accountNotifications: accountNotifications ?? this.accountNotifications,
+      inAppSounds: inAppSounds ?? this.inAppSounds,
+      inAppVibrate: inAppVibrate ?? this.inAppVibrate,
+      inAppPreview: inAppPreview ?? this.inAppPreview,
+      inAppChatSounds: inAppChatSounds ?? this.inAppChatSounds,
+      repeatNotifications: repeatNotifications ?? this.repeatNotifications,
     );
   }
 }
@@ -888,20 +1014,36 @@ class ChatNotificationSettings {
     'keywords': keywords,
   };
 
+  Map<String, dynamic> toServerJson() => {
+    'chat_id': chatId,
+    'mute_state': muteState == MuteState.muted
+        ? 'muted'
+        : (muteState == MuteState.mutedUntil ? 'muted_until' : 'not_muted'),
+    'mute_until': muteUntil?.toIso8601String(),
+    'preview_enabled': previewEnabled,
+    'sound_enabled': soundEnabled,
+    'sound_uri': soundUri ?? '',
+    'vibration': vibration != null
+        ? GlobalNotificationSettings._vibrationToString(vibration!)
+        : '',
+    'mentions_only': mentionsOnly,
+    'keywords': keywords,
+  };
+
   factory ChatNotificationSettings.fromJson(Map<String, dynamic> json) {
     return ChatNotificationSettings(
-      chatId: json['chatId'] ?? '',
-      muteState: _parseMuteState(json['muteState']),
-      muteUntil: json['muteUntil'] != null ? DateTime.tryParse(json['muteUntil']) : null,
-      previewEnabled: json['previewEnabled'] ?? true,
-      soundEnabled: json['soundEnabled'],
-      soundUri: json['soundUri'],
+      chatId: json['chatId']?.toString() ?? json['chat_id']?.toString() ?? '',
+      muteState: _parseMuteState(json['muteState'] ?? json['mute_state']),
+      muteUntil: json['muteUntil'] != null
+          ? DateTime.tryParse(json['muteUntil'])
+          : (json['mute_until'] != null ? DateTime.tryParse(json['mute_until']) : null),
+      previewEnabled: json['previewEnabled'] ?? json['preview_enabled'] ?? true,
+      soundEnabled: json['soundEnabled'] ?? json['sound_enabled'],
+      soundUri: json['soundUri'] ?? json['sound_uri'],
       vibration: json['vibration'] != null
-          ? (json['vibration'] is int && json['vibration'] >= 0 && json['vibration'] < VibrationPattern.values.length
-              ? VibrationPattern.values[json['vibration']]
-              : null)
+          ? GlobalNotificationSettings._parseVibration(json['vibration'])
           : null,
-      mentionsOnly: json['mentionsOnly'] ?? false,
+      mentionsOnly: json['mentionsOnly'] ?? json['mentions_only'] ?? false,
       keywords: json['keywords'] != null ? List<String>.from(json['keywords']) : [],
     );
   }
@@ -910,6 +1052,8 @@ class ChatNotificationSettings {
     if (value is int && value >= 0 && value < MuteState.values.length) {
       return MuteState.values[value];
     }
+    if (value == 'muted') return MuteState.muted;
+    if (value == 'muted_until') return MuteState.mutedUntil;
     return MuteState.notMuted;
   }
 
@@ -934,6 +1078,30 @@ class ChatNotificationSettings {
       vibration: vibration ?? this.vibration,
       mentionsOnly: mentionsOnly ?? this.mentionsOnly,
       keywords: keywords ?? this.keywords,
+    );
+  }
+}
+
+/// Исключение в настройках уведомлений с метаданными чата
+class ChatNotificationException {
+  final ChatNotificationSettings settings;
+  final String chatType;
+  final String chatTitle;
+  final String? avatarUrl;
+
+  const ChatNotificationException({
+    required this.settings,
+    required this.chatType,
+    required this.chatTitle,
+    this.avatarUrl,
+  });
+
+  factory ChatNotificationException.fromJson(Map<String, dynamic> json) {
+    return ChatNotificationException(
+      settings: ChatNotificationSettings.fromJson(json),
+      chatType: json['chat_type'] ?? 'private',
+      chatTitle: json['chat_title'] ?? 'Chat',
+      avatarUrl: json['avatar_url'],
     );
   }
 }

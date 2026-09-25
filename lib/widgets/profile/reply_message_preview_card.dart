@@ -115,7 +115,7 @@ class ReplyMessagePreviewCard extends StatelessWidget {
                               ),
                               const SizedBox(height: 2),
                               const Text(
-                                'Предложение по дизайну интерфейса в Miptgram 🚀',
+                                'Предложение по дизайну интерфейса в Theaver 🚀',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: Color(0xFF1C2530),

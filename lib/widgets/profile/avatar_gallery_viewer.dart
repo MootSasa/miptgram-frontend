@@ -170,7 +170,7 @@ class _AvatarGalleryViewerState extends State<AvatarGalleryViewer> {
         await downloadsDir.create(recursive: true);
       }
 
-      final targetFile = File('${downloadsDir.path}/miptgram_avatar_${DateTime.now().millisecondsSinceEpoch}.jpg');
+      final targetFile = File('${downloadsDir.path}/theaver_avatar_${DateTime.now().millisecondsSinceEpoch}.jpg');
       await file.copy(targetFile.path);
 
       HapticUtils.impact();
@@ -202,7 +202,7 @@ class _AvatarGalleryViewerState extends State<AvatarGalleryViewer> {
       await SharePlus.instance.share(
         ShareParams(
           files: [XFile(file.path)],
-          text: widget.displayName != null ? 'Аватар ${widget.displayName}' : 'Аватар Miptgram',
+          text: widget.displayName != null ? 'Аватар ${widget.displayName}' : 'Аватар Theaver',
         ),
       );
     }

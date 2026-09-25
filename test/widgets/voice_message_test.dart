@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:miptgram/services/chat_service.dart';
-import 'package:miptgram/services/profile_theme_provider.dart';
-import 'package:miptgram/services/voice_playback_service.dart';
-import 'package:miptgram/services/video_note_playback_service.dart';
-import 'package:miptgram/widgets/chat/media_note_player_header.dart';
-import 'package:miptgram/widgets/message/message_bubble.dart';
-import 'package:miptgram/widgets/message/voice_message_widget.dart';
-import 'package:miptgram/l10n/app_localizations.dart';
+import 'package:theaver/services/chat_service.dart';
+import 'package:theaver/services/profile_theme_provider.dart';
+import 'package:theaver/services/voice_playback_service.dart';
+import 'package:theaver/services/video_note_playback_service.dart';
+import 'package:theaver/widgets/chat/media_note_player_header.dart';
+import 'package:theaver/widgets/message/message_bubble.dart';
+import 'package:theaver/widgets/message/voice_message_widget.dart';
+import 'package:theaver/l10n/app_localizations.dart';
 
 class _TestAppLocalizations extends AppLocalizations {
   final Map<String, String> translations;

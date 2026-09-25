@@ -4,17 +4,30 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:local_notifier/local_notifier.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
+import 'account_manager.dart';
+import 'auth_service.dart';
+import 'websocket_service.dart';
+import 'desktop_tray_service.dart';
 import 'notification_settings_provider.dart';
 import 'notification_service_hms.dart';
 import 'push_service_detector.dart';
 import 'settings_service.dart';
 import '../config/app_config.dart';
 
+
 /// Фоновый обработчик FCM сообщений (должен быть top-level функцией)
 @pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // Если сообщение содержит notification-payload, Google Play Services уже показал его в шторке
+  if (message.notification != null) {
+    debugPrint('NotificationService: background notification already displayed by system tray');
+    return;
+  }
+
   await Firebase.initializeApp();
   final localNotifications = FlutterLocalNotificationsPlugin();
   const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -22,33 +35,73 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await localNotifications.initialize(
     const InitializationSettings(android: androidSettings, iOS: iosSettings),
   );
+  if (Platform.isAndroid) {
+    final androidPlugin = localNotifications
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    await androidPlugin?.createNotificationChannel(const AndroidNotificationChannel(
+      'private_chats',
+      'Личные чаты',
+      description: 'Уведомления о новых сообщениях в личных чатах',
+      importance: Importance.high,
+    ));
+    await androidPlugin?.createNotificationChannel(const AndroidNotificationChannel(
+      'group_chats',
+      'Групповые чаты',
+      description: 'Уведомления о новых сообщениях в группах',
+      importance: Importance.high,
+    ));
+  }
   final data = message.data;
   if (data.containsKey('chat_id') && data.containsKey('chat_name')) {
     await _showBackgroundNotification(localNotifications, data);
   }
 }
 
+const _firebaseMessagingBackgroundHandler = firebaseMessagingBackgroundHandler;
+
 Future<void> _showBackgroundNotification(
   FlutterLocalNotificationsPlugin localNotifications,
   Map<String, dynamic> data,
 ) async {
-  const androidDetails = AndroidNotificationDetails(
-    'private_chats',
-    'Личные чаты',
-    channelDescription: 'Уведомления о новых сообщениях в личных чатах',
+  final chatId = data['chat_id']?.toString() ?? '';
+  final chatName = data['chat_name']?.toString() ?? 'Theaver';
+  final senderName = data['sender_name']?.toString() ?? '';
+  final messageId = data['id']?.toString() ?? data['message_id']?.toString();
+  final messageText = (data['message_text']?.toString().isNotEmpty == true)
+      ? data['message_text']!.toString()
+      : (data['content']?.toString() ?? 'Новое сообщение');
+  final isGroup = data['is_group'] == 'true' || data['is_group'] == true;
+  final body = (senderName.isNotEmpty && isGroup)
+      ? '$senderName: $messageText'
+      : messageText;
+  final channelId = isGroup ? 'group_chats' : 'private_chats';
+  final channelLabel = isGroup ? 'Групповые чаты' : 'Личные чаты';
+
+  final androidDetails = AndroidNotificationDetails(
+    channelId,
+    channelLabel,
+    channelDescription: isGroup
+        ? 'Уведомления о новых сообщениях в группах'
+        : 'Уведомления о новых сообщениях в личных чатах',
     importance: Importance.high,
     priority: Priority.high,
+    groupKey: 'com.theaver.messenger.MESSAGES',
+    autoCancel: true,
+    onlyAlertOnce: false,
+    styleInformation: BigTextStyleInformation(
+      body,
+      contentTitle: chatName,
+    ),
   );
   const iosDetails = DarwinNotificationDetails();
-  const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
-  final chatId = data['chat_id'] ?? '';
-  final chatName = data['chat_name'] ?? 'Miptgram';
-  final senderName = data['sender_name'] ?? '';
-  final messageText = data['message_text'] ?? '';
+  final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+  final notifId = (messageId != null && messageId.isNotEmpty)
+      ? (int.tryParse(messageId) ?? (chatId.hashCode ^ messageId.hashCode))
+      : DateTime.now().millisecondsSinceEpoch.remainder(100000);
   await localNotifications.show(
-    chatId.hashCode,
+    notifId,
     chatName,
-    senderName.isNotEmpty ? '$senderName: $messageText' : messageText,
+    body,
     details,
     payload: chatId,
   );
@@ -64,10 +117,10 @@ class NotificationService {
   factory NotificationService() => _instance;
 
   FirebaseMessaging? _firebaseMessaging;
-  FlutterLocalNotificationsPlugin _localNotifications =
+  final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
   HMSPushService? _hmsPushService;
-  PushServiceDetector _detector = PushServiceDetector();
+  final PushServiceDetector _detector = PushServiceDetector();
 
   NotificationSettingsProvider? _settingsProvider;
   String? _pushToken;
@@ -85,7 +138,69 @@ class NotificationService {
   bool get isInitialized => _initialized;
   PushServiceType get pushServiceType => _detector.serviceType;
 
-  /// Полная инициализация: детектирование + Firebase/HMS + Local Notifications
+  /// ID чата, открытого прямо сейчас на экране пользователя (для подавления уведомлений)
+  String? currentActiveChatId;
+  String? _lastActiveChatId;
+  final Map<String, List<int>> _chatNotificationIds = {};
+
+  /// Устанавливает текущий открытый чат на этом устройстве,
+  /// синхронизирует его с бэкендом через WebSocket для подавления push-уведомлений,
+  /// и удаляет уже висящие уведомления для этого чата из шторки.
+  void setActiveChat(String? chatId) {
+    currentActiveChatId = (chatId != null && chatId.isNotEmpty) ? chatId : null;
+    _lastActiveChatId = null;
+
+    if (currentActiveChatId != null) {
+      cancelChatNotifications(currentActiveChatId!);
+    }
+    WebSocketService().sendActiveChat(currentActiveChatId);
+  }
+
+  bool _isAppInForeground = true;
+  bool get isAppInForeground => _isAppInForeground;
+
+  /// Вызывается при сворачивании приложения в фон:
+  /// пользователь больше не смотрит в экран чата, поэтому сервер должен слать push-уведомления.
+  void onAppPause() {
+    _isAppInForeground = false;
+    _lastActiveChatId = currentActiveChatId;
+    currentActiveChatId = null;
+    WebSocketService().sendActiveChat(null);
+  }
+
+  /// Вызывается при возврате приложения на передний план:
+  /// если пользователь оставался на экране чата, восстанавливаем активный статус и очищаем уведомления.
+  void onAppResume() {
+    _isAppInForeground = true;
+    if (_lastActiveChatId != null) {
+      currentActiveChatId = _lastActiveChatId;
+      _lastActiveChatId = null;
+      WebSocketService().sendActiveChat(currentActiveChatId);
+      if (currentActiveChatId != null) {
+        cancelChatNotifications(currentActiveChatId!);
+      }
+    }
+  }
+
+  /// Кэш недавно показанных уведомлений для защиты от дублирования (гонка WebSocket и Push)
+  final Map<String, DateTime> _recentlyShownNotifications = {};
+
+  bool _isDuplicateNotification(String chatId, String messageText, {String? messageId}) {
+    final now = DateTime.now();
+    _recentlyShownNotifications.removeWhere((_, time) => now.difference(time).inSeconds > 10);
+    final key = (messageId != null && messageId.isNotEmpty)
+        ? '$chatId:$messageId'
+        : '$chatId:$messageText';
+    if (_recentlyShownNotifications.containsKey(key)) {
+      return true;
+    }
+    _recentlyShownNotifications[key] = now;
+    return false;
+  }
+
+  StreamSubscription? _wsSubscription;
+
+  /// Полная инициализация: детектирование + Firebase/HMS + Local Notifications + Desktop
   Future<void> init(NotificationSettingsProvider settingsProvider) async {
     if (_initialized) return;
     _settingsProvider = settingsProvider;
@@ -95,24 +210,30 @@ class NotificationService {
       await _detector.detect();
       debugPrint('NotificationService: detected push service = ${_detector.serviceType}');
 
-      // 2. Инициализация локальных уведомлений
-      await _initLocalNotifications();
+      // 2. Инициализация для конкретной платформы
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        await _initDesktopNotifications();
+      } else {
+        // Локальные уведомления на Android / iOS
+        await _initLocalNotifications();
+        await _createNotificationChannels();
 
-      // 3. Создание Android notification channels
-      await _createNotificationChannels();
-
-      // 4. Инициализация push-сервиса в зависимости от детекта
-      switch (_detector.serviceType) {
-        case PushServiceType.gms:
-          await _initFCM();
-          break;
-        case PushServiceType.hms:
-          await _initHMS();
-          break;
-        case PushServiceType.none:
-          debugPrint('NotificationService: no push service, local notifications only');
-          break;
+        // Инициализация push-сервиса в зависимости от детекта
+        switch (_detector.serviceType) {
+          case PushServiceType.gms:
+            await _initFCM();
+            break;
+          case PushServiceType.hms:
+            await _initHMS();
+            break;
+          case PushServiceType.none:
+            debugPrint('NotificationService: no push service, local notifications only');
+            break;
+        }
       }
+
+      // 3. Подписка на входящие WebSocket сообщения
+      _subscribeWebSocketMessages();
 
       _initialized = true;
       debugPrint('NotificationService: fully initialized (${_detector.serviceType})');
@@ -120,6 +241,120 @@ class NotificationService {
       debugPrint('NotificationService: initialization error: $e');
       _initialized = true;
     }
+  }
+
+  Future<void> _initDesktopNotifications() async {
+    try {
+      await DesktopTrayService().init();
+      await localNotifier.setup(
+        appName: 'Theaver',
+        shortcutPolicy: ShortcutPolicy.requireCreate,
+      );
+      debugPrint('NotificationService: desktop local_notifier initialized');
+    } catch (e) {
+      debugPrint('NotificationService: desktop notification init error: $e');
+    }
+  }
+
+  void _subscribeWebSocketMessages() {
+    _wsSubscription?.cancel();
+    _wsSubscription = WebSocketService().eventStream.listen((event) async {
+      if (event.type == WebSocketEventType.newMessage) {
+        final data = event.data;
+        final msg = (data['message'] is Map)
+            ? Map<String, dynamic>.from(data['message'] as Map)
+            : <String, dynamic>{};
+
+        final chatId = data['chat_id']?.toString() ?? msg['chat_id']?.toString() ?? '';
+        final senderId = msg['sender_id']?.toString() ?? data['sender_id']?.toString() ?? '';
+        final currentUserId = await AuthService.getUserId();
+        if (senderId.isNotEmpty && currentUserId != null && senderId == currentUserId) {
+          return;
+        }
+
+        if (chatId.isEmpty) return;
+        if (!shouldShowNotification(chatId)) return;
+
+        final senderName = msg['sender_name']?.toString() ?? data['sender_name']?.toString() ?? '';
+        final chatName = (data['chat_name']?.toString().isNotEmpty == true)
+            ? data['chat_name']!.toString()
+            : (senderName.isNotEmpty ? senderName : 'Theaver');
+
+        String messageText = msg['content']?.toString() ?? data['message_text']?.toString() ?? data['content']?.toString() ?? '';
+        if (messageText.isEmpty) {
+          final msgType = msg['message_type']?.toString() ?? '';
+          switch (msgType) {
+            case 'voice':
+              messageText = '🎤 Голосовое сообщение';
+              break;
+            case 'video_note':
+              messageText = '📹 Видеосообщение';
+              break;
+            case 'image':
+              messageText = '📷 Фотография';
+              break;
+            case 'video':
+              messageText = '🎥 Видео';
+              break;
+            case 'file':
+              messageText = '📎 Файл';
+              break;
+            default:
+              messageText = 'Новое сообщение';
+          }
+        }
+        final isGroup = data['is_group'] == true || data['is_group'] == 'true' || msg['is_group'] == true;
+        final messageId = msg['id']?.toString() ?? data['id']?.toString() ?? data['message_id']?.toString();
+
+        if (_isDuplicateNotification(chatId, messageText, messageId: messageId)) return;
+
+        if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+          bool isFocused = false;
+          try {
+            isFocused = await windowManager.isFocused();
+          } catch (_) {}
+
+          if (!isFocused) {
+            await showMessageNotification(
+              chatId: chatId,
+              chatName: chatName,
+              senderName: senderName,
+              messageText: messageText,
+              isGroup: isGroup,
+              messageId: messageId,
+            );
+          } else {
+            showInAppBanner(
+              chatId: chatId,
+              chatName: chatName,
+              senderName: senderName,
+              messageText: messageText,
+              isGroup: isGroup,
+            );
+          }
+        } else {
+          // Мобильные платформы (Android / iOS):
+          showInAppBanner(
+            chatId: chatId,
+            chatName: chatName,
+            senderName: senderName,
+            messageText: messageText,
+            isGroup: isGroup,
+          );
+          // В фоне показываем локальное уведомление ТОЛЬКО если push-сервисы не активны (например, нет Google/Huawei)
+          if (!_isAppInForeground && (_pushToken == null || _pushToken!.isEmpty)) {
+            await showMessageNotification(
+              chatId: chatId,
+              chatName: chatName,
+              senderName: senderName,
+              messageText: messageText,
+              isGroup: isGroup,
+              messageId: messageId,
+            );
+          }
+        }
+      }
+    });
   }
 
   // ============ FCM Initialization ============
@@ -164,9 +399,12 @@ class NotificationService {
 
     // Получение токена
     _pushToken = await _hmsPushService!.getToken();
-    debugPrint('NotificationService: HMS push token=${_pushToken?.substring(0, 20)}...');
+    final logToken = _pushToken != null
+        ? (_pushToken!.length > 20 ? '${_pushToken!.substring(0, 20)}...' : _pushToken!)
+        : 'null';
+    debugPrint('NotificationService: HMS push token=$logToken');
 
-    if (_pushToken != null) {
+    if (_pushToken != null && _pushToken!.isNotEmpty) {
       await _registerPushTokenOnServer(_pushToken!, 'hms');
     }
 
@@ -194,6 +432,12 @@ class NotificationService {
       const InitializationSettings(android: androidSettings, iOS: iosSettings),
       onDidReceiveNotificationResponse: _onLocalNotificationTap,
     );
+
+    if (Platform.isAndroid) {
+      final androidPlugin = _localNotifications
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      await androidPlugin?.requestNotificationsPermission();
+    }
   }
 
   Future<void> _createNotificationChannels() async {
@@ -239,25 +483,83 @@ class NotificationService {
   Future<void> _registerPushTokenOnServer(String token, String type) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final deviceId = prefs.getString('device_id') ?? 'unknown';
-      await Dio().post(
-        '${AppConfig.baseUrl}/api/notifications/push-token',
-        data: {'token': token, 'type': type, 'device_id': deviceId},
+      final deviceId = AccountManager().currentDeviceId ??
+          prefs.getString('current_device_id') ??
+          prefs.getString('device_id') ??
+          'unknown';
+      final authToken = await AuthService.getToken();
+
+      final payload = {
+        'token': token,
+        'push_token': token,
+        'fcm_token': token,
+        'service_type': type,
+        'type': type,
+        'device_id': deviceId,
+      };
+
+      final options = Options(
+        headers: {
+          if (authToken != null) 'Authorization': 'Bearer $authToken',
+          'Content-Type': 'application/json',
+        },
       );
+
+      try {
+        await Dio().put(
+          '${AppConfig.baseUrl}/api/sessions/push-token',
+          data: payload,
+          options: options,
+        );
+      } catch (_) {
+        await Dio().post(
+          '${AppConfig.baseUrl}/api/notifications/push-token',
+          data: payload,
+          options: options,
+        );
+      }
       debugPrint('NotificationService: $type push token registered on server');
     } catch (e) {
       debugPrint('NotificationService: failed to register $type token: $e');
     }
   }
 
+  Future<void> registerCurrentToken() async {
+    if (_pushToken != null && _pushToken!.isNotEmpty) {
+      final type = _detector.serviceType == PushServiceType.hms ? 'hms' : 'fcm';
+      await _registerPushTokenOnServer(_pushToken!, type);
+    }
+  }
+
   Future<void> unregisterPushToken() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final deviceId = prefs.getString('device_id') ?? 'unknown';
-      await Dio().delete(
-        '${AppConfig.baseUrl}/api/notifications/push-token',
-        data: {'device_id': deviceId},
+      final deviceId = AccountManager().currentDeviceId ??
+          prefs.getString('current_device_id') ??
+          prefs.getString('device_id') ??
+          'unknown';
+      final authToken = await AuthService.getToken();
+
+      final options = Options(
+        headers: {
+          if (authToken != null) 'Authorization': 'Bearer $authToken',
+          'Content-Type': 'application/json',
+        },
       );
+
+      try {
+        await Dio().delete(
+          '${AppConfig.baseUrl}/api/sessions/push-token',
+          data: {'device_id': deviceId},
+          options: options,
+        );
+      } catch (_) {
+        await Dio().delete(
+          '${AppConfig.baseUrl}/api/notifications/push-token',
+          data: {'device_id': deviceId},
+          options: options,
+        );
+      }
       debugPrint('NotificationService: push token unregistered');
     } catch (e) {
       debugPrint('NotificationService: failed to unregister token: $e');
@@ -312,15 +614,27 @@ class NotificationService {
         break;
       case 'new_message':
         if (data.containsKey('chat_id')) {
-          final chatId = data['chat_id']!;
-          if (shouldShowNotification(chatId)) {
-            showInAppBanner(
-              chatId: chatId,
-              chatName: data['chat_name'] ?? '',
-              senderName: data['sender_name'] ?? '',
-              messageText: data['message_text'] ?? '',
-              isGroup: data['is_group'] == 'true',
-            );
+          final chatId = data['chat_id']!.toString();
+          final senderName = data['sender_name']?.toString() ?? '';
+          final chatName = (data['chat_name']?.toString().isNotEmpty == true)
+              ? data['chat_name']!.toString()
+              : (senderName.isNotEmpty ? senderName : 'Theaver');
+          final messageText = (data['message_text']?.toString().isNotEmpty == true)
+              ? data['message_text']!.toString()
+              : (data['content']?.toString() ?? 'Новое сообщение');
+          final isGroup = data['is_group'] == 'true' || data['is_group'] == true;
+          final messageId = data['id']?.toString() ?? data['message_id']?.toString();
+
+          if (shouldShowNotification(chatId) && !_isDuplicateNotification(chatId, messageText, messageId: messageId)) {
+            if (_isAppInForeground) {
+              showInAppBanner(
+                chatId: chatId,
+                chatName: chatName,
+                senderName: senderName,
+                messageText: messageText,
+                isGroup: isGroup,
+              );
+            }
           }
         }
         break;
@@ -357,12 +671,41 @@ class NotificationService {
     required String messageText,
     String? avatarPath,
     bool isGroup = false,
+    String? messageId,
   }) async {
     if (!shouldShowNotification(chatId)) return;
 
     final effective = _settingsProvider?.getEffectiveSettings(chatId);
-    final channelId = _getChannelId(chatId, isGroup, effective);
+    final showPreview = effective?.previewEnabled ?? true;
+    final displayChatName = chatName.isNotEmpty ? chatName : (senderName.isNotEmpty ? senderName : 'Theaver');
+    final displayText = messageText.isNotEmpty ? messageText : 'Новое сообщение';
+    final title = showPreview ? (isGroup ? '$displayChatName ($senderName)' : displayChatName) : 'Theaver';
+    final body = showPreview
+        ? (isGroup ? (senderName.isNotEmpty ? '$senderName: $displayText' : displayText) : displayText)
+        : 'Новое сообщение';
 
+    // Desktop (Windows, Linux, macOS)
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      try {
+        final notification = LocalNotification(
+          identifier: messageId != null && messageId.isNotEmpty ? 'msg_$messageId' : 'chat_$chatId',
+          title: title,
+          body: body,
+          silent: !(effective?.soundEnabled ?? true),
+        );
+        notification.onClick = () async {
+          await DesktopTrayService().showAndFocusWindow();
+          _navigateFromNotificationData({'chat_id': chatId, 'type': 'new_message'});
+        };
+        await notification.show();
+      } catch (e) {
+        debugPrint('NotificationService: desktop local_notifier show error: $e');
+      }
+      return;
+    }
+
+    // Android / iOS
+    final channelId = _getChannelId(chatId, isGroup, effective);
     final androidDetails = AndroidNotificationDetails(
       channelId, _channelLabel(channelId),
       channelDescription: _channelDescription(channelId),
@@ -371,14 +714,14 @@ class NotificationService {
       enableVibration: effective?.vibration != VibrationPattern.none,
       vibrationPattern: _getVibrationPattern(effective?.vibration),
       playSound: effective?.soundEnabled ?? true,
-      groupKey: 'chat_$chatId',
+      groupKey: 'com.theaver.messenger.MESSAGES',
       setAsGroupSummary: false,
       autoCancel: true,
-      styleInformation: MessagingStyleInformation(
-        Person(name: chatName),
-        conversationTitle: isGroup ? chatName : null,
-        groupConversation: isGroup,
-        messages: [Message(messageText, DateTime.now(), Person(name: senderName))],
+      onlyAlertOnce: false,
+      styleInformation: BigTextStyleInformation(
+        body,
+        contentTitle: title,
+        summaryText: isGroup ? chatName : null,
       ),
     );
 
@@ -387,13 +730,11 @@ class NotificationService {
     );
 
     final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
-    final showPreview = effective?.previewEnabled ?? true;
-    final title = showPreview ? chatName : 'Miptgram';
-    final body = showPreview
-        ? (isGroup ? '$senderName: $messageText' : messageText)
-        : 'Новое сообщение';
-
-    await _localNotifications.show(chatId.hashCode, title, body, details, payload: chatId);
+    final notifId = (messageId != null && messageId.isNotEmpty)
+        ? (int.tryParse(messageId) ?? (chatId.hashCode ^ messageId.hashCode))
+        : DateTime.now().millisecondsSinceEpoch.remainder(100000);
+    (_chatNotificationIds[chatId] ??= []).add(notifId);
+    await _localNotifications.show(notifId, title, body, details, payload: chatId);
   }
 
   Future<void> showCallNotification({
@@ -413,7 +754,7 @@ class NotificationService {
       presentAlert: true, presentBadge: true, presentSound: true,
       interruptionLevel: InterruptionLevel.critical,
     );
-    final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+    const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
     await _localNotifications.show(
       callId.hashCode, isVideo ? 'Видеозвонок' : 'Звонок', callerName, details,
       payload: 'call_$callId',
@@ -435,13 +776,23 @@ class NotificationService {
       channelDescription: 'Счётчик непрочитанных',
       importance: Importance.low, priority: Priority.low,
       playSound: false, enableVibration: false,
-      setAsGroupSummary: true, groupKey: 'miptgram_summary', autoCancel: false,
+      setAsGroupSummary: true, groupKey: 'theaver_summary', autoCancel: false,
     );
     const details = NotificationDetails(android: androidDetails);
-    await _localNotifications.show(-1, 'Miptgram', '$count непрочитанных', details);
+    await _localNotifications.show(-1, 'Theaver', '$count непрочитанных', details);
   }
 
   Future<void> cancelChatNotifications(String chatId) async {
+    final ids = _chatNotificationIds.remove(chatId);
+    if (ids != null) {
+      for (final id in ids) {
+        await _localNotifications.cancel(id);
+      }
+    }
+    final parsed = int.tryParse(chatId);
+    if (parsed != null) {
+      await _localNotifications.cancel(parsed);
+    }
     await _localNotifications.cancel(chatId.hashCode);
   }
 
@@ -452,6 +803,9 @@ class NotificationService {
   // ============ Logic ============
 
   bool shouldShowNotification(String chatId, {bool isMention = false}) {
+    if (chatId.isNotEmpty && currentActiveChatId == chatId) {
+      return false;
+    }
     if (_settingsProvider == null) return true;
     return _settingsProvider!.shouldShowNotification(chatId, isMention: isMention);
   }
@@ -513,7 +867,7 @@ class NotificationService {
     'calls': 'Уведомления о входящих звонках',
     'mentions': 'Уведомления об @упоминаниях',
     'silent': 'Тихие уведомления — только бейдж',
-  }[id] ?? 'Уведомления Miptgram';
+  }[id] ?? 'Уведомления Theaver';
 
   Importance _getImportance(EffectiveChatSettings? e) =>
       e?.isMuted == true ? Importance.low : Importance.high;
@@ -528,6 +882,93 @@ class NotificationService {
     VibrationPattern.tripleShort => Int64List.fromList([0, 100, 100, 100, 100, 100]),
     _ => null,
   };
+
+  /// Отправляет тестовое уведомление:
+  /// 1. Немедленно показывает локальное уведомление в системной шторке
+  /// 2. Отображает in-app баннер в приложении
+  /// 3. Вызывает серверный эндпоинт POST /api/notifications/test для проверки реального push-канала
+  Future<Map<String, dynamic>> sendTestNotification() async {
+    // 1. Показываем локальное уведомление в системе
+    try {
+      const androidDetails = AndroidNotificationDetails(
+        'private_chats',
+        'Личные чаты',
+        channelDescription: 'Уведомления о новых сообщениях в личных чатах',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+      );
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+        presentBanner: true,
+      );
+      const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+      await _localNotifications.show(
+        99999,
+        'Theaver',
+        'Тестовое уведомление доставлено успешно!',
+        details,
+        payload: 'test',
+      );
+    } catch (e) {
+      debugPrint('NotificationService: local test notification error: $e');
+    }
+
+    // 2. In-app баннер
+    showInAppBanner(
+      chatId: '0',
+      chatName: 'Theaver',
+      senderName: 'Тест',
+      messageText: 'Локальное уведомление создано!',
+      isGroup: false,
+    );
+
+    // 3. Отправляем запрос на сервер
+    try {
+      final token = await AuthService.getToken();
+      if (token == null) {
+        return {
+          'success': true,
+          'message': 'Локальное уведомление показано (на сервере вход не выполнен)',
+        };
+      }
+
+      final response = await Dio().post(
+        '${AppConfig.baseUrl}/api/notifications/test',
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Content-Type': 'application/json',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200 && response.data != null) {
+        final data = response.data;
+        final success = data['success'] == true;
+        final msg = data['message'] ?? (success ? 'Push отправлен сервером' : 'Ошибка отправки');
+        final deviceCount = data['device_count'] ?? 0;
+        return {
+          'success': success,
+          'message': '$msg (устройств: $deviceCount)',
+          'device_count': deviceCount,
+        };
+      }
+      return {
+        'success': false,
+        'message': 'Сервер ответил со статусом ${response.statusCode}',
+      };
+    } catch (e) {
+      debugPrint('NotificationService: server test notification error: $e');
+      return {
+        'success': true,
+        'message': 'Локальное уведомление показано. Ответ сервера: $e',
+      };
+    }
+  }
 
   void dispose() { _bannerController.close(); }
 }

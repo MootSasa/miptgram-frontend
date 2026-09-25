@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
 import 'auth_service.dart';
 import 'avatar_sync_service.dart';
@@ -127,6 +128,7 @@ class WebSocketService {
   final Map<WebSocketEventType, List<WebSocketEventCallback>> _callbacks = {};
 
   String? _currentUserId;
+  String? _activeChatId;
 
   /// Update current user ID (call when switching accounts)
   Future<void> updateUserId(String? userId) async {
@@ -178,7 +180,13 @@ class WebSocketService {
 
       // Build WebSocket URL with token AND device_id
       final accountManager = AccountManager();
-      final deviceId = accountManager.currentDeviceId;
+      var deviceId = accountManager.currentDeviceId;
+      if (deviceId == null || deviceId.isEmpty) {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          deviceId = prefs.getString('current_device_id') ?? prefs.getString('device_id');
+        } catch (_) {}
+      }
       var wsUrl = '${AppConfig.wsUrl}?token=$token';
       if (deviceId != null && deviceId.isNotEmpty) {
         wsUrl += '&device_id=${Uri.encodeComponent(deviceId)}';
@@ -203,6 +211,11 @@ class WebSocketService {
 
       // Start ping timer
       _startPingTimer();
+
+      // Re-send currently open chat on this device to suppress push notifications
+      if (_activeChatId != null && _activeChatId!.isNotEmpty) {
+        sendActiveChat(_activeChatId);
+      }
 
       // Trigger pending avatar upload if any
       if (_currentUserId != null) {
@@ -415,6 +428,15 @@ class WebSocketService {
   		'message_id': messageId,
   		'marked_count': markedCount,
   	});
+  }
+
+  /// Notify server about the currently open chat on this device,
+  /// so that the server suppresses push notifications for this specific chat.
+  void sendActiveChat(String? chatId) {
+    _activeChatId = (chatId != null && chatId.isNotEmpty) ? chatId : null;
+    sendMessage('active_chat', {
+      'chat_id': chatId ?? '',
+    });
   }
 
   /// Subscribe to specific event type

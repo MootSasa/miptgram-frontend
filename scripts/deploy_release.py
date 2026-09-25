@@ -71,10 +71,10 @@ def post_json(url, payload, headers):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Upload and register releases in Miptgram API.")
+    parser = argparse.ArgumentParser(description="Upload and register releases in Theaver API.")
     parser.add_argument("--artifacts-dir", required=True, help="Directory containing release files.")
-    parser.add_argument("--api-url", default=None, help="Miptgram API base URL.")
-    parser.add_argument("--admin-secret", default=None, help="Miptgram admin secret key.")
+    parser.add_argument("--api-url", default=None, help="Theaver API base URL.")
+    parser.add_argument("--admin-secret", default=None, help="Theaver admin secret key.")
     parser.add_argument("--version", required=True, help="Release version (e.g. 1.0.1).")
     parser.add_argument("--build-number", type=int, required=True, help="Release build number.")
     parser.add_argument("--channel", default="stable", choices=["stable", "beta", "alpha"], help="Release channel.")
@@ -84,11 +84,11 @@ def main():
 
     args = parser.parse_args()
 
-    api_url = (args.api_url or os.environ.get("MIPTGRAM_API_URL") or "https://api.miptgram.ru").rstrip("/")
-    admin_secret = args.admin_secret or os.environ.get("MIPTGRAM_ADMIN_SECRET") or ""
+    api_url = (args.api_url or os.environ.get("THEAVER_API_URL") or os.environ.get("MIPTGRAM_API_URL") or "https://api.theaver.app").rstrip("/")
+    admin_secret = args.admin_secret or os.environ.get("THEAVER_ADMIN_SECRET") or os.environ.get("MIPTGRAM_ADMIN_SECRET") or ""
 
     if not admin_secret:
-        msg = "[Deploy] WARNING: MIPTGRAM_ADMIN_SECRET is not configured. Skipping deployment to Miptgram API."
+        msg = "[Deploy] WARNING: THEAVER_ADMIN_SECRET (or MIPTGRAM_ADMIN_SECRET) is not configured. Skipping deployment to Theaver API."
         if args.strict:
             print(msg, file=sys.stderr)
             sys.exit(1)
@@ -127,7 +127,7 @@ def main():
 
     headers = {
         "X-Admin-Secret": admin_secret,
-        "User-Agent": "Miptgram-Release-Deployer/1.0"
+        "User-Agent": "Theaver-Release-Deployer/1.0"
     }
 
     success_count = 0

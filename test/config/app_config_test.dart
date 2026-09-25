@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:miptgram/config/app_config.dart';
+import 'package:theaver/config/app_config.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -12,8 +12,8 @@ void main() {
         equals('ws://localhost:8080/api/ws'),
       );
       expect(
-        AppConfig.deriveWsUrl('https://api.miptgram.ru'),
-        equals('wss://api.miptgram.ru/api/ws'),
+        AppConfig.deriveWsUrl('https://api.theaver.app'),
+        equals('wss://api.theaver.app/api/ws'),
       );
       expect(
         AppConfig.deriveWsUrl('http://192.168.1.50:8080/api'),
@@ -31,8 +31,8 @@ void main() {
 
     test('deriveStorageUrl resolves MinIO storage endpoints correctly', () {
       expect(
-        AppConfig.deriveStorageUrl('https://api.miptgram.ru'),
-        equals('https://storage.miptgram.ru'),
+        AppConfig.deriveStorageUrl('https://api.theaver.app'),
+        equals('https://storage.theaver.app'),
       );
       expect(
         AppConfig.deriveStorageUrl('http://localhost:8080'),

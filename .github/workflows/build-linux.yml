@@ -17,7 +17,7 @@ on:
         default: '3.41.9'
         type: string
       api_base_url:
-        description: 'Кастомный API Base URL (опционально, например https://api.miptgram.ru)'
+        description: 'Кастомный API Base URL (опционально, например https://api.theaver.app)'
         required: false
         default: ''
         type: string
@@ -92,7 +92,7 @@ jobs:
         run: |
           PROJECT_DIR="${{ steps.locate_project.outputs.path }}"
           BUNDLE_DIR="$PROJECT_DIR/build/linux/x64/${{ inputs.build_type }}/bundle"
-          ARCHIVE_NAME="miptgram-linux-${{ inputs.build_type }}-x86_64.tar.gz"
+          ARCHIVE_NAME="theaver-linux-${{ inputs.build_type }}-x86_64.tar.gz"
           
           if [ ! -d "$BUNDLE_DIR" ]; then
             echo "Error: Bundle directory $BUNDLE_DIR not found!" >&2
@@ -105,8 +105,8 @@ jobs:
       - name: Upload Linux x86_64 Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: miptgram-linux-${{ inputs.build_type }}-x86_64
-          path: miptgram-linux-${{ inputs.build_type }}-x86_64.tar.gz
+          name: theaver-linux-${{ inputs.build_type }}-x86_64
+          path: theaver-linux-${{ inputs.build_type }}-x86_64.tar.gz
           if-no-files-found: error
           retention-days: 30
 
@@ -180,7 +180,7 @@ jobs:
         run: |
           PROJECT_DIR="${{ steps.locate_project.outputs.path }}"
           BUNDLE_DIR=$(find "$PROJECT_DIR/build/linux" -type d -name "bundle" | grep -i "${{ inputs.build_type }}" | head -n 1)
-          ARCHIVE_NAME="miptgram-linux-${{ inputs.build_type }}-arm64.tar.gz"
+          ARCHIVE_NAME="theaver-linux-${{ inputs.build_type }}-arm64.tar.gz"
           
           if [ -z "$BUNDLE_DIR" ] || [ ! -d "$BUNDLE_DIR" ]; then
             echo "Error: Bundle directory not found!" >&2
@@ -193,7 +193,7 @@ jobs:
       - name: Upload Linux ARM64 Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: miptgram-linux-${{ inputs.build_type }}-arm64
-          path: miptgram-linux-${{ inputs.build_type }}-arm64.tar.gz
+          name: theaver-linux-${{ inputs.build_type }}-arm64
+          path: theaver-linux-${{ inputs.build_type }}-arm64.tar.gz
           if-no-files-found: warn
           retention-days: 30

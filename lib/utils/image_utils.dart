@@ -13,6 +13,13 @@ String? getValidAvatarUrl(String? url) {
   if (url == null || url.isEmpty) return null;
   // data: URLs are valid (base64 encoded avatars)
   if (url.startsWith('data:')) return url;
+
+  // Upgrade legacy miptgram.ru URLs to the current domain
+  if (url.contains('storage.miptgram.ru')) {
+    url = url.replaceAll('storage.miptgram.ru', 'storage.theaver.app');
+  } else if (url.contains('miptgram.ru')) {
+    url = url.replaceAll('miptgram.ru', 'theaver.app');
+  }
   
   // Local file path or file:// URI
   if (url.startsWith('file://')) {

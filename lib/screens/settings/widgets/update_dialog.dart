@@ -201,7 +201,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Miptgram v${widget.update.latestVersion} (билд ${widget.update.latestBuild})',
+                          'Theaver v${widget.update.latestVersion} (билд ${widget.update.latestBuild})',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),

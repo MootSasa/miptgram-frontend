@@ -1,6 +1,9 @@
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:convert';
+import 'dart:io' show Platform, File;
+import 'package:flutter/material.dart' show Color, Widget;
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -16,8 +19,55 @@ import 'notification_settings_provider.dart';
 import 'notification_service_hms.dart';
 import 'push_service_detector.dart';
 import 'settings_service.dart';
+import 'deep_link_service.dart';
 import '../config/app_config.dart';
+import '../screens/chat/private_chat_screen.dart';
+import '../screens/chat/group_chat_screen.dart';
+import '../screens/chat/channel_screen.dart';
+import '../utils/swipe_back_route.dart';
+import '../widgets/notifications/in_app_notification_banner.dart';
 
+export '../widgets/notifications/in_app_notification_banner.dart' show InAppNotificationData;
+
+/// Скачивает или достает из временного кэша изображение для отображения в уведомлениях
+Future<String?> downloadOrGetCachedImage(String? url, {String prefix = 'notif_img'}) async {
+  if (url == null || url.isEmpty) return null;
+  try {
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      final file = File(url);
+      if (await file.exists()) return file.path;
+      return null;
+    }
+
+    final tempDir = await getTemporaryDirectory();
+    final hash = url.hashCode.abs().toString();
+    final cachedFile = File('${tempDir.path}/${prefix}_$hash.png');
+
+    if (await cachedFile.exists() && (await cachedFile.length()) > 0) {
+      return cachedFile.path;
+    }
+
+    final response = await Dio().get<List<int>>(
+      url,
+      options: Options(
+        responseType: ResponseType.bytes,
+        sendTimeout: const Duration(milliseconds: 3500),
+        receiveTimeout: const Duration(milliseconds: 3500),
+      ),
+    );
+    if (response.statusCode == 200 && response.data != null && response.data!.isNotEmpty) {
+      await cachedFile.writeAsBytes(response.data!, flush: true);
+      return cachedFile.path;
+    }
+  } catch (e) {
+    debugPrint('NotificationService: image download warning: $e');
+  }
+  return null;
+}
+
+/// Скачивает или достает из временного кэша аватарку для отображения в уведомлениях
+Future<String?> downloadOrGetCachedAvatar(String? url) =>
+    downloadOrGetCachedImage(url, prefix: 'notif_avatar');
 
 /// Фоновый обработчик FCM сообщений (должен быть top-level функцией)
 @pragma('vm:entry-point')
@@ -30,7 +80,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   await Firebase.initializeApp();
   final localNotifications = FlutterLocalNotificationsPlugin();
-  const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const androidSettings = AndroidInitializationSettings('@drawable/ic_notification');
   const iosSettings = DarwinInitializationSettings();
   await localNotifications.initialize(
     const InitializationSettings(android: androidSettings, iOS: iosSettings),
@@ -77,6 +127,38 @@ Future<void> _showBackgroundNotification(
   final channelId = isGroup ? 'group_chats' : 'private_chats';
   final channelLabel = isGroup ? 'Групповые чаты' : 'Личные чаты';
 
+  final avatarUrl = data['avatar_url']?.toString() ?? data['avatar']?.toString();
+  FilePathAndroidBitmap? largeIconBitmap;
+  if (avatarUrl != null && avatarUrl.isNotEmpty) {
+    final cachedPath = await downloadOrGetCachedAvatar(avatarUrl);
+    if (cachedPath != null) {
+      largeIconBitmap = FilePathAndroidBitmap(cachedPath);
+    }
+  }
+
+  final mediaUrl = data['media_url']?.toString() ?? data['image']?.toString() ?? data['file_url']?.toString();
+  FilePathAndroidBitmap? bigPictureBitmap;
+  String? cachedMediaPath;
+  if (mediaUrl != null && mediaUrl.isNotEmpty) {
+    cachedMediaPath = await downloadOrGetCachedImage(mediaUrl, prefix: 'notif_media');
+    if (cachedMediaPath != null) {
+      bigPictureBitmap = FilePathAndroidBitmap(cachedMediaPath);
+    }
+  }
+
+  final StyleInformation styleInformation = bigPictureBitmap != null
+      ? BigPictureStyleInformation(
+          bigPictureBitmap,
+          largeIcon: largeIconBitmap,
+          contentTitle: chatName,
+          summaryText: body,
+          hideExpandedLargeIcon: false,
+        )
+      : BigTextStyleInformation(
+          body,
+          contentTitle: chatName,
+        );
+
   final androidDetails = AndroidNotificationDetails(
     channelId,
     channelLabel,
@@ -85,25 +167,41 @@ Future<void> _showBackgroundNotification(
         : 'Уведомления о новых сообщениях в личных чатах',
     importance: Importance.high,
     priority: Priority.high,
+    icon: '@drawable/ic_notification',
+    color: const Color(0xFF5B7FFF),
+    largeIcon: largeIconBitmap,
     groupKey: 'com.theaver.messenger.MESSAGES',
     autoCancel: true,
     onlyAlertOnce: false,
-    styleInformation: BigTextStyleInformation(
-      body,
-      contentTitle: chatName,
-    ),
+    styleInformation: styleInformation,
   );
-  const iosDetails = DarwinNotificationDetails();
+  final iosDetails = DarwinNotificationDetails(
+    attachments: cachedMediaPath != null
+        ? [DarwinNotificationAttachment(cachedMediaPath)]
+        : null,
+  );
   final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
   final notifId = (messageId != null && messageId.isNotEmpty)
       ? (int.tryParse(messageId) ?? (chatId.hashCode ^ messageId.hashCode))
       : DateTime.now().millisecondsSinceEpoch.remainder(100000);
+
+  final payloadData = jsonEncode({
+    'chat_id': chatId,
+    'chat_name': chatName,
+    'sender_name': senderName,
+    'is_group': isGroup,
+    'avatar_url': avatarUrl,
+    'media_url': mediaUrl,
+    'id': messageId,
+    'type': 'new_message',
+  });
+
   await localNotifications.show(
     notifId,
     chatName,
     body,
     details,
-    payload: chatId,
+    payload: payloadData,
   );
 }
 
@@ -142,6 +240,19 @@ class NotificationService {
   String? currentActiveChatId;
   String? _lastActiveChatId;
   final Map<String, List<int>> _chatNotificationIds = {};
+  final Map<String, List<LocalNotification>> _desktopNotifications = {};
+
+  Map<String, dynamic>? _pendingNotificationData;
+  Map<String, dynamic>? get pendingNotificationData => _pendingNotificationData;
+  bool get hasPendingNotification => _pendingNotificationData != null;
+
+  void consumePendingNotification() {
+    if (_pendingNotificationData != null) {
+      final data = _pendingNotificationData!;
+      _pendingNotificationData = null;
+      _navigateFromNotificationData(data);
+    }
+  }
 
   /// Устанавливает текущий открытый чат на этом устройстве,
   /// синхронизирует его с бэкендом через WebSocket для подавления push-уведомлений,
@@ -259,6 +370,21 @@ class NotificationService {
   void _subscribeWebSocketMessages() {
     _wsSubscription?.cancel();
     _wsSubscription = WebSocketService().eventStream.listen((event) async {
+      if (event.type == WebSocketEventType.messageRead) {
+        final cid = event.data['chat_id']?.toString();
+        if (cid != null && cid.isNotEmpty) {
+          cancelChatNotifications(cid);
+        }
+        return;
+      } else if (event.type == WebSocketEventType.unreadCountUpdated) {
+        final cid = event.data['chat_id']?.toString();
+        final count = event.data['unread_count'] as int?;
+        if (cid != null && cid.isNotEmpty && count == 0) {
+          cancelChatNotifications(cid);
+        }
+        return;
+      }
+
       if (event.type == WebSocketEventType.newMessage) {
         final data = event.data;
         final msg = (data['message'] is Map)
@@ -305,6 +431,14 @@ class NotificationService {
         }
         final isGroup = data['is_group'] == true || data['is_group'] == 'true' || msg['is_group'] == true;
         final messageId = msg['id']?.toString() ?? data['id']?.toString() ?? data['message_id']?.toString();
+        final avatarUrl = data['avatar_url']?.toString() ?? msg['sender_avatar_url']?.toString();
+        String? mediaUrl = msg['media_url']?.toString() ?? msg['file_url']?.toString() ?? data['media_url']?.toString() ?? data['file_url']?.toString();
+        if (mediaUrl == null || mediaUrl.isEmpty) {
+          final mediaPayload = msg['media_payload'] ?? data['media_payload'];
+          if (mediaPayload is Map) {
+            mediaUrl = mediaPayload['thumb_url']?.toString() ?? mediaPayload['thumbnail_url']?.toString() ?? mediaPayload['photo']?.toString();
+          }
+        }
 
         if (_isDuplicateNotification(chatId, messageText, messageId: messageId)) return;
 
@@ -314,21 +448,27 @@ class NotificationService {
             isFocused = await windowManager.isFocused();
           } catch (_) {}
 
-          if (!isFocused) {
+          final isCurrentChatActive = currentActiveChatId != null && currentActiveChatId == chatId;
+          // Показываем системный тост, если окно не в фокусе, свернуто или открыт другой чат
+          if (!isFocused || !isCurrentChatActive) {
             await showMessageNotification(
               chatId: chatId,
               chatName: chatName,
               senderName: senderName,
               messageText: messageText,
+              avatarUrl: avatarUrl,
+              mediaUrl: mediaUrl,
               isGroup: isGroup,
               messageId: messageId,
             );
-          } else {
+          }
+          if (isFocused) {
             showInAppBanner(
               chatId: chatId,
               chatName: chatName,
               senderName: senderName,
               messageText: messageText,
+              avatarUrl: avatarUrl,
               isGroup: isGroup,
             );
           }
@@ -339,6 +479,7 @@ class NotificationService {
             chatName: chatName,
             senderName: senderName,
             messageText: messageText,
+            avatarUrl: avatarUrl,
             isGroup: isGroup,
           );
           // В фоне показываем локальное уведомление ТОЛЬКО если push-сервисы не активны (например, нет Google/Huawei)
@@ -348,6 +489,8 @@ class NotificationService {
               chatName: chatName,
               senderName: senderName,
               messageText: messageText,
+              avatarUrl: avatarUrl,
+              mediaUrl: mediaUrl,
               isGroup: isGroup,
               messageId: messageId,
             );
@@ -422,7 +565,7 @@ class NotificationService {
   // ============ Local Notifications ============
 
   Future<void> _initLocalNotifications() async {
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings('@drawable/ic_notification');
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
@@ -437,6 +580,27 @@ class NotificationService {
       final androidPlugin = _localNotifications
           .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
       await androidPlugin?.requestNotificationsPermission();
+    }
+
+    try {
+      final launchDetails = await _localNotifications.getNotificationAppLaunchDetails();
+      if (launchDetails?.didNotificationLaunchApp == true) {
+        final payload = launchDetails?.notificationResponse?.payload;
+        if (payload != null && payload.isNotEmpty && !payload.startsWith('call_')) {
+          try {
+            final decoded = jsonDecode(payload);
+            if (decoded is Map<String, dynamic>) {
+              _pendingNotificationData = decoded;
+            } else {
+              _pendingNotificationData = {'chat_id': payload, 'type': 'new_message'};
+            }
+          } catch (_) {
+            _pendingNotificationData = {'chat_id': payload, 'type': 'new_message'};
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('NotificationService: launchDetails error: $e');
     }
   }
 
@@ -581,6 +745,7 @@ class NotificationService {
   Future<void> _checkInitialMessage() async {
     final initialMessage = await _firebaseMessaging?.getInitialMessage();
     if (initialMessage != null) {
+      _pendingNotificationData = initialMessage.data;
       _navigateFromNotificationData(initialMessage.data);
     }
   }
@@ -639,7 +804,11 @@ class NotificationService {
         }
         break;
       case 'read_status_updated':
-        debugPrint('NotificationService: read status updated for chat ${data['chat_id']}');
+        final cid = data['chat_id']?.toString();
+        debugPrint('NotificationService: read status updated for chat $cid');
+        if (cid != null && cid.isNotEmpty) {
+          cancelChatNotifications(cid);
+        }
         break;
       case 'incoming_call':
         _handleIncomingCall(data);
@@ -655,11 +824,81 @@ class NotificationService {
     );
   }
 
-  void _navigateFromNotificationData(Map<String, dynamic> data) {
-    final chatId = data['chat_id'];
-    if (chatId != null) {
-      debugPrint('NotificationService: should navigate to chat $chatId');
+  Future<void> _navigateFromNotificationData(Map<String, dynamic> data) async {
+    final chatId = data['chat_id']?.toString();
+    if (chatId == null || chatId.isEmpty) {
+      return;
     }
+    debugPrint('NotificationService: navigating to chat $chatId');
+
+    // On Desktop, bring window to front
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      try {
+        await DesktopTrayService().showAndFocusWindow();
+      } catch (e) {
+        debugPrint('NotificationService: showAndFocusWindow error: $e');
+      }
+    }
+
+    // Dismiss in-app banner if showing
+    dismissBanner();
+
+    // Check if user is logged in
+    final token = await AuthService.getToken();
+    if (token == null) {
+      debugPrint('NotificationService: user not logged in, ignoring navigation');
+      return;
+    }
+
+    final navState = DeepLinkService().navigatorKey.currentState;
+    if (navState == null) {
+      debugPrint('NotificationService: navigatorState is null, queueing pending navigation');
+      _pendingNotificationData = data;
+      return;
+    }
+
+    // Dismiss active notifications for this chat immediately upon navigation
+    cancelChatNotifications(chatId);
+
+    // If already in this chat, don't push again
+    if (currentActiveChatId == chatId) {
+      debugPrint('NotificationService: chat $chatId is already active');
+      return;
+    }
+
+    final chatName = data['chat_name']?.toString() ?? data['sender_name']?.toString() ?? '';
+    final avatarUrl = data['avatar_url']?.toString() ?? data['avatar']?.toString();
+    final messageId = data['id']?.toString() ?? data['message_id']?.toString();
+    final isGroup = data['is_group'] == true || data['is_group'] == 'true';
+    final isChannel = data['is_channel'] == true || data['is_channel'] == 'true' || data['chat_type'] == 'channel';
+
+    Widget screen;
+    if (isChannel) {
+      screen = ChannelScreen(
+        channelId: chatId,
+        channelName: chatName.isNotEmpty ? chatName : null,
+        channelAvatar: avatarUrl,
+        highlightMessageId: messageId,
+      );
+    } else if (isGroup) {
+      screen = GroupChatScreen(
+        chatId: chatId,
+        groupName: chatName.isNotEmpty ? chatName : null,
+        groupAvatar: avatarUrl,
+        initialMessageId: messageId,
+      );
+    } else {
+      screen = PrivateChatScreen(
+        chatId: chatId,
+        otherUserName: chatName.isNotEmpty ? chatName : null,
+        otherUserAvatar: avatarUrl,
+        initialMessageId: messageId,
+      );
+    }
+
+    navState.push(
+      SwipeBackPageRoute(builder: (_) => screen),
+    );
   }
 
   // ============ Local Notifications ============
@@ -670,6 +909,8 @@ class NotificationService {
     required String senderName,
     required String messageText,
     String? avatarPath,
+    String? avatarUrl,
+    String? mediaUrl,
     bool isGroup = false,
     String? messageId,
   }) async {
@@ -693,9 +934,26 @@ class NotificationService {
           body: body,
           silent: !(effective?.soundEnabled ?? true),
         );
+        (_desktopNotifications[chatId] ??= []).add(notification);
+        notification.onClose = (_) {
+          _desktopNotifications[chatId]?.remove(notification);
+        };
         notification.onClick = () async {
+          _desktopNotifications[chatId]?.remove(notification);
+          try {
+            await notification.close();
+          } catch (_) {}
           await DesktopTrayService().showAndFocusWindow();
-          _navigateFromNotificationData({'chat_id': chatId, 'type': 'new_message'});
+          _navigateFromNotificationData({
+            'chat_id': chatId,
+            'chat_name': chatName,
+            'sender_name': senderName,
+            'is_group': isGroup,
+            'avatar_url': avatarUrl,
+            'media_url': mediaUrl,
+            'id': messageId,
+            'type': 'new_message',
+          });
         };
         await notification.show();
       } catch (e) {
@@ -705,12 +963,47 @@ class NotificationService {
     }
 
     // Android / iOS
+    final effectiveAvatar = avatarUrl ?? avatarPath;
+    FilePathAndroidBitmap? largeIconBitmap;
+    if (effectiveAvatar != null && effectiveAvatar.isNotEmpty) {
+      final cachedPath = await downloadOrGetCachedAvatar(effectiveAvatar);
+      if (cachedPath != null) {
+        largeIconBitmap = FilePathAndroidBitmap(cachedPath);
+      }
+    }
+
+    FilePathAndroidBitmap? bigPictureBitmap;
+    String? cachedMediaPath;
+    if (mediaUrl != null && mediaUrl.isNotEmpty) {
+      cachedMediaPath = await downloadOrGetCachedImage(mediaUrl, prefix: 'notif_media');
+      if (cachedMediaPath != null) {
+        bigPictureBitmap = FilePathAndroidBitmap(cachedMediaPath);
+      }
+    }
+
+    final StyleInformation styleInformation = bigPictureBitmap != null
+        ? BigPictureStyleInformation(
+            bigPictureBitmap,
+            largeIcon: largeIconBitmap,
+            contentTitle: title,
+            summaryText: isGroup ? chatName : null,
+            hideExpandedLargeIcon: false,
+          )
+        : BigTextStyleInformation(
+            body,
+            contentTitle: title,
+            summaryText: isGroup ? chatName : null,
+          );
+
     final channelId = _getChannelId(chatId, isGroup, effective);
     final androidDetails = AndroidNotificationDetails(
       channelId, _channelLabel(channelId),
       channelDescription: _channelDescription(channelId),
       importance: _getImportance(effective),
       priority: _getPriority(effective),
+      icon: '@drawable/ic_notification',
+      color: const Color(0xFF5B7FFF),
+      largeIcon: largeIconBitmap,
       enableVibration: effective?.vibration != VibrationPattern.none,
       vibrationPattern: _getVibrationPattern(effective?.vibration),
       playSound: effective?.soundEnabled ?? true,
@@ -718,15 +1011,14 @@ class NotificationService {
       setAsGroupSummary: false,
       autoCancel: true,
       onlyAlertOnce: false,
-      styleInformation: BigTextStyleInformation(
-        body,
-        contentTitle: title,
-        summaryText: isGroup ? chatName : null,
-      ),
+      styleInformation: styleInformation,
     );
 
-    const iosDetails = DarwinNotificationDetails(
+    final iosDetails = DarwinNotificationDetails(
       presentAlert: true, presentBadge: true, presentSound: true, presentBanner: true,
+      attachments: cachedMediaPath != null
+          ? [DarwinNotificationAttachment(cachedMediaPath)]
+          : null,
     );
 
     final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
@@ -734,7 +1026,19 @@ class NotificationService {
         ? (int.tryParse(messageId) ?? (chatId.hashCode ^ messageId.hashCode))
         : DateTime.now().millisecondsSinceEpoch.remainder(100000);
     (_chatNotificationIds[chatId] ??= []).add(notifId);
-    await _localNotifications.show(notifId, title, body, details, payload: chatId);
+
+    final payloadData = jsonEncode({
+      'chat_id': chatId,
+      'chat_name': chatName,
+      'sender_name': senderName,
+      'is_group': isGroup,
+      'avatar_url': avatarUrl,
+      'media_url': mediaUrl,
+      'id': messageId,
+      'type': 'new_message',
+    });
+
+    await _localNotifications.show(notifId, title, body, details, payload: payloadData);
   }
 
   Future<void> showCallNotification({
@@ -783,20 +1087,51 @@ class NotificationService {
   }
 
   Future<void> cancelChatNotifications(String chatId) async {
+    // 1. Desktop local_notifier
+    final desktopNotifications = _desktopNotifications.remove(chatId);
+    if (desktopNotifications != null) {
+      for (final n in desktopNotifications) {
+        try {
+          await n.close();
+        } catch (_) {}
+      }
+    }
+
+    // 2. Mobile local_notifications
     final ids = _chatNotificationIds.remove(chatId);
     if (ids != null) {
       for (final id in ids) {
         await _localNotifications.cancel(id);
       }
     }
+    // Cancel by chat Tag (used in FCM and HMS push notifications)
+    try {
+      await _localNotifications.cancel(0, tag: 'chat_$chatId');
+    } catch (_) {}
+
     final parsed = int.tryParse(chatId);
     if (parsed != null) {
       await _localNotifications.cancel(parsed);
+      try {
+        await _localNotifications.cancel(parsed, tag: 'chat_$chatId');
+      } catch (_) {}
     }
     await _localNotifications.cancel(chatId.hashCode);
+    try {
+      await _localNotifications.cancel(chatId.hashCode, tag: 'chat_$chatId');
+    } catch (_) {}
   }
 
   Future<void> cancelAllNotifications() async {
+    for (final list in _desktopNotifications.values) {
+      for (final n in list) {
+        try {
+          await n.close();
+        } catch (_) {}
+      }
+    }
+    _desktopNotifications.clear();
+    _chatNotificationIds.clear();
     await _localNotifications.cancelAll();
   }
 
@@ -820,28 +1155,62 @@ class NotificationService {
   }) {
     if (!shouldShowNotification(chatId)) return;
     final data = InAppNotificationData(
-      chatId: chatId, chatName: chatName, senderName: senderName,
-      messageText: messageText, avatarUrl: avatarUrl, isGroup: isGroup,
+      chatId: chatId,
+      chatName: chatName,
+      senderName: senderName,
+      messageText: messageText,
+      avatarUrl: avatarUrl,
+      isGroup: isGroup,
       timestamp: DateTime.now(),
     );
     _currentBanner = data;
     _bannerController.add(data);
+
+    final context = DeepLinkService().navigatorKey.currentContext;
+    if (context != null && context.mounted) {
+      InAppNotificationBanner.showTopBanner(
+        context,
+        data: data,
+        onTap: () {
+          _navigateFromNotificationData({
+            'chat_id': chatId,
+            'chat_name': chatName,
+            'sender_name': senderName,
+            'avatar_url': avatarUrl,
+            'is_group': isGroup,
+            'type': 'new_message',
+          });
+        },
+      );
+    }
   }
 
   void dismissBanner() {
     _currentBanner = null;
     _bannerController.add(null);
+    InAppNotificationBanner.dismissTopBanner();
   }
 
   // ============ Local Notification Tap ============
 
   void _onLocalNotificationTap(NotificationResponse response) {
     final payload = response.payload;
-    if (payload == null) return;
+    if (payload == null || payload.isEmpty) return;
     if (payload.startsWith('call_')) {
       debugPrint('NotificationService: call notification tapped');
     } else {
-      _navigateFromNotificationData({'chat_id': payload, 'type': 'new_message'});
+      Map<String, dynamic> data;
+      try {
+        final decoded = jsonDecode(payload);
+        if (decoded is Map<String, dynamic>) {
+          data = decoded;
+        } else {
+          data = {'chat_id': payload, 'type': 'new_message'};
+        }
+      } catch (_) {
+        data = {'chat_id': payload, 'type': 'new_message'};
+      }
+      _navigateFromNotificationData(data);
     }
   }
 
@@ -889,32 +1258,51 @@ class NotificationService {
   /// 3. Вызывает серверный эндпоинт POST /api/notifications/test для проверки реального push-канала
   Future<Map<String, dynamic>> sendTestNotification() async {
     // 1. Показываем локальное уведомление в системе
-    try {
-      const androidDetails = AndroidNotificationDetails(
-        'private_chats',
-        'Личные чаты',
-        channelDescription: 'Уведомления о новых сообщениях в личных чатах',
-        importance: Importance.high,
-        priority: Priority.high,
-        playSound: true,
-        enableVibration: true,
-      );
-      const iosDetails = DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-        presentBanner: true,
-      );
-      const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
-      await _localNotifications.show(
-        99999,
-        'Theaver',
-        'Тестовое уведомление доставлено успешно!',
-        details,
-        payload: 'test',
-      );
-    } catch (e) {
-      debugPrint('NotificationService: local test notification error: $e');
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      try {
+        final notification = LocalNotification(
+          identifier: 'test_${DateTime.now().millisecondsSinceEpoch}',
+          title: 'Theaver',
+          body: 'Тестовое уведомление доставлено успешно!',
+        );
+        notification.onClick = () async {
+          await DesktopTrayService().showAndFocusWindow();
+        };
+        await notification.show();
+        debugPrint('NotificationService: desktop test notification shown successfully');
+      } catch (e) {
+        debugPrint('NotificationService: desktop test notification error: $e');
+      }
+    } else {
+      try {
+        const androidDetails = AndroidNotificationDetails(
+          'private_chats',
+          'Личные чаты',
+          channelDescription: 'Уведомления о новых сообщениях в личных чатах',
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@drawable/ic_notification',
+          color: Color(0xFF5B7FFF),
+          playSound: true,
+          enableVibration: true,
+        );
+        const iosDetails = DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+          presentBanner: true,
+        );
+        const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+        await _localNotifications.show(
+          99999,
+          'Theaver',
+          'Тестовое уведомление доставлено успешно!',
+          details,
+          payload: 'test',
+        );
+      } catch (e) {
+        debugPrint('NotificationService: local test notification error: $e');
+      }
     }
 
     // 2. In-app баннер
@@ -971,21 +1359,4 @@ class NotificationService {
   }
 
   void dispose() { _bannerController.close(); }
-}
-
-/// Модель данных для in-app баннера
-class InAppNotificationData {
-  final String chatId;
-  final String chatName;
-  final String senderName;
-  final String messageText;
-  final String? avatarUrl;
-  final bool isGroup;
-  final DateTime timestamp;
-
-  const InAppNotificationData({
-    required this.chatId, required this.chatName, required this.senderName,
-    required this.messageText, this.avatarUrl, this.isGroup = false,
-    required this.timestamp,
-  });
 }

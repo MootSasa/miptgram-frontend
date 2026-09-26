@@ -1,6 +1,8 @@
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, File;
+import 'package:flutter/material.dart' show Color;
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -18,6 +20,41 @@ import 'push_service_detector.dart';
 import 'settings_service.dart';
 import '../config/app_config.dart';
 
+/// Скачивает или достает из временного кэша аватарку для отображения в уведомлениях
+Future<String?> downloadOrGetCachedAvatar(String? url) async {
+  if (url == null || url.isEmpty) return null;
+  try {
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      final file = File(url);
+      if (await file.exists()) return file.path;
+      return null;
+    }
+
+    final tempDir = await getTemporaryDirectory();
+    final hash = url.hashCode.abs().toString();
+    final cachedFile = File('${tempDir.path}/notif_avatar_$hash.png');
+
+    if (await cachedFile.exists() && (await cachedFile.length()) > 0) {
+      return cachedFile.path;
+    }
+
+    final response = await Dio().get<List<int>>(
+      url,
+      options: Options(
+        responseType: ResponseType.bytes,
+        sendTimeout: const Duration(milliseconds: 2500),
+        receiveTimeout: const Duration(milliseconds: 2500),
+      ),
+    );
+    if (response.statusCode == 200 && response.data != null && response.data!.isNotEmpty) {
+      await cachedFile.writeAsBytes(response.data!, flush: true);
+      return cachedFile.path;
+    }
+  } catch (e) {
+    debugPrint('NotificationService: avatar download warning: $e');
+  }
+  return null;
+}
 
 /// Фоновый обработчик FCM сообщений (должен быть top-level функцией)
 @pragma('vm:entry-point')
@@ -30,7 +67,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   await Firebase.initializeApp();
   final localNotifications = FlutterLocalNotificationsPlugin();
-  const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const androidSettings = AndroidInitializationSettings('@drawable/ic_notification');
   const iosSettings = DarwinInitializationSettings();
   await localNotifications.initialize(
     const InitializationSettings(android: androidSettings, iOS: iosSettings),
@@ -77,6 +114,15 @@ Future<void> _showBackgroundNotification(
   final channelId = isGroup ? 'group_chats' : 'private_chats';
   final channelLabel = isGroup ? 'Групповые чаты' : 'Личные чаты';
 
+  final avatarUrl = data['avatar_url']?.toString() ?? data['avatar']?.toString();
+  FilePathAndroidBitmap? largeIconBitmap;
+  if (avatarUrl != null && avatarUrl.isNotEmpty) {
+    final cachedPath = await downloadOrGetCachedAvatar(avatarUrl);
+    if (cachedPath != null) {
+      largeIconBitmap = FilePathAndroidBitmap(cachedPath);
+    }
+  }
+
   final androidDetails = AndroidNotificationDetails(
     channelId,
     channelLabel,
@@ -85,6 +131,9 @@ Future<void> _showBackgroundNotification(
         : 'Уведомления о новых сообщениях в личных чатах',
     importance: Importance.high,
     priority: Priority.high,
+    icon: '@drawable/ic_notification',
+    color: const Color(0xFF5B7FFF),
+    largeIcon: largeIconBitmap,
     groupKey: 'com.theaver.messenger.MESSAGES',
     autoCancel: true,
     onlyAlertOnce: false,
@@ -305,6 +354,7 @@ class NotificationService {
         }
         final isGroup = data['is_group'] == true || data['is_group'] == 'true' || msg['is_group'] == true;
         final messageId = msg['id']?.toString() ?? data['id']?.toString() ?? data['message_id']?.toString();
+        final avatarUrl = data['avatar_url']?.toString() ?? msg['sender_avatar_url']?.toString();
 
         if (_isDuplicateNotification(chatId, messageText, messageId: messageId)) return;
 
@@ -314,21 +364,26 @@ class NotificationService {
             isFocused = await windowManager.isFocused();
           } catch (_) {}
 
-          if (!isFocused) {
+          final isCurrentChatActive = currentActiveChatId != null && currentActiveChatId == chatId;
+          // Показываем системный тост, если окно не в фокусе, свернуто или открыт другой чат
+          if (!isFocused || !isCurrentChatActive) {
             await showMessageNotification(
               chatId: chatId,
               chatName: chatName,
               senderName: senderName,
               messageText: messageText,
+              avatarUrl: avatarUrl,
               isGroup: isGroup,
               messageId: messageId,
             );
-          } else {
+          }
+          if (isFocused) {
             showInAppBanner(
               chatId: chatId,
               chatName: chatName,
               senderName: senderName,
               messageText: messageText,
+              avatarUrl: avatarUrl,
               isGroup: isGroup,
             );
           }
@@ -339,6 +394,7 @@ class NotificationService {
             chatName: chatName,
             senderName: senderName,
             messageText: messageText,
+            avatarUrl: avatarUrl,
             isGroup: isGroup,
           );
           // В фоне показываем локальное уведомление ТОЛЬКО если push-сервисы не активны (например, нет Google/Huawei)
@@ -348,6 +404,7 @@ class NotificationService {
               chatName: chatName,
               senderName: senderName,
               messageText: messageText,
+              avatarUrl: avatarUrl,
               isGroup: isGroup,
               messageId: messageId,
             );
@@ -422,7 +479,7 @@ class NotificationService {
   // ============ Local Notifications ============
 
   Future<void> _initLocalNotifications() async {
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings('@drawable/ic_notification');
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
@@ -670,6 +727,7 @@ class NotificationService {
     required String senderName,
     required String messageText,
     String? avatarPath,
+    String? avatarUrl,
     bool isGroup = false,
     String? messageId,
   }) async {
@@ -705,12 +763,24 @@ class NotificationService {
     }
 
     // Android / iOS
+    final effectiveAvatar = avatarUrl ?? avatarPath;
+    FilePathAndroidBitmap? largeIconBitmap;
+    if (effectiveAvatar != null && effectiveAvatar.isNotEmpty) {
+      final cachedPath = await downloadOrGetCachedAvatar(effectiveAvatar);
+      if (cachedPath != null) {
+        largeIconBitmap = FilePathAndroidBitmap(cachedPath);
+      }
+    }
+
     final channelId = _getChannelId(chatId, isGroup, effective);
     final androidDetails = AndroidNotificationDetails(
       channelId, _channelLabel(channelId),
       channelDescription: _channelDescription(channelId),
       importance: _getImportance(effective),
       priority: _getPriority(effective),
+      icon: '@drawable/ic_notification',
+      color: const Color(0xFF5B7FFF),
+      largeIcon: largeIconBitmap,
       enableVibration: effective?.vibration != VibrationPattern.none,
       vibrationPattern: _getVibrationPattern(effective?.vibration),
       playSound: effective?.soundEnabled ?? true,
@@ -889,32 +959,51 @@ class NotificationService {
   /// 3. Вызывает серверный эндпоинт POST /api/notifications/test для проверки реального push-канала
   Future<Map<String, dynamic>> sendTestNotification() async {
     // 1. Показываем локальное уведомление в системе
-    try {
-      const androidDetails = AndroidNotificationDetails(
-        'private_chats',
-        'Личные чаты',
-        channelDescription: 'Уведомления о новых сообщениях в личных чатах',
-        importance: Importance.high,
-        priority: Priority.high,
-        playSound: true,
-        enableVibration: true,
-      );
-      const iosDetails = DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-        presentBanner: true,
-      );
-      const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
-      await _localNotifications.show(
-        99999,
-        'Theaver',
-        'Тестовое уведомление доставлено успешно!',
-        details,
-        payload: 'test',
-      );
-    } catch (e) {
-      debugPrint('NotificationService: local test notification error: $e');
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      try {
+        final notification = LocalNotification(
+          identifier: 'test_${DateTime.now().millisecondsSinceEpoch}',
+          title: 'Theaver',
+          body: 'Тестовое уведомление доставлено успешно!',
+        );
+        notification.onClick = () async {
+          await DesktopTrayService().showAndFocusWindow();
+        };
+        await notification.show();
+        debugPrint('NotificationService: desktop test notification shown successfully');
+      } catch (e) {
+        debugPrint('NotificationService: desktop test notification error: $e');
+      }
+    } else {
+      try {
+        const androidDetails = AndroidNotificationDetails(
+          'private_chats',
+          'Личные чаты',
+          channelDescription: 'Уведомления о новых сообщениях в личных чатах',
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@drawable/ic_notification',
+          color: Color(0xFF5B7FFF),
+          playSound: true,
+          enableVibration: true,
+        );
+        const iosDetails = DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+          presentBanner: true,
+        );
+        const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+        await _localNotifications.show(
+          99999,
+          'Theaver',
+          'Тестовое уведомление доставлено успешно!',
+          details,
+          payload: 'test',
+        );
+      } catch (e) {
+        debugPrint('NotificationService: local test notification error: $e');
+      }
     }
 
     // 2. In-app баннер

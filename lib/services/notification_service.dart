@@ -240,6 +240,19 @@ class NotificationService {
   String? currentActiveChatId;
   String? _lastActiveChatId;
   final Map<String, List<int>> _chatNotificationIds = {};
+  final Map<String, List<LocalNotification>> _desktopNotifications = {};
+
+  Map<String, dynamic>? _pendingNotificationData;
+  Map<String, dynamic>? get pendingNotificationData => _pendingNotificationData;
+  bool get hasPendingNotification => _pendingNotificationData != null;
+
+  void consumePendingNotification() {
+    if (_pendingNotificationData != null) {
+      final data = _pendingNotificationData!;
+      _pendingNotificationData = null;
+      _navigateFromNotificationData(data);
+    }
+  }
 
   /// Устанавливает текущий открытый чат на этом устройстве,
   /// синхронизирует его с бэкендом через WebSocket для подавления push-уведомлений,
@@ -357,6 +370,21 @@ class NotificationService {
   void _subscribeWebSocketMessages() {
     _wsSubscription?.cancel();
     _wsSubscription = WebSocketService().eventStream.listen((event) async {
+      if (event.type == WebSocketEventType.messageRead) {
+        final cid = event.data['chat_id']?.toString();
+        if (cid != null && cid.isNotEmpty) {
+          cancelChatNotifications(cid);
+        }
+        return;
+      } else if (event.type == WebSocketEventType.unreadCountUpdated) {
+        final cid = event.data['chat_id']?.toString();
+        final count = event.data['unread_count'] as int?;
+        if (cid != null && cid.isNotEmpty && count == 0) {
+          cancelChatNotifications(cid);
+        }
+        return;
+      }
+
       if (event.type == WebSocketEventType.newMessage) {
         final data = event.data;
         final msg = (data['message'] is Map)
@@ -553,6 +581,27 @@ class NotificationService {
           .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
       await androidPlugin?.requestNotificationsPermission();
     }
+
+    try {
+      final launchDetails = await _localNotifications.getNotificationAppLaunchDetails();
+      if (launchDetails?.didNotificationLaunchApp == true) {
+        final payload = launchDetails?.notificationResponse?.payload;
+        if (payload != null && payload.isNotEmpty && !payload.startsWith('call_')) {
+          try {
+            final decoded = jsonDecode(payload);
+            if (decoded is Map<String, dynamic>) {
+              _pendingNotificationData = decoded;
+            } else {
+              _pendingNotificationData = {'chat_id': payload, 'type': 'new_message'};
+            }
+          } catch (_) {
+            _pendingNotificationData = {'chat_id': payload, 'type': 'new_message'};
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('NotificationService: launchDetails error: $e');
+    }
   }
 
   Future<void> _createNotificationChannels() async {
@@ -696,6 +745,7 @@ class NotificationService {
   Future<void> _checkInitialMessage() async {
     final initialMessage = await _firebaseMessaging?.getInitialMessage();
     if (initialMessage != null) {
+      _pendingNotificationData = initialMessage.data;
       _navigateFromNotificationData(initialMessage.data);
     }
   }
@@ -754,7 +804,11 @@ class NotificationService {
         }
         break;
       case 'read_status_updated':
-        debugPrint('NotificationService: read status updated for chat ${data['chat_id']}');
+        final cid = data['chat_id']?.toString();
+        debugPrint('NotificationService: read status updated for chat $cid');
+        if (cid != null && cid.isNotEmpty) {
+          cancelChatNotifications(cid);
+        }
         break;
       case 'incoming_call':
         _handleIncomingCall(data);
@@ -796,15 +850,19 @@ class NotificationService {
       return;
     }
 
-    // If already in this chat, don't push again
-    if (currentActiveChatId == chatId) {
-      debugPrint('NotificationService: chat $chatId is already active');
+    final navState = DeepLinkService().navigatorKey.currentState;
+    if (navState == null) {
+      debugPrint('NotificationService: navigatorState is null, queueing pending navigation');
+      _pendingNotificationData = data;
       return;
     }
 
-    final navState = DeepLinkService().navigatorKey.currentState;
-    if (navState == null) {
-      debugPrint('NotificationService: navigatorState is null');
+    // Dismiss active notifications for this chat immediately upon navigation
+    cancelChatNotifications(chatId);
+
+    // If already in this chat, don't push again
+    if (currentActiveChatId == chatId) {
+      debugPrint('NotificationService: chat $chatId is already active');
       return;
     }
 
@@ -876,7 +934,15 @@ class NotificationService {
           body: body,
           silent: !(effective?.soundEnabled ?? true),
         );
+        (_desktopNotifications[chatId] ??= []).add(notification);
+        notification.onClose = (_) {
+          _desktopNotifications[chatId]?.remove(notification);
+        };
         notification.onClick = () async {
+          _desktopNotifications[chatId]?.remove(notification);
+          try {
+            await notification.close();
+          } catch (_) {}
           await DesktopTrayService().showAndFocusWindow();
           _navigateFromNotificationData({
             'chat_id': chatId,
@@ -1021,20 +1087,51 @@ class NotificationService {
   }
 
   Future<void> cancelChatNotifications(String chatId) async {
+    // 1. Desktop local_notifier
+    final desktopNotifications = _desktopNotifications.remove(chatId);
+    if (desktopNotifications != null) {
+      for (final n in desktopNotifications) {
+        try {
+          await n.close();
+        } catch (_) {}
+      }
+    }
+
+    // 2. Mobile local_notifications
     final ids = _chatNotificationIds.remove(chatId);
     if (ids != null) {
       for (final id in ids) {
         await _localNotifications.cancel(id);
       }
     }
+    // Cancel by chat Tag (used in FCM and HMS push notifications)
+    try {
+      await _localNotifications.cancel(0, tag: 'chat_$chatId');
+    } catch (_) {}
+
     final parsed = int.tryParse(chatId);
     if (parsed != null) {
       await _localNotifications.cancel(parsed);
+      try {
+        await _localNotifications.cancel(parsed, tag: 'chat_$chatId');
+      } catch (_) {}
     }
     await _localNotifications.cancel(chatId.hashCode);
+    try {
+      await _localNotifications.cancel(chatId.hashCode, tag: 'chat_$chatId');
+    } catch (_) {}
   }
 
   Future<void> cancelAllNotifications() async {
+    for (final list in _desktopNotifications.values) {
+      for (final n in list) {
+        try {
+          await n.close();
+        } catch (_) {}
+      }
+    }
+    _desktopNotifications.clear();
+    _chatNotificationIds.clear();
     await _localNotifications.cancelAll();
   }
 

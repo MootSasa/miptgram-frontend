@@ -102,6 +102,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         final provider = context.read<UnreadCountProvider>();
         provider.addListener(_onUnreadCountProviderChanged);
       } catch (_) {}
+      NotificationService().consumePendingNotification();
     });
   }
 
